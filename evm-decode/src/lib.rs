@@ -30,10 +30,7 @@ pub fn decode_events(signature: &str, data: &RecordBatch) -> Result<RecordBatch>
 
         let decoded: Vec<Option<DynSolValue>> = col
             .iter()
-            .map(|blob| match blob {
-                Some(blob) => Some(sol_type.abi_decode(blob).unwrap()),
-                None => None,
-            })
+            .map(|blob| blob.map(|blob| sol_type.abi_decode(blob).unwrap()))
             .collect();
 
         arrays.push(to_arrow(sol_type, decoded).context("map topic to arrow")?);
@@ -49,10 +46,7 @@ pub fn decode_events(signature: &str, data: &RecordBatch) -> Result<RecordBatch>
 
     let body_decoded: Vec<Option<DynSolValue>> = body_col
         .iter()
-        .map(|blob| match blob {
-            Some(blob) => Some(body_sol_type.abi_decode_sequence(blob).unwrap()),
-            None => None,
-        })
+        .map(|blob| blob.map(|blob| body_sol_type.abi_decode_sequence(blob).unwrap()))
         .collect();
 
     let body_array = to_arrow(&body_sol_type, body_decoded).context("map body to arrow")?;
@@ -75,11 +69,14 @@ pub fn event_signature_to_arrow_schema(signature: &str) -> Result<Schema> {
     event_signature_to_arrow_schema_impl(&resolved, &event)
 }
 
-fn event_signature_to_arrow_schema_impl(sig: &alloy_json_abi::Event, event: &DynSolEvent) -> Result<Schema> {
+fn event_signature_to_arrow_schema_impl(
+    sig: &alloy_json_abi::Event,
+    event: &DynSolEvent,
+) -> Result<Schema> {
     let num_fields = event.indexed().len() + event.body().len();
     let mut fields = Vec::<Arc<Field>>::with_capacity(num_fields);
     let mut names = Vec::with_capacity(num_fields);
-    
+
     for input in sig.inputs.iter() {
         if input.indexed {
             names.push(input.name.clone());
@@ -128,7 +125,7 @@ fn to_arrow_dtype(sol_type: &DynSolType) -> Result<DataType> {
         DynSolType::Tuple(fields) => {
             let mut arrow_fields = Vec::<Arc<Field>>::with_capacity(fields.len());
 
-            for (i, f) in fields.into_iter().enumerate() {
+            for (i, f) in fields.iter().enumerate() {
                 let inner_dt = to_arrow_dtype(f).context("map field dt")?;
                 arrow_fields.push(Arc::new(Field::new(format!("param{}", i), inner_dt, true)));
             }
@@ -147,11 +144,11 @@ fn to_arrow(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Resu
         DynSolType::Address => to_binary(&sol_values),
         DynSolType::Int(_) => to_binary(&sol_values),
         DynSolType::Uint(_) => to_binary(&sol_values),
-        DynSolType::Array(inner_type) => to_list(&inner_type, sol_values),
+        DynSolType::Array(inner_type) => to_list(inner_type, sol_values),
         DynSolType::Function => Err(anyhow!(
             "decoding 'Function' typed value in function signature isn't supported."
         )),
-        DynSolType::FixedArray(inner_type, _) => to_list(&inner_type, sol_values),
+        DynSolType::FixedArray(inner_type, _) => to_list(inner_type, sol_values),
         DynSolType::Tuple(fields) => to_struct(fields, sol_values),
         DynSolType::FixedBytes(_) => to_binary(&sol_values),
     }
@@ -267,7 +264,10 @@ fn to_bool(sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
                     builder.append_value(*b);
                 }
                 _ => {
-                    return Err(anyhow!("found unexpected value. Expected: bool, Found: {:?}", val));
+                    return Err(anyhow!(
+                        "found unexpected value. Expected: bool, Found: {:?}",
+                        val
+                    ));
                 }
             },
             None => {
@@ -326,7 +326,10 @@ fn to_string(sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
                     builder.append_value(s);
                 }
                 _ => {
-                    return Err(anyhow!("found unexpected value. Expected string, Found: {:?}", val));
+                    return Err(anyhow!(
+                        "found unexpected value. Expected string, Found: {:?}",
+                        val
+                    ));
                 }
             },
             None => {
