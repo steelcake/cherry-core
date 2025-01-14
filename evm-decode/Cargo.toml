@@ -1,0 +1,11 @@
+[package]
+name = "cherry-evm-decode"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+arrow = "54"
+alloy-dyn-abi = "0.8"
+alloy-json-abi = "0.8"
+ruint = "1"
+anyhow = "1"
