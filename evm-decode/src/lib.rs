@@ -8,7 +8,11 @@ use arrow::{
     datatypes::{DataType, Field, Fields, Schema},
 };
 
-pub fn decode_events(signature: &str, data: &RecordBatch) -> Result<RecordBatch> {
+pub fn decode_events(
+    signature: &str,
+    data: &RecordBatch,
+    allow_decode_fail: bool,
+) -> Result<RecordBatch> {
     let (resolved, event) = resolve_event_signature(signature)?;
 
     let schema = event_signature_to_arrow_schema_impl(&resolved, &event)
@@ -28,10 +32,23 @@ pub fn decode_events(signature: &str, data: &RecordBatch) -> Result<RecordBatch>
             .downcast_ref::<BinaryArray>()
             .context("get topic column as binary")?;
 
-        let decoded: Vec<Option<DynSolValue>> = col
-            .iter()
-            .map(|blob| blob.map(|blob| sol_type.abi_decode(blob).ok()).flatten())
-            .collect();
+        let mut decoded = Vec::<Option<DynSolValue>>::with_capacity(col.len());
+
+        for blob in col.iter() {
+            match blob {
+                Some(blob) => match sol_type.abi_decode(blob) {
+                    Ok(data) => decoded.push(Some(data)),
+                    Err(e) if allow_decode_fail => {
+                        log::debug!("failed to decode a topic: {}", e);
+                        decoded.push(None);
+                    }
+                    Err(e) => {
+                        return Err(anyhow!("failed to decode a topic: {}", e));
+                    }
+                },
+                None => decoded.push(None),
+            }
+        }
 
         arrays.push(to_arrow(sol_type, decoded).context("map topic to arrow")?);
     }
@@ -44,10 +61,23 @@ pub fn decode_events(signature: &str, data: &RecordBatch) -> Result<RecordBatch>
         .context("get data column as binary")?;
     let body_sol_type = DynSolType::Tuple(event.body().to_vec());
 
-    let body_decoded: Vec<Option<DynSolValue>> = body_col
-        .iter()
-        .map(|blob| blob.map(|blob| body_sol_type.abi_decode_sequence(blob).ok()).flatten())
-        .collect();
+    let mut body_decoded = Vec::<Option<DynSolValue>>::with_capacity(body_col.len());
+
+    for blob in body_col.iter() {
+        match blob {
+            Some(blob) => match body_sol_type.abi_decode_sequence(blob) {
+                Ok(data) => body_decoded.push(Some(data)),
+                Err(e) if allow_decode_fail => {
+                    log::debug!("failed to decode body: {}", e);
+                    body_decoded.push(None);
+                }
+                Err(e) => {
+                    return Err(anyhow!("failed to decode body: {}", e));
+                }
+            },
+            None => body_decoded.push(None),
+        }
+    }
 
     let body_array = to_arrow(&body_sol_type, body_decoded).context("map body to arrow")?;
     match body_array.data_type() {
