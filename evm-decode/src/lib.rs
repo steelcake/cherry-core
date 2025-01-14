@@ -30,7 +30,7 @@ pub fn decode_events(signature: &str, data: &RecordBatch) -> Result<RecordBatch>
 
         let decoded: Vec<Option<DynSolValue>> = col
             .iter()
-            .map(|blob| blob.map(|blob| sol_type.abi_decode(blob).unwrap()))
+            .map(|blob| blob.map(|blob| sol_type.abi_decode(blob).ok()).flatten())
             .collect();
 
         arrays.push(to_arrow(sol_type, decoded).context("map topic to arrow")?);
@@ -46,7 +46,7 @@ pub fn decode_events(signature: &str, data: &RecordBatch) -> Result<RecordBatch>
 
     let body_decoded: Vec<Option<DynSolValue>> = body_col
         .iter()
-        .map(|blob| blob.map(|blob| body_sol_type.abi_decode_sequence(blob).unwrap()))
+        .map(|blob| blob.map(|blob| body_sol_type.abi_decode_sequence(blob).ok()).flatten())
         .collect();
 
     let body_array = to_arrow(&body_sol_type, body_decoded).context("map body to arrow")?;
@@ -339,4 +339,18 @@ fn to_string(sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
     }
 
     Ok(Arc::new(builder.finish()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nested_signature_to_schema() {
+        let sig = "ConfiguredQuests(address editor, uint256[][] questIdList, (bool,bool[],(bool[], uint256[]))[] questDetails)";
+
+        let schema = event_signature_to_arrow_schema(sig).unwrap();
+
+        // panic!("{:?}", schema);
+    }
 }
