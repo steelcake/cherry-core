@@ -2,11 +2,16 @@
 name = "cherry-evm-decode"
 version = "0.0.1"
 edition = "2021"
+description = "EVM decoding implementations in Arrow format"
+homepage = "https://github.com/steelcake/cherry-core"
+repository = "https://github.com/steelcake/cherry-core"
+authors = ["Ozgur Akkurt <oezgurmakkurt@gmail.com>"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-arrow = "54"
-alloy-dyn-abi = "0.8"
-alloy-json-abi = "0.8"
-ruint = "1"
-anyhow = "1"
-log = "0.4"
+arrow = { workspace = true }
+alloy-dyn-abi = { workspace = true }
+alloy-json-abi = { workspace = true }
+ruint = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace =  true }

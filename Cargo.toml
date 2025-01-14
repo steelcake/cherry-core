@@ -3,3 +3,11 @@ resolver = "2"
 members = [
   "evm-decode"
 ]
+
+[workspace.dependencies]
+arrow = "54"
+alloy-dyn-abi = "0.8"
+alloy-json-abi = "0.8"
+ruint = "1"
+anyhow = "1"
+log = "0.4"
