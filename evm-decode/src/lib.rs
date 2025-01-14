@@ -8,6 +8,12 @@ use arrow::{
     datatypes::{DataType, Field, Fields, Schema},
 };
 
+/// Decodes given event data in arrow format to arrow format.
+/// Output Arrow schema is auto generated based on the event signature.
+/// Handles any level of nesting with Lists/Structs.
+///
+/// Writes `null` for event data rows that fail to decode if `allow_decode_fail` is set to `true`.
+/// Errors when a row fails to decode if `allow_decode_fail` is set to `false`.
 pub fn decode_events(
     signature: &str,
     data: &RecordBatch,
@@ -94,6 +100,7 @@ pub fn decode_events(
     RecordBatch::try_new(Arc::new(schema), arrays).context("construct arrow batch")
 }
 
+/// Generates Arrow schema based on given event signature
 pub fn event_signature_to_arrow_schema(signature: &str) -> Result<Schema> {
     let (resolved, event) = resolve_event_signature(signature)?;
     event_signature_to_arrow_schema_impl(&resolved, &event)
