@@ -1,8 +1,8 @@
 [package]
-name = "cherry-evm-decode"
+name = "cherry-cast"
 version = "0.0.1"
 edition = "2021"
-description = "EVM decoding implementations in Arrow format"
+description = "Library for casting arrow colums with support for specific blockchain types"
 homepage = "https://github.com/steelcake/cherry-core"
 repository = "https://github.com/steelcake/cherry-core"
 authors = ["Ozgur Akkurt <oezgurmakkurt@gmail.com>"]
@@ -10,9 +10,5 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 arrow = { workspace = true }
-alloy-dyn-abi = { workspace = true }
-alloy-json-abi = { workspace = true }
-alloy-primitives = { workspace = true }
 ruint = { workspace = true }
 anyhow = { workspace = true }
-log = { workspace =  true }

@@ -1,11 +1,15 @@
 use std::sync::Arc;
 
 use alloy_dyn_abi::{DynSolEvent, DynSolType, DynSolValue, Specifier};
+use alloy_primitives::{I256, U256};
 use anyhow::{anyhow, Context, Result};
 use arrow::{
-    array::{builder, Array, BinaryArray, ListArray, RecordBatch, StructArray},
+    array::{builder, Array, ArrowPrimitiveType, BinaryArray, ListArray, RecordBatch, StructArray},
     buffer::{NullBuffer, OffsetBuffer},
-    datatypes::{DataType, Field, Fields, Schema},
+    datatypes::{
+        DataType, Decimal128Type, Field, Fields, Int16Type, Int32Type, Int64Type, Int8Type, Schema,
+        UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+    },
 };
 
 /// Decodes given event data in arrow format to arrow format.
@@ -146,8 +150,8 @@ fn to_arrow_dtype(sol_type: &DynSolType) -> Result<DataType> {
         DynSolType::Bytes => Ok(DataType::Binary),
         DynSolType::String => Ok(DataType::Utf8),
         DynSolType::Address => Ok(DataType::Binary),
-        DynSolType::Int(_) => Ok(DataType::Binary),
-        DynSolType::Uint(_) => Ok(DataType::Binary),
+        DynSolType::Int(num_bits) => Ok(num_bits_to_int_type(*num_bits)),
+        DynSolType::Uint(num_bits) => Ok(num_bits_to_uint_type(*num_bits)),
         DynSolType::Array(inner_type) => {
             let inner_type = to_arrow_dtype(inner_type).context("map inner")?;
             Ok(DataType::List(Arc::new(Field::new("", inner_type, true))))
@@ -173,14 +177,50 @@ fn to_arrow_dtype(sol_type: &DynSolType) -> Result<DataType> {
     }
 }
 
+fn num_bits_to_uint_type(num_bits: usize) -> DataType {
+    if num_bits <= 8 {
+        DataType::UInt8
+    } else if num_bits <= 16 {
+        DataType::UInt16
+    } else if num_bits <= 32 {
+        DataType::UInt32
+    } else if num_bits <= 64 {
+        DataType::UInt64
+    } else if num_bits <= 128 {
+        DataType::Decimal128(38, 0)
+    } else if num_bits <= 256 {
+        DataType::Decimal256(76, 0)
+    } else {
+        unreachable!()
+    }
+}
+
+fn num_bits_to_int_type(num_bits: usize) -> DataType {
+    if num_bits <= 8 {
+        DataType::Int8
+    } else if num_bits <= 16 {
+        DataType::Int16
+    } else if num_bits <= 32 {
+        DataType::Int32
+    } else if num_bits <= 64 {
+        DataType::Int64
+    } else if num_bits <= 128 {
+        DataType::Decimal128(38, 0)
+    } else if num_bits <= 256 {
+        DataType::Decimal256(76, 0)
+    } else {
+        unreachable!()
+    }
+}
+
 fn to_arrow(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Result<Arc<dyn Array>> {
     match sol_type {
         DynSolType::Bool => to_bool(&sol_values),
         DynSolType::Bytes => to_binary(&sol_values),
         DynSolType::String => to_string(&sol_values),
         DynSolType::Address => to_binary(&sol_values),
-        DynSolType::Int(_) => to_binary(&sol_values),
-        DynSolType::Uint(_) => to_binary(&sol_values),
+        DynSolType::Int(num_bits) => to_int(*num_bits, &sol_values),
+        DynSolType::Uint(num_bits) => to_uint(*num_bits, &sol_values),
         DynSolType::Array(inner_type) => to_list(inner_type, sol_values),
         DynSolType::Function => Err(anyhow!(
             "decoding 'Function' typed value in function signature isn't supported."
@@ -189,6 +229,106 @@ fn to_arrow(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Resu
         DynSolType::Tuple(fields) => to_struct(fields, sol_values),
         DynSolType::FixedBytes(_) => to_binary(&sol_values),
     }
+}
+
+fn to_int(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
+    match num_bits_to_int_type(num_bits) {
+        DataType::Int8 => to_int_impl::<Int8Type>(num_bits, sol_values),
+        DataType::Int16 => to_int_impl::<Int16Type>(num_bits, sol_values),
+        DataType::Int32 => to_int_impl::<Int32Type>(num_bits, sol_values),
+        DataType::Int64 => to_int_impl::<Int64Type>(num_bits, sol_values),
+        DataType::Decimal128(_, _) => to_int_impl::<Decimal128Type>(num_bits, sol_values),
+        DataType::Decimal256(_, _) => to_decimal256(num_bits, sol_values),
+        _ => unreachable!(),
+    }
+}
+
+fn to_uint(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
+    match num_bits_to_int_type(num_bits) {
+        DataType::UInt8 => to_int_impl::<UInt8Type>(num_bits, sol_values),
+        DataType::UInt16 => to_int_impl::<UInt16Type>(num_bits, sol_values),
+        DataType::UInt32 => to_int_impl::<UInt32Type>(num_bits, sol_values),
+        DataType::UInt64 => to_int_impl::<UInt64Type>(num_bits, sol_values),
+        DataType::Decimal128(_, _) => to_int_impl::<Decimal128Type>(num_bits, sol_values),
+        DataType::Decimal256(_, _) => to_decimal256(num_bits, sol_values),
+        _ => unreachable!(),
+    }
+}
+
+fn to_decimal256(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
+    let mut builder = builder::Decimal256Builder::new();
+
+    for val in sol_values.iter() {
+        match val {
+            Some(val) => match val {
+                DynSolValue::Int(v, nb) => {
+                    assert_eq!(num_bits, *nb);
+
+                    let v = arrow::datatypes::i256::from_be_bytes(v.to_be_bytes::<32>());
+
+                    builder.append_value(v);
+                }
+                DynSolValue::Uint(v, nb) => {
+                    assert_eq!(num_bits, *nb);
+                    let v = I256::try_from(*v).context("map u256 to i256")?;
+
+                    builder
+                        .append_value(arrow::datatypes::i256::from_be_bytes(v.to_be_bytes::<32>()));
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "found unexpected value. Expected: bool, Found: {:?}",
+                        val
+                    ));
+                }
+            },
+            None => {
+                builder.append_null();
+            }
+        }
+    }
+
+    Ok(Arc::new(builder.finish()))
+}
+
+fn to_int_impl<T>(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>>
+where
+    T: ArrowPrimitiveType,
+    T::Native: TryFrom<I256> + TryFrom<U256>,
+{
+    let mut builder = builder::PrimitiveBuilder::<T>::new();
+
+    for val in sol_values.iter() {
+        match val {
+            Some(val) => match val {
+                DynSolValue::Int(v, nb) => {
+                    assert_eq!(num_bits, *nb);
+                    builder.append_value(match T::Native::try_from(*v) {
+                        Ok(v) => v,
+                        Err(_) => unreachable!(),
+                    });
+                }
+                DynSolValue::Uint(v, nb) => {
+                    assert_eq!(num_bits, *nb);
+                    builder.append_value(match T::Native::try_from(*v) {
+                        Ok(v) => v,
+                        Err(_) => unreachable!(),
+                    });
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "found unexpected value. Expected: bool, Found: {:?}",
+                        val
+                    ));
+                }
+            },
+            None => {
+                builder.append_null();
+            }
+        }
+    }
+
+    Ok(Arc::new(builder.finish()))
 }
 
 fn to_list(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Result<Arc<dyn Array>> {
