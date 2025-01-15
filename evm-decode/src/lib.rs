@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use alloy_dyn_abi::{DynSolEvent, DynSolType, DynSolValue, Specifier};
+use alloy_dyn_abi::{DynSolCall, DynSolEvent, DynSolType, DynSolValue, Specifier};
 use alloy_primitives::{I256, U256};
 use anyhow::{anyhow, Context, Result};
 use arrow::{
@@ -11,6 +11,125 @@ use arrow::{
         UInt16Type, UInt32Type, UInt64Type, UInt8Type,
     },
 };
+
+/// Decodes given call input data in arrow format to arrow format.
+/// Output Arrow schema is auto generated based on the function signature.
+/// Handles any level of nesting with Lists/Structs.
+///
+/// Writes `null` for data rows that fail to decode if `allow_decode_fail` is set to `true`.
+/// Errors when a row fails to decode if `allow_decode_fail` is set to `false`.
+pub fn decode_call_inputs(
+    signature: &str,
+    data: &BinaryArray,
+    allow_decode_fail: bool,
+) -> Result<RecordBatch> {
+    decode_call_impl::<true>(signature, data, allow_decode_fail)
+}
+
+/// Decodes given call output data in arrow format to arrow format.
+/// Output Arrow schema is auto generated based on the function signature.
+/// Handles any level of nesting with Lists/Structs.
+///
+/// Writes `null` for data rows that fail to decode if `allow_decode_fail` is set to `true`.
+/// Errors when a row fails to decode if `allow_decode_fail` is set to `false`.
+pub fn decode_call_outputs(
+    signature: &str,
+    data: &BinaryArray,
+    allow_decode_fail: bool,
+) -> Result<RecordBatch> {
+    decode_call_impl::<false>(signature, data, allow_decode_fail)
+}
+
+// IS_INPUT: true means we are decoding inputs
+// false means we are decoding outputs
+fn decode_call_impl<const IS_INPUT: bool>(
+    signature: &str,
+    data: &BinaryArray,
+    allow_decode_fail: bool,
+) -> Result<RecordBatch> {
+    let (_, resolved) = resolve_function_signature(signature)?;
+
+    let schema = function_signature_to_arrow_schemas_impl(&resolved)
+        .context("convert event signature to arrow schema")?;
+    let schema = if IS_INPUT { schema.0 } else { schema.1 };
+
+    let mut arrays: Vec<Arc<dyn Array + 'static>> = Vec::with_capacity(schema.fields().len());
+
+    let mut decoded = Vec::<Option<DynSolValue>>::with_capacity(data.len());
+
+    for blob in data.iter() {
+        match blob {
+            Some(blob) => {
+                let decode_res = if IS_INPUT {
+                    resolved.abi_decode_input(blob, false)
+                } else {
+                    resolved.abi_decode_output(blob, false)
+                };
+                match decode_res {
+                    Ok(data) => decoded.push(Some(DynSolValue::Tuple(data))),
+                    Err(e) if allow_decode_fail => {
+                        log::debug!("failed to decode body: {}", e);
+                        decoded.push(None);
+                    }
+                    Err(e) => {
+                        return Err(anyhow!("failed to decode body: {}", e));
+                    }
+                }
+            }
+            None => decoded.push(None),
+        }
+    }
+
+    let sol_type = if IS_INPUT {
+        DynSolType::Tuple(resolved.types().to_vec())
+    } else {
+        DynSolType::Tuple(resolved.returns().types().to_vec())
+    };
+
+    let body_array = to_arrow(&sol_type, decoded).context("map params to arrow")?;
+    match body_array.data_type() {
+        DataType::Struct(_) => {
+            let arr = body_array.as_any().downcast_ref::<StructArray>().unwrap();
+
+            for f in arr.columns().iter() {
+                arrays.push(f.clone());
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    RecordBatch::try_new(Arc::new(schema), arrays).context("construct arrow batch")
+}
+
+/// Returns (input schema, output schema)
+pub fn function_signature_to_arrow_schemas(signature: &str) -> Result<(Schema, Schema)> {
+    let (_, resolved) = resolve_function_signature(signature)?;
+    function_signature_to_arrow_schemas_impl(&resolved)
+}
+
+fn function_signature_to_arrow_schemas_impl(func: &DynSolCall) -> Result<(Schema, Schema)> {
+    let mut input_fields = Vec::with_capacity(func.types().len());
+    let mut output_fields = Vec::with_capacity(func.returns().types().len());
+
+    for (i, sol_t) in func.types().iter().enumerate() {
+        let dtype = to_arrow_dtype(sol_t).context("map to arrow type")?;
+        input_fields.push(Arc::new(Field::new(format!("param{}", i), dtype, true)));
+    }
+
+    for (i, sol_t) in func.returns().types().iter().enumerate() {
+        let dtype = to_arrow_dtype(sol_t).context("map to arrow type")?;
+        output_fields.push(Arc::new(Field::new(format!("param{}", i), dtype, true)));
+    }
+
+    Ok((Schema::new(input_fields), Schema::new(output_fields)))
+}
+
+fn resolve_function_signature(signature: &str) -> Result<(alloy_json_abi::Function, DynSolCall)> {
+    let event = alloy_json_abi::Function::parse(signature).context("parse function signature")?;
+    let resolved = event.resolve().context("resolve function signature")?;
+
+    Ok((event, resolved))
+}
 
 /// Decodes given event data in arrow format to arrow format.
 /// Output Arrow schema is auto generated based on the event signature.
@@ -23,14 +142,14 @@ pub fn decode_events(
     data: &RecordBatch,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
-    let (resolved, event) = resolve_event_signature(signature)?;
+    let (event, resolved) = resolve_event_signature(signature)?;
 
-    let schema = event_signature_to_arrow_schema_impl(&resolved, &event)
+    let schema = event_signature_to_arrow_schema_impl(&event, &resolved)
         .context("convert event signature to arrow schema")?;
 
     let mut arrays: Vec<Arc<dyn Array + 'static>> = Vec::with_capacity(schema.fields().len());
 
-    for (sol_type, topic_name) in event
+    for (sol_type, topic_name) in resolved
         .indexed()
         .iter()
         .zip(["topic1", "topic2", "topic3"].iter())
@@ -69,7 +188,7 @@ pub fn decode_events(
         .as_any()
         .downcast_ref::<BinaryArray>()
         .context("get data column as binary")?;
-    let body_sol_type = DynSolType::Tuple(event.body().to_vec());
+    let body_sol_type = DynSolType::Tuple(resolved.body().to_vec());
 
     let mut body_decoded = Vec::<Option<DynSolValue>>::with_capacity(body_col.len());
 
@@ -336,6 +455,8 @@ fn to_list(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Resul
     let mut values = Vec::with_capacity(sol_values.len() * 2);
     let mut validity = Vec::with_capacity(sol_values.len() * 2);
 
+    let mut all_valid = true;
+
     for val in sol_values {
         match val {
             Some(val) => match val {
@@ -354,6 +475,7 @@ fn to_list(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Resul
             None => {
                 lengths.push(0);
                 validity.push(false);
+                all_valid = false;
             }
         }
     }
@@ -368,7 +490,11 @@ fn to_list(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Resul
         Arc::new(field),
         OffsetBuffer::from_lengths(lengths),
         values,
-        Some(NullBuffer::from(validity)),
+        if all_valid {
+            None
+        } else {
+            Some(NullBuffer::from(validity))
+        },
     )
     .context("construct list array")?;
     Ok(Arc::new(list_arr))
