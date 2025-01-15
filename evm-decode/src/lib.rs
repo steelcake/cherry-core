@@ -47,9 +47,9 @@ fn decode_call_impl<const IS_INPUT: bool>(
     data: &BinaryArray,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
-    let (_, resolved) = resolve_function_signature(signature)?;
+    let (call, resolved) = resolve_function_signature(signature)?;
 
-    let schema = function_signature_to_arrow_schemas_impl(&resolved)
+    let schema = function_signature_to_arrow_schemas_impl(&call, &resolved)
         .context("convert event signature to arrow schema")?;
     let schema = if IS_INPUT { schema.0 } else { schema.1 };
 
@@ -103,22 +103,41 @@ fn decode_call_impl<const IS_INPUT: bool>(
 
 /// Returns (input schema, output schema)
 pub fn function_signature_to_arrow_schemas(signature: &str) -> Result<(Schema, Schema)> {
-    let (_, resolved) = resolve_function_signature(signature)?;
-    function_signature_to_arrow_schemas_impl(&resolved)
+    let (func, resolved) = resolve_function_signature(signature)?;
+    function_signature_to_arrow_schemas_impl(&func, &resolved)
 }
 
-fn function_signature_to_arrow_schemas_impl(func: &DynSolCall) -> Result<(Schema, Schema)> {
-    let mut input_fields = Vec::with_capacity(func.types().len());
-    let mut output_fields = Vec::with_capacity(func.returns().types().len());
+fn function_signature_to_arrow_schemas_impl(
+    func: &alloy_json_abi::Function,
+    call: &DynSolCall,
+) -> Result<(Schema, Schema)> {
+    let mut input_fields = Vec::with_capacity(call.types().len());
+    let mut output_fields = Vec::with_capacity(call.returns().types().len());
 
-    for (i, sol_t) in func.types().iter().enumerate() {
+    for (i, (sol_t, param)) in call.types().iter().zip(func.inputs.iter()).enumerate() {
         let dtype = to_arrow_dtype(sol_t).context("map to arrow type")?;
-        input_fields.push(Arc::new(Field::new(format!("param{}", i), dtype, true)));
+        let name = if param.name() == "" {
+            format!("param{}", i)
+        } else {
+            param.name().to_owned()
+        };
+        input_fields.push(Arc::new(Field::new(name, dtype, true)));
     }
 
-    for (i, sol_t) in func.returns().types().iter().enumerate() {
+    for (i, (sol_t, param)) in call
+        .returns()
+        .types()
+        .iter()
+        .zip(func.outputs.iter())
+        .enumerate()
+    {
         let dtype = to_arrow_dtype(sol_t).context("map to arrow type")?;
-        output_fields.push(Arc::new(Field::new(format!("param{}", i), dtype, true)));
+        let name = if param.name() == "" {
+            format!("param{}", i)
+        } else {
+            param.name().to_owned()
+        };
+        output_fields.push(Arc::new(Field::new(name, dtype, true)));
     }
 
     Ok((Schema::new(input_fields), Schema::new(output_fields)))
@@ -237,14 +256,24 @@ fn event_signature_to_arrow_schema_impl(
     let mut fields = Vec::<Arc<Field>>::with_capacity(num_fields);
     let mut names = Vec::with_capacity(num_fields);
 
-    for input in sig.inputs.iter() {
+    for (i, input) in sig.inputs.iter().enumerate() {
         if input.indexed {
-            names.push(input.name.clone());
+            let name = if input.name == "" {
+                format!("param{}", i)
+            } else {
+                input.name.clone()
+            };
+            names.push(name);
         }
     }
-    for input in sig.inputs.iter() {
+    for (i, input) in sig.inputs.iter().enumerate() {
         if !input.indexed {
-            names.push(input.name.clone());
+            let name = if input.name == "" {
+                format!("param{}", i)
+            } else {
+                input.name.clone()
+            };
+            names.push(name);
         }
     }
 
