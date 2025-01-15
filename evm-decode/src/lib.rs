@@ -258,7 +258,7 @@ fn event_signature_to_arrow_schema_impl(
 
     for (i, input) in sig.inputs.iter().enumerate() {
         if input.indexed {
-            let name = if input.name == "" {
+            let name = if input.name.is_empty() {
                 format!("param{}", i)
             } else {
                 input.name.clone()
@@ -268,7 +268,7 @@ fn event_signature_to_arrow_schema_impl(
     }
     for (i, input) in sig.inputs.iter().enumerate() {
         if !input.indexed {
-            let name = if input.name == "" {
+            let name = if input.name.is_empty() {
                 format!("param{}", i)
             } else {
                 input.name.clone()
