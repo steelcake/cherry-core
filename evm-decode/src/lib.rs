@@ -530,4 +530,17 @@ mod tests {
 
         // panic!("{:?}", schema);
     }
+
+    #[test]
+    fn i256_to_arrow_i256() {
+        for val in [
+            I256::MIN,
+            I256::MAX,
+            I256::MAX / I256::try_from(2i32).unwrap(),
+        ] {
+            let out = arrow::datatypes::i256::from_be_bytes(val.to_be_bytes::<32>());
+
+            assert_eq!(val.to_string(), out.to_string());
+        }
+    }
 }
