@@ -679,11 +679,56 @@ mod tests {
 
     #[test]
     fn nested_signature_to_schema() {
-        let sig = "ConfiguredQuests(address editor, uint256[][] questIdList, (bool,bool[],(bool[], uint256[]))[] questDetails)";
+        let sig = "ConfiguredQuests(address editor, uint256[][], (bool,bool[],(bool, uint256[]))[] indexed questDetails)";
 
         let schema = event_signature_to_arrow_schema(sig).unwrap();
 
-        // panic!("{:?}", schema);
+        let expected_schema = Schema::new(vec![
+            Arc::new(Field::new(
+                "questDetails",
+                DataType::List(Arc::new(Field::new(
+                    "",
+                    DataType::Struct(Fields::from(vec![
+                        Arc::new(Field::new("param0", DataType::Boolean, true)),
+                        Arc::new(Field::new(
+                            "param1",
+                            DataType::List(Arc::new(Field::new("", DataType::Boolean, true))),
+                            true,
+                        )),
+                        Arc::new(Field::new(
+                            "param2",
+                            DataType::Struct(Fields::from(vec![
+                                Arc::new(Field::new("param0", DataType::Boolean, true)),
+                                Arc::new(Field::new(
+                                    "param1",
+                                    DataType::List(Arc::new(Field::new(
+                                        "",
+                                        DataType::Decimal256(76, 0),
+                                        true,
+                                    ))),
+                                    true,
+                                )),
+                            ])),
+                            true,
+                        )),
+                    ])),
+                    true,
+                ))),
+                true,
+            )),
+            Arc::new(Field::new("editor", DataType::Binary, true)),
+            Arc::new(Field::new(
+                "param1",
+                DataType::List(Arc::new(Field::new(
+                    "",
+                    DataType::List(Arc::new(Field::new("", DataType::Decimal256(76, 0), true))),
+                    true,
+                ))),
+                true,
+            )),
+        ]);
+
+        assert_eq!(schema, expected_schema);
     }
 
     #[test]
