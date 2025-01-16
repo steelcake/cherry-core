@@ -678,12 +678,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nested_signature_to_schema() {
-        let sig = "ConfiguredQuests(address editor, uint256[][], (bool,bool[],(bool, uint256[]))[] indexed questDetails)";
+    fn nested_event_signature_to_schema() {
+        let sig = "ConfiguredQuests(address editor, uint256[][], address indexed my_addr, (bool,bool[],(bool, uint256[]))[] questDetails)";
 
         let schema = event_signature_to_arrow_schema(sig).unwrap();
 
         let expected_schema = Schema::new(vec![
+            Arc::new(Field::new("my_addr", DataType::Binary, true)),
+            Arc::new(Field::new("editor", DataType::Binary, true)),
+            Arc::new(Field::new(
+                "param1",
+                DataType::List(Arc::new(Field::new(
+                    "",
+                    DataType::List(Arc::new(Field::new("", DataType::Decimal256(76, 0), true))),
+                    true,
+                ))),
+                true,
+            )),
             Arc::new(Field::new(
                 "questDetails",
                 DataType::List(Arc::new(Field::new(
@@ -712,16 +723,6 @@ mod tests {
                             true,
                         )),
                     ])),
-                    true,
-                ))),
-                true,
-            )),
-            Arc::new(Field::new("editor", DataType::Binary, true)),
-            Arc::new(Field::new(
-                "param1",
-                DataType::List(Arc::new(Field::new(
-                    "",
-                    DataType::List(Arc::new(Field::new("", DataType::Decimal256(76, 0), true))),
                     true,
                 ))),
                 true,
