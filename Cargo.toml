@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "evm-decode",
   "cast",
+  "evm-validate",
 ]
 
 [workspace.dependencies]
@@ -13,3 +14,4 @@ alloy-primitives = "0.8"
 ruint = "1"
 anyhow = "1"
 log = "0.4"
+faster-hex = "0.10"

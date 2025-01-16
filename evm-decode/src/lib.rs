@@ -68,11 +68,11 @@ fn decode_call_impl<const IS_INPUT: bool>(
                 match decode_res {
                     Ok(data) => decoded.push(Some(DynSolValue::Tuple(data))),
                     Err(e) if allow_decode_fail => {
-                        log::debug!("failed to decode body: {}", e);
+                        log::debug!("failed to decode function call data: {}", e);
                         decoded.push(None);
                     }
                     Err(e) => {
-                        return Err(anyhow!("failed to decode body: {}", e));
+                        return Err(anyhow!("failed to decode function call data: {}", e));
                     }
                 }
             }
@@ -86,10 +86,10 @@ fn decode_call_impl<const IS_INPUT: bool>(
         DynSolType::Tuple(resolved.returns().types().to_vec())
     };
 
-    let body_array = to_arrow(&sol_type, decoded).context("map params to arrow")?;
-    match body_array.data_type() {
+    let array = to_arrow(&sol_type, decoded).context("map params to arrow")?;
+    match array.data_type() {
         DataType::Struct(_) => {
-            let arr = body_array.as_any().downcast_ref::<StructArray>().unwrap();
+            let arr = array.as_any().downcast_ref::<StructArray>().unwrap();
 
             for f in arr.columns().iter() {
                 arrays.push(f.clone());
