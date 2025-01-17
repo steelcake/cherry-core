@@ -12,3 +12,4 @@ license = "MIT OR Apache-2.0"
 arrow = { workspace = true }
 ruint = { workspace = true }
 anyhow = { workspace = true }
+faster-hex = { workspace = true }

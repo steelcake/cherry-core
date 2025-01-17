@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use arrow::{
-    array::{builder, Array, BinaryArray, RecordBatch, StringArray},
+    array::{builder, Array, BinaryArray, RecordBatch},
     compute::CastOptions,
     datatypes::{DataType, Field, Schema},
 };
@@ -62,22 +62,20 @@ pub fn cast_schema<S: AsRef<str>>(map: &[(S, DataType)], schema: &Schema) -> Res
 /// Encodes binary columns as prefixed hex format. e.g. 0xabcd
 pub fn encode_prefix_hex(data: &RecordBatch) -> Result<RecordBatch> {
     encode_hex_impl::<true>(data)
-}
+} 
 
 /// Encodes binary columns as hex format. e.g. a15b7cc1d
 pub fn encode_hex(data: &RecordBatch) -> Result<RecordBatch> {
     encode_hex_impl::<false>(data)
-}
+} 
 
 fn encode_hex_impl<const PREFIXED: bool>(data: &RecordBatch) -> Result<RecordBatch> {
-    let schema = schema_binary_to_string(data.schema_ref());
-    let mut columns = Vec::<Arc<dyn Array>>::with_capacity(data.columns().len());
+    let schema = schema_binary_to_string(&data.schema_ref());
+    let mut columns = Vec::with_capacity(data.columns().len());
 
     for col in data.columns().iter() {
         if col.data_type() == &DataType::Binary {
-            columns.push(Arc::new(hex_encode_column::<PREFIXED>(
-                col.as_any().downcast_ref::<BinaryArray>().unwrap(),
-            )));
+            
         } else {
             columns.push(col.clone());
         }
@@ -87,21 +85,12 @@ fn encode_hex_impl<const PREFIXED: bool>(data: &RecordBatch) -> Result<RecordBat
 }
 
 pub fn hex_encode_column<const PREFIXED: bool>(col: &BinaryArray) -> StringArray {
-    let mut arr =
-        builder::StringBuilder::with_capacity(col.len(), (col.value_data().len() + 2) * 2);
+    let mut arr = builder::StringBuilder::with_capacity(col.len(), col.value_data().len() * 2);
 
     for v in col.iter() {
         match v {
             Some(v) => {
-                // TODO: avoid allocation here and use a scratch buffer to encode hex into or write to arrow buffer
-                // directly somehow.
-                let v = if PREFIXED {
-                    format!("0x{}", faster_hex::hex_string(v))
-                } else {
-                    faster_hex::hex_string(v)
-                };
 
-                arr.append_value(v);
             }
             None => arr.append_null(),
         }
@@ -114,47 +103,6 @@ pub fn hex_encode_column<const PREFIXED: bool>(col: &BinaryArray) -> StringArray
 ///
 /// Intended to be used with encode hex functions
 pub fn schema_binary_to_string(schema: &Schema) -> Schema {
-    let mut fields = Vec::<Arc<Field>>::with_capacity(schema.fields().len());
-
-    for f in schema.fields().iter() {
-        if f.data_type() == &DataType::Binary {
-            fields.push(Arc::new(Field::new(
-                f.name().clone(),
-                DataType::Utf8,
-                f.is_nullable(),
-            )));
-        } else {
-            fields.push(f.clone());
-        }
-    }
-
-    Schema::new(fields)
+    todo!()
 }
 
-pub fn hex_decode_column<const PREFIXED: bool>(col: &StringArray) -> Result<BinaryArray> {
-    let mut arr = builder::BinaryBuilder::with_capacity(col.len(), col.value_data().len() / 2);
-
-    for v in col.iter() {
-        match v {
-            // TODO: this should be optimized by removing allocations if needed
-            Some(v) => {
-                let v = v.as_bytes();
-                let v = if PREFIXED {
-                    v.get(2..).context("index into prefix hex encoded value")?
-                } else {
-                    v
-                };
-
-                let len = v.len();
-                let mut dst = vec![0; (len + 1) / 2];
-
-                faster_hex::hex_decode(v, &mut dst).context("hex decode")?;
-
-                arr.append_value(dst);
-            }
-            None => arr.append_null(),
-        }
-    }
-
-    Ok(arr.finish())
-}
