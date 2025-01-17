@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use arrow::{
-    array::{builder, Array, BinaryArray, RecordBatch, StringArray},
+    array::{builder, Array, BinaryArray, Decimal256Array, RecordBatch, StringArray},
     compute::CastOptions,
     datatypes::{DataType, Field, Schema},
 };
+use ruint::aliases::U256;
 
 /// Casts columns according to given (column name, target data type) pairs.
 ///
@@ -157,4 +158,39 @@ pub fn hex_decode_column<const PREFIXED: bool>(col: &StringArray) -> Result<Bina
     }
 
     Ok(arr.finish())
+}
+
+pub fn u256_from_binary(col: &BinaryArray) -> Result<Decimal256Array> {
+    let mut arr = builder::Decimal256Builder::with_capacity(col.len());
+
+    for v in col.iter() {
+        match v {
+            Some(v) => {
+                let num = U256::try_from_be_slice(v).context("parse u256")?;
+                let num = arrow::datatypes::i256::from_be_bytes(num.to_be_bytes::<32>());
+                arr.append_value(num);
+            }
+            None => arr.append_null(),
+        }
+    }
+
+    Ok(arr.finish())
+}
+
+pub fn u256_to_binary(col: &Decimal256Array) -> BinaryArray {
+    let mut arr = builder::BinaryBuilder::with_capacity(col.len(), col.len() * 32);
+
+    for v in col.iter() {
+        match v {
+            Some(v) => {
+                let num = U256::from_be_bytes::<32>(v.to_be_bytes());
+                arr.append_value(num.to_be_bytes_trimmed_vec());
+            }
+            None => {
+                arr.append_null();
+            }
+        }
+    }
+
+    arr.finish()
 }
