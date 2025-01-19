@@ -1,0 +1,14 @@
+[package]
+name = "cherry-core"
+version = "0.0.1"
+edition = "2021"
+description = "Core library for cherry blockchain data framework"
+homepage = "https://github.com/steelcake/cherry-core"
+repository = "https://github.com/steelcake/cherry-core"
+authors = ["Ozgur Akkurt <oezgurmakkurt@gmail.com>"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+cherry-evm-validate = { path = "../evm-validate", version = "0.0.1" }
+cherry-evm-decode = { path = "../evm-decode", version = "0.0.1" }
+cherry-cast = { path = "../cast", version = "0.0.1" }
