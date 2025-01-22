@@ -7,10 +7,16 @@ use arrow::{
     array::{builder, Array, ArrowPrimitiveType, BinaryArray, ListArray, RecordBatch, StructArray},
     buffer::{NullBuffer, OffsetBuffer},
     datatypes::{
-        DataType, Decimal128Type, Field, Fields, Int16Type, Int32Type, Int64Type, Int8Type, Schema,
-        UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+        DataType, Field, Fields, Int16Type, Int32Type, Int64Type, Int8Type, Schema, UInt16Type,
+        UInt32Type, UInt64Type, UInt8Type,
     },
 };
+
+/// Returns topic0 based on given event signature
+pub fn signature_to_topic0(signature: &str) -> Result<[u8; 32]> {
+    let event = alloy_json_abi::Event::parse(signature).context("parse event signature")?;
+    Ok(event.selector().into())
+}
 
 /// Decodes given call input data in arrow format to arrow format.
 /// Output Arrow schema is auto generated based on the function signature.
@@ -385,7 +391,7 @@ fn to_int(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn
         DataType::Int16 => to_int_impl::<Int16Type>(num_bits, sol_values),
         DataType::Int32 => to_int_impl::<Int32Type>(num_bits, sol_values),
         DataType::Int64 => to_int_impl::<Int64Type>(num_bits, sol_values),
-        DataType::Decimal128(_, _) => to_int_impl::<Decimal128Type>(num_bits, sol_values),
+        DataType::Decimal128(_, _) => to_decimal128(num_bits, sol_values),
         DataType::Decimal256(_, _) => to_decimal256(num_bits, sol_values),
         _ => unreachable!(),
     }
@@ -397,10 +403,48 @@ fn to_uint(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dy
         DataType::UInt16 => to_int_impl::<UInt16Type>(num_bits, sol_values),
         DataType::UInt32 => to_int_impl::<UInt32Type>(num_bits, sol_values),
         DataType::UInt64 => to_int_impl::<UInt64Type>(num_bits, sol_values),
-        DataType::Decimal128(_, _) => to_int_impl::<Decimal128Type>(num_bits, sol_values),
+        DataType::Decimal128(_, _) => to_decimal128(num_bits, sol_values),
         DataType::Decimal256(_, _) => to_decimal256(num_bits, sol_values),
         _ => unreachable!(),
     }
+}
+
+fn to_decimal128(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
+    let mut builder = builder::Decimal128Builder::new();
+
+    for val in sol_values.iter() {
+        match val {
+            Some(val) => match val {
+                DynSolValue::Int(v, nb) => {
+                    assert_eq!(num_bits, *nb);
+
+                    let v = i128::try_from(*v).context("convert to i128")?;
+
+                    builder.append_value(v);
+                }
+                DynSolValue::Uint(v, nb) => {
+                    assert_eq!(num_bits, *nb);
+
+                    let v = i128::try_from(*v).context("convert to i128")?;
+
+                    builder.append_value(v);
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "found unexpected value. Expected: bool, Found: {:?}",
+                        val
+                    ));
+                }
+            },
+            None => {
+                builder.append_null();
+            }
+        }
+    }
+
+    builder = builder.with_data_type(DataType::Decimal128(38, 0));
+
+    Ok(Arc::new(builder.finish()))
 }
 
 fn to_decimal256(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
@@ -435,6 +479,8 @@ fn to_decimal256(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<
             }
         }
     }
+
+    builder = builder.with_data_type(DataType::Decimal256(76, 0));
 
     Ok(Arc::new(builder.finish()))
 }
