@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use cherry_evm_decode::{decode_events, signature_to_topic0};
+use cherry_evm_validate::validate_block_data;
 use hypersync_client::{self, ClientConfig, StreamConfig};
 
 #[tokio::test(flavor = "multi_thread")]
@@ -35,8 +36,6 @@ async fn decode_nested_list() {
         .collect_arrow(query, StreamConfig::default())
         .await
         .unwrap();
-
-    dbg!(&res.data);
 
     let logs = res.data.logs.iter().map(polars_arrow_to_arrow_rs);
 
@@ -82,6 +81,60 @@ async fn decode_erc20() {
         let decoded = decode_events(signature, &batch, false).unwrap();
 
         dbg!(decoded);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn validate_eth() {
+    let client = hypersync_client::Client::new(ClientConfig {
+        ..Default::default()
+    })
+    .unwrap();
+    let client = Arc::new(client);
+
+    let query = serde_json::from_value(serde_json::json!({
+        "from_block": 18123123,
+        "to_block": 18123143,
+        "blocks": [{}],
+        "join_mode": "JoinAll",
+        "field_selection": {
+            "block": hypersync_client::schema::block_header()
+                .fields
+                .iter()
+                .map(|f| f.name.clone())
+                .collect::<Vec<String>>(),
+            "transaction": hypersync_client::schema::transaction()
+                .fields
+                .iter()
+                .map(|f| f.name.clone())
+                .collect::<Vec<String>>(),
+            "log": hypersync_client::schema::log()
+                .fields
+                .iter()
+                .map(|f| f.name.clone())
+                .collect::<Vec<String>>(),
+            "trace": hypersync_client::schema::trace()
+                .fields
+                .iter()
+                .map(|f| f.name.clone())
+                .collect::<Vec<String>>(),
+        }
+    }))
+    .unwrap();
+
+    let res = client
+        .collect_arrow(query, StreamConfig::default())
+        .await
+        .unwrap();
+
+    let blocks = res.data.blocks.iter().map(polars_arrow_to_arrow_rs);
+    let transactions = res.data.transactions.iter().map(polars_arrow_to_arrow_rs);
+    let logs = res.data.logs.iter().map(polars_arrow_to_arrow_rs);
+    let traces = res.data.traces.iter().map(polars_arrow_to_arrow_rs);
+
+    for (((blocks, transactions), logs), traces) in blocks.zip(transactions).zip(logs).zip(traces) {
+        validate_block_data(&blocks, &transactions, &logs, &traces).unwrap();
     }
 }
 

@@ -185,7 +185,7 @@ pub fn validate_block_data(
         first_block_num,
         &tx_hash_mapping,
         traces,
-        "transcation_position",
+        "transaction_position",
     )
     .context("check tx hashes in traces")?;
 
