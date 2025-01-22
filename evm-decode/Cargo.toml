@@ -1,6 +1,6 @@
 [package]
 name = "cherry-evm-decode"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "EVM decoding implementations in Arrow format"
 homepage = "https://github.com/steelcake/cherry-core"
