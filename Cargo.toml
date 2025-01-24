@@ -5,6 +5,7 @@ members = [
   "cast",
   "evm-validate",
   "core",
+  "evm-schema",
 ]
 
 [workspace.dependencies]
