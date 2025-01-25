@@ -1,0 +1,16 @@
+[package]
+name = "cherry-core-python"
+version = "0.0.4"
+edition = "2021"
+
+[lib]
+name = "cherry_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23.3", features = ["anyhow"] }
+baselib = { package = "cherry-core", path = "../core" }
+arrow = { workspace = true , features = ["pyarrow"] }
+anyhow = { workspace = true } 
+faster-hex = { workspace = true } 
+
