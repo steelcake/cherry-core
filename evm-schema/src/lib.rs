@@ -87,7 +87,11 @@ pub fn transactions_schema() -> Schema {
         Field::new("status", DataType::UInt8, true),
         Field::new("sighash", DataType::Binary, true),
         Field::new("y_parity", DataType::Boolean, true),
-        Field::new("access_list", DataType::Binary, true),
+        Field::new(
+            "access_list",
+            DataType::List(Arc::new(Field::new("item", access_list_elem_dt(), true))),
+            true,
+        ),
         Field::new("l1_fee", DataType::Decimal256(76, 0), true),
         Field::new("l1_gas_price", DataType::Decimal256(76, 0), true),
         Field::new("l1_gas_used", DataType::Decimal256(76, 0), true),
@@ -110,6 +114,17 @@ pub fn transactions_schema() -> Schema {
         Field::new("mint", DataType::Decimal256(76, 0), true),
         Field::new("source_hash", DataType::Binary, true),
     ])
+}
+
+fn access_list_elem_dt() -> DataType {
+    DataType::Struct(Fields::from(vec![
+        Arc::new(Field::new("address", DataType::Binary, true)),
+        Arc::new(Field::new(
+            "storage_keys",
+            DataType::List(Arc::new(Field::new("item", DataType::Binary, true))),
+            true,
+        )),
+    ]))
 }
 
 pub fn logs_schema() -> Schema {
@@ -331,7 +346,7 @@ pub struct TransactionsBuilder {
     pub status: builder::UInt8Builder,
     pub sighash: builder::BinaryBuilder,
     pub y_parity: builder::BooleanBuilder,
-    pub access_list: builder::BinaryBuilder,
+    pub access_list: AccessListBuilder,
     pub l1_fee: builder::Decimal256Builder,
     pub l1_gas_price: builder::Decimal256Builder,
     pub l1_gas_used: builder::Decimal256Builder,
@@ -349,6 +364,23 @@ pub struct TransactionsBuilder {
     pub l1_block_number: builder::UInt64Builder,
     pub mint: builder::Decimal256Builder,
     pub source_hash: builder::BinaryBuilder,
+}
+
+pub struct AccessListBuilder(pub builder::ListBuilder<builder::StructBuilder>);
+
+impl Default for AccessListBuilder {
+    fn default() -> Self {
+        Self(builder::ListBuilder::new(builder::StructBuilder::new(
+            match access_list_elem_dt() {
+                DataType::Struct(fields) => fields,
+                _ => unreachable!(),
+            },
+            vec![
+                Box::new(builder::BinaryBuilder::default()),
+                Box::new(builder::ListBuilder::new(builder::BinaryBuilder::default())),
+            ],
+        )))
+    }
 }
 
 impl TransactionsBuilder {
@@ -418,7 +450,7 @@ impl TransactionsBuilder {
                 Arc::new(self.status.finish()),
                 Arc::new(self.sighash.finish()),
                 Arc::new(self.y_parity.finish()),
-                Arc::new(self.access_list.finish()),
+                Arc::new(self.access_list.0.finish()),
                 Arc::new(
                     self.l1_fee
                         .with_precision_and_scale(76, 0)
