@@ -1,6 +1,6 @@
 [package]
 name = "cherry-evm-schema"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "EVM schema definitions for cherry"
 homepage = "https://github.com/steelcake/cherry-core"
