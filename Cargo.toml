@@ -7,6 +7,7 @@ members = [
   "core",
   "evm-schema",
   "python",
+  "ingest",
 ]
 
 [workspace.dependencies]
@@ -18,4 +19,5 @@ ruint = "1"
 anyhow = "1"
 log = "0.4"
 faster-hex = "0.10"
+futures-lite = "2"
 

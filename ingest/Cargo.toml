@@ -1,0 +1,21 @@
+[package]
+name = "cherry-ingest"
+version = "0.0.1"
+edition = "2021"
+description = "Library for ingesting evm data using common a query/response format"
+homepage = "https://github.com/steelcake/cherry-core"
+repository = "https://github.com/steelcake/cherry-core"
+authors = ["Ozgur Akkurt <oezgurmakkurt@gmail.com>"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+sqd-portal-client = "0.0.4"
+futures-lite = { workspace = true } 
+anyhow = { workspace = true }
+arrow = { workspace = true }
+
+[dependencies.reqwest]
+version = "=0.12.9"
+# git = "https://github.com/seanmonstar/reqwest"
+default-features = false
+features = ["rustls-tls", "gzip"]
