@@ -2,7 +2,53 @@ use std::sync::Arc;
 
 use cherry_evm_decode::{decode_events, signature_to_topic0};
 use cherry_evm_validate::validate_block_data;
+use futures_lite::StreamExt;
 use hypersync_client::{self, ClientConfig, StreamConfig};
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn erc20_sqd() {
+    let signature = "Transfer(address indexed from, address indexed to, uint256 amount)";
+
+    let query = cherry_ingest::evm::Query {
+        from_block: 18123123,
+        to_block: Some(18123222),
+        fields: cherry_ingest::evm::FieldSelection::all(),
+        logs: vec![cherry_ingest::evm::LogRequest {
+            address: vec![decode_hex("0xdAC17F958D2ee523a2206206994597C13D831ec7")],
+            topic0: vec![signature_to_topic0(signature).unwrap()],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let mut stream = cherry_ingest::start_stream(cherry_ingest::Query {
+        format: cherry_ingest::Format::Evm(query),
+        provider: cherry_ingest::Provider::Sqd {
+            client_config: Default::default(),
+            url: "https://portal.sqd.dev/datasets/ethereum-mainnet"
+                .parse()
+                .unwrap(),
+        },
+    })
+    .unwrap();
+
+    while let Some(v) = stream.next().await {
+        let v = v.unwrap();
+        let decoded = decode_events(signature, v.get("logs").unwrap(), false).unwrap();
+        dbg!(decoded);
+    }
+}
+
+fn decode_hex<const N: usize>(hex: &str) -> [u8; N] {
+    let mut dst = [0; N];
+    faster_hex::hex_decode(
+        hex.strip_prefix("0x").unwrap().as_bytes(),
+        dst.as_mut_slice(),
+    )
+    .unwrap();
+    dst
+}
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]

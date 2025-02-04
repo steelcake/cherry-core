@@ -1,6 +1,6 @@
 [package]
 name = "cherry-core"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
 description = "Core library for cherry blockchain data framework"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -13,6 +13,7 @@ cherry-evm-validate = { path = "../evm-validate", version = "0.0.1" }
 cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
 cherry-cast = { path = "../cast", version = "0.0.1" }
 cherry-evm-schema = { path = "../evm-schema", version = "0.0.3" }
+cherry-ingest = { path = "../ingest", version ="0.0.1" }
 
 [dev-dependencies]
 hypersync-client = "0.17"
@@ -20,3 +21,5 @@ tokio = { version = "1", features = ["full"] }
 polars-arrow = "0.42"
 arrow = { workspace = true, features = ["ffi"]}
 serde_json = "1"
+futures-lite = "2"
+faster-hex = { workspace = true }
