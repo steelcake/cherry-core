@@ -60,17 +60,7 @@ pub fn cast_schema<S: AsRef<str>>(map: &[(S, DataType)], schema: &Schema) -> Res
     Ok(Schema::new(fields))
 }
 
-/// Encodes binary columns as prefixed hex format. e.g. 0xabcd
-pub fn encode_prefix_hex(data: &RecordBatch) -> Result<RecordBatch> {
-    encode_hex_impl::<true>(data)
-}
-
-/// Encodes binary columns as hex format. e.g. a15b7cc1d
-pub fn encode_hex(data: &RecordBatch) -> Result<RecordBatch> {
-    encode_hex_impl::<false>(data)
-}
-
-fn encode_hex_impl<const PREFIXED: bool>(data: &RecordBatch) -> Result<RecordBatch> {
+pub fn encode_hex_impl<const PREFIXED: bool>(data: &RecordBatch) -> Result<RecordBatch> {
     let schema = schema_binary_to_string(data.schema_ref());
     let mut columns = Vec::<Arc<dyn Array>>::with_capacity(data.columns().len());
 
@@ -132,6 +122,27 @@ pub fn schema_binary_to_string(schema: &Schema) -> Schema {
     Schema::new(fields)
 }
 
+/// Converts decimal256 fields to binary in the schema
+///
+/// Intended to be used with u256_to_binary function
+pub fn schema_decimal256_to_binary(schema: &Schema) -> Schema {
+    let mut fields = Vec::<Arc<Field>>::with_capacity(schema.fields().len());
+
+    for f in schema.fields().iter() {
+        if f.data_type() == &DataType::Decimal256(76, 0) {
+            fields.push(Arc::new(Field::new(
+                f.name().clone(),
+                DataType::Binary,
+                f.is_nullable(),
+            )));
+        } else {
+            fields.push(f.clone());
+        }
+    }
+
+    Schema::new(fields)
+}
+
 pub fn hex_decode_column<const PREFIXED: bool>(col: &StringArray) -> Result<BinaryArray> {
     let mut arr = builder::BinaryBuilder::with_capacity(col.len(), col.value_data().len() / 2);
 
@@ -160,7 +171,7 @@ pub fn hex_decode_column<const PREFIXED: bool>(col: &StringArray) -> Result<Bina
     Ok(arr.finish())
 }
 
-pub fn u256_from_binary(col: &BinaryArray) -> Result<Decimal256Array> {
+pub fn u256_column_from_binary(col: &BinaryArray) -> Result<Decimal256Array> {
     let mut arr = builder::Decimal256Builder::with_capacity(col.len());
 
     for v in col.iter() {
@@ -177,7 +188,7 @@ pub fn u256_from_binary(col: &BinaryArray) -> Result<Decimal256Array> {
     Ok(arr.finish())
 }
 
-pub fn u256_to_binary(col: &Decimal256Array) -> BinaryArray {
+pub fn u256_column_to_binary(col: &Decimal256Array) -> BinaryArray {
     let mut arr = builder::BinaryBuilder::with_capacity(col.len(), col.len() * 32);
 
     for v in col.iter() {
@@ -193,4 +204,28 @@ pub fn u256_to_binary(col: &Decimal256Array) -> BinaryArray {
     }
 
     arr.finish()
+}
+
+/// Converts all Decimal256 (U256) columns in the batch to big endian binary values
+pub fn u256_to_binary(data: &RecordBatch) -> Result<RecordBatch> {
+    let schema = schema_binary_to_string(data.schema_ref());
+    let mut columns = Vec::<Arc<dyn Array>>::with_capacity(data.columns().len());
+
+    for col in data.columns().iter() {
+        if col.data_type() == &DataType::Decimal256(76, 0) {
+            let mut arr = builder::BinaryBuilder::new();
+
+            let col = col.as_any().downcast_ref::<Decimal256Array>().unwrap();
+
+            for val in col.iter() {
+                arr.append_option(val.map(|v| v.to_be_bytes()));
+            }
+
+            columns.push(Arc::new(arr.finish()));
+        } else {
+            columns.push(col.clone());
+        }
+    }
+
+    RecordBatch::try_new(Arc::new(schema), columns).context("construct arrow batch")
 }
