@@ -26,6 +26,7 @@ pub enum Provider {
     },
 }
 
+#[allow(clippy::type_complexity)]
 pub fn start_stream(
     query: Query,
 ) -> Result<Pin<Box<dyn Stream<Item = Result<BTreeMap<String, RecordBatch>>>>>> {

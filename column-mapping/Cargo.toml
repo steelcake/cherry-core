@@ -1,0 +1,11 @@
+[package]
+name = "cherry-column-mapping"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+arrow = { workspace = true }
+ruint = { workspace = true }
+alloy-primitives = { workspace = true }
+anyhow = { workspace = true }
+
