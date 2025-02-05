@@ -6,18 +6,20 @@ use arrow::datatypes::{DataType, Schema};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use pyo3::prelude::*;
 
+mod ingest;
+
 #[pymodule]
-fn cherry_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cast, m)?)?;
     m.add_function(wrap_pyfunction!(cast_schema, m)?)?;
-    m.add_function(wrap_pyfunction!(encode_hex, m)?)?;
-    m.add_function(wrap_pyfunction!(encode_prefix_hex, m)?)?;
+    m.add_function(wrap_pyfunction!(hex_encode, m)?)?;
+    m.add_function(wrap_pyfunction!(prefix_hex_encode, m)?)?;
     m.add_function(wrap_pyfunction!(hex_encode_column, m)?)?;
     m.add_function(wrap_pyfunction!(prefix_hex_encode_column, m)?)?;
     m.add_function(wrap_pyfunction!(hex_decode_column, m)?)?;
     m.add_function(wrap_pyfunction!(prefix_hex_decode_column, m)?)?;
-    m.add_function(wrap_pyfunction!(schema_binary_to_string, m)?)?;
-    m.add_function(wrap_pyfunction!(u256_from_binary, m)?)?;
+    m.add_function(wrap_pyfunction!(u256_column_from_binary, m)?)?;
+    m.add_function(wrap_pyfunction!(u256_column_to_binary, m)?)?;
     m.add_function(wrap_pyfunction!(u256_to_binary, m)?)?;
     m.add_function(wrap_pyfunction!(evm_decode_call_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(evm_decode_call_outputs, m)?)?;
@@ -29,6 +31,7 @@ fn cherry_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(evm_validate_block_data, m)?)?;
     m.add_function(wrap_pyfunction!(evm_signature_to_topic0, m)?)?;
+    ingest::ingest_module(py, m)?;
 
     Ok(())
 }
@@ -79,19 +82,28 @@ fn cast_schema(
 }
 
 #[pyfunction]
-fn encode_hex(batch: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
+fn hex_encode(batch: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
     let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
 
-    let batch = baselib::cast::encode_hex(&batch).context("encode to hex")?;
+    let batch = baselib::cast::hex_encode::<false>(&batch).context("encode to hex")?;
 
     Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
 }
 
 #[pyfunction]
-fn encode_prefix_hex(batch: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
+fn prefix_hex_encode(batch: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
     let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
 
-    let batch = baselib::cast::encode_prefix_hex(&batch).context("encode to prefix hex")?;
+    let batch = baselib::cast::hex_encode::<true>(&batch).context("encode to prefix hex")?;
+
+    Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
+}
+
+#[pyfunction]
+fn u256_to_binary(batch: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
+    let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
+
+    let batch = baselib::cast::u256_to_binary(&batch).context("map u256 columns to binary")?;
 
     Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
 }
@@ -171,16 +183,7 @@ fn hex_decode_column_impl<const PREFIXED: bool>(
 }
 
 #[pyfunction]
-fn schema_binary_to_string(schema: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
-    let schema = Schema::from_pyarrow_bound(schema).context("convert schema from pyarrow")?;
-    let schema = baselib::cast::schema_binary_to_string(&schema);
-    Ok(schema
-        .to_pyarrow(py)
-        .context("map result back to pyarrow")?)
-}
-
-#[pyfunction]
-fn u256_from_binary(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
+fn u256_column_from_binary(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
     let mut col = ArrayData::from_pyarrow_bound(col).context("convert column from pyarrow")?;
 
     // Ensure data is aligned (by potentially copying the buffers).
@@ -196,7 +199,7 @@ fn u256_from_binary(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject
     }
     let col = BinaryArray::from(col);
 
-    let col = baselib::cast::u256_from_binary(&col).context("u256 from binary")?;
+    let col = baselib::cast::u256_column_from_binary(&col).context("u256 from binary")?;
 
     Ok(col
         .into_data()
@@ -205,7 +208,7 @@ fn u256_from_binary(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject
 }
 
 #[pyfunction]
-fn u256_to_binary(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
+fn u256_column_to_binary(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
     let mut col = ArrayData::from_pyarrow_bound(col).context("convert column from pyarrow")?;
 
     // Ensure data is aligned (by potentially copying the buffers).
@@ -225,7 +228,7 @@ fn u256_to_binary(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> 
     }
     let col = Decimal256Array::from(col);
 
-    let col = baselib::cast::u256_to_binary(&col);
+    let col = baselib::cast::u256_column_to_binary(&col);
 
     Ok(col
         .into_data()
