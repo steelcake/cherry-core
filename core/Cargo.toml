@@ -13,7 +13,7 @@ cherry-evm-validate = { path = "../evm-validate", version = "0.0.1" }
 cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
 cherry-cast = { path = "../cast", version = "0.0.3" }
 cherry-evm-schema = { path = "../evm-schema", version = "0.0.3" }
-cherry-ingest = { path = "../ingest", version ="0.0.1" }
+cherry-ingest = { path = "../ingest", version ="0.0.2" }
 
 [dev-dependencies]
 hypersync-client = "0.17"

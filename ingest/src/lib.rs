@@ -4,6 +4,7 @@ use anyhow::Result;
 use arrow::record_batch::RecordBatch;
 use futures_lite::{Stream, StreamExt};
 use reqwest::Url;
+use tokio::sync::mpsc;
 
 pub mod evm;
 
@@ -29,7 +30,7 @@ pub enum Provider {
 #[allow(clippy::type_complexity)]
 pub fn start_stream(
     query: Query,
-) -> Result<Pin<Box<dyn Stream<Item = Result<BTreeMap<String, RecordBatch>>>>>> {
+) -> Result<Pin<Box<dyn Stream<Item = Result<BTreeMap<String, RecordBatch>>> + Send + Sync>>> {
     match query.provider {
         Provider::Sqd { client_config, url } => match query.format {
             Format::Evm(evm_query) => {
@@ -38,13 +39,15 @@ pub fn start_stream(
                 let client = sqd_portal_client::Client::new(url, client_config);
                 let client = Arc::new(client);
 
-                let stream = client.evm_arrow_finalized_stream(
+                let receiver = client.evm_arrow_finalized_stream(
                     evm_query,
                     sqd_portal_client::StreamConfig {
                         stop_on_head: true,
-                        head_poll_interval_millis: 10_000,
+                        ..Default::default()
                     },
                 );
+
+                let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
 
                 let stream = stream.map(|v| {
                     v.map(|v| {
