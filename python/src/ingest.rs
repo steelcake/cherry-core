@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::pin::Pin;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use arrow::{pyarrow::ToPyArrow, record_batch::RecordBatch};
 use futures_lite::{Stream, StreamExt};
-use pyo3::prelude::*;
+use pyo3::{intern, prelude::*};
 
 pub fn ingest_module(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let submodule = PyModule::new(py, "ingest")?;
@@ -56,23 +56,28 @@ impl ResponseStream {
 
 #[pyfunction]
 fn start_stream(query: &Bound<'_, PyAny>) -> PyResult<ResponseStream> {
-    let query = parse_query(query).context("parse query")?;
+    let cfg = parse_stream_config(query).context("parse stream config")?;
 
-    let inner = baselib::ingest::start_stream(query).context("start stream")?;
+    let inner = baselib::ingest::start_stream(cfg).context("start stream")?;
 
     Ok(ResponseStream { inner: Some(inner) })
 }
 
-#[derive(FromPyObject)]
-struct Query {
-    format: String,
-    provider: String,
-}
+fn parse_stream_config(cfg: &Bound<'_, PyAny>) -> Result<baselib::ingest::StreamConfig> {
+    let format = cfg.getattr(intern!(cfg.py(), "format")).context("get format attribute")?;
+    let format: &str = format.extract().context("read format as string")?;
 
-#[derive(FromPyObject)]
-struct Format {}
+    let query = cfg.getattr(intern!(cfg.py(), "query")).context("get query attribute")?;
 
-#[derive(FromPyObject)]
-struct Provider {
-    kind: String,
+    let format = match format {
+        "evm" => {
+            let evm_query: baselib::ingest::evm::Query = query.extract().context("extract evm query")?;
+            baselib::ingest::Format::Evm(evm_query)
+        }
+        _ => {
+            return Err(anyhow!("unknown query format: {}", format));
+        }
+    };
+
+    todo!()
 }

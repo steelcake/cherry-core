@@ -13,8 +13,8 @@ name = "cherry_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.23.3", features = ["anyhow", "experimental-async"] }
-baselib = { package = "cherry-core", path = "../core" }
+pyo3 = { workspace = true, features = ["anyhow", "experimental-async"] }
+baselib = { package = "cherry-core", path = "../core", features = ["pyo3"] }
 arrow = { workspace = true , features = ["pyarrow"] }
 anyhow = { workspace = true } 
 faster-hex = { workspace = true } 

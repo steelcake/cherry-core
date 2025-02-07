@@ -17,9 +17,13 @@ faster-hex = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 log = { workspace = true }
 tokio-stream = { workspace = true }
+pyo3 = { workspace = true, features = ["anyhow"], optional = true }
 
 [dependencies.reqwest]
 version = "=0.12.9"
 # git = "https://github.com/seanmonstar/reqwest"
 default-features = false
 features = ["rustls-tls", "gzip"]
+
+[features]
+pyo3 = ["dep:pyo3"]

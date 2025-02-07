@@ -1,4 +1,5 @@
 #[derive(Default, Debug, Clone)]
+#[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct Query {
     pub from_block: u64,
     pub to_block: Option<u64>,
@@ -188,6 +189,7 @@ pub type Sighash = [u8; 4];
 pub type Topic = [u8; 32];
 
 #[derive(Default, Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "pyo3", pyo3::prelude::pyclass(eq, eq_int))]
 pub enum JoinMode {
     Default,
     JoinAll,
@@ -202,6 +204,7 @@ pub enum JoinMode {
 // }
 
 #[derive(Default, Debug, Clone)]
+#[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TransactionRequest {
     pub from: Vec<Address>,
     pub to: Vec<Address>,
@@ -213,6 +216,7 @@ pub struct TransactionRequest {
 }
 
 #[derive(Default, Debug, Clone)]
+#[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct LogRequest {
     pub address: Vec<Address>,
     pub topic0: Vec<Topic>,
@@ -222,6 +226,7 @@ pub struct LogRequest {
 }
 
 #[derive(Default, Debug, Clone)]
+#[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TraceRequest {
     pub from: Vec<Address>,
     pub to: Vec<Address>,
@@ -234,6 +239,7 @@ pub struct TraceRequest {
 }
 
 #[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct FieldSelection {
     pub block: BlockFields,
     pub transaction: TransactionFields,
@@ -253,6 +259,7 @@ impl FieldSelection {
 }
 
 #[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct BlockFields {
     pub number: bool,
     pub hash: bool,
@@ -320,6 +327,7 @@ impl BlockFields {
 }
 
 #[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TransactionFields {
     pub block_hash: bool,
     pub block_number: bool,
@@ -419,6 +427,7 @@ impl TransactionFields {
 }
 
 #[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct LogFields {
     pub removed: bool,
     pub log_index: bool,
@@ -454,6 +463,7 @@ impl LogFields {
 }
 
 #[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TraceFields {
     pub from: bool,
     pub to: bool,
