@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
@@ -10,7 +10,6 @@ pub struct Query {
     pub transactions: Vec<TransactionRequest>,
     pub logs: Vec<LogRequest>,
     pub traces: Vec<TraceRequest>,
-    pub join_mode: JoinMode,
     pub fields: FieldSelection,
 }
 
@@ -27,15 +26,19 @@ impl Query {
                 .transactions
                 .iter()
                 .map(|tx| sqd_portal_client::evm::TransactionRequest {
-                    from: tx.from.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
+                    from: tx
+                        .from_
+                        .iter()
+                        .map(|x| hex_encode(x.0.as_slice()))
+                        .collect(),
                     to: tx.to.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
                     sighash: tx
                         .sighash
                         .iter()
                         .map(|x| hex_encode(x.0.as_slice()))
                         .collect(),
-                    logs: self.join_mode == JoinMode::JoinAll,
-                    traces: self.join_mode != JoinMode::JoinNothing,
+                    logs: tx.include_logs,
+                    traces: tx.include_traces,
                     state_diffs: false,
                 })
                 .collect(),
@@ -68,9 +71,9 @@ impl Query {
                         .iter()
                         .map(|x| hex_encode(x.0.as_slice()))
                         .collect(),
-                    transaction: self.join_mode != JoinMode::JoinNothing,
-                    transaction_logs: self.join_mode == JoinMode::JoinAll,
-                    transaction_traces: self.join_mode != JoinMode::JoinNothing,
+                    transaction: lg.include_transactions,
+                    transaction_logs: lg.include_transaction_logs,
+                    transaction_traces: lg.include_transaction_traces,
                 })
                 .collect(),
             traces: self
@@ -78,8 +81,8 @@ impl Query {
                 .iter()
                 .map(|t| sqd_portal_client::evm::TraceRequest {
                     type_: t.type_.clone(),
-                    create_from: t.from.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
-                    call_from: t.from.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
+                    create_from: t.from_.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
+                    call_from: t.from_.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
                     call_to: t.to.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
                     call_sighash: t
                         .sighash
@@ -96,10 +99,10 @@ impl Query {
                         .iter()
                         .map(|x| hex_encode(x.0.as_slice()))
                         .collect(),
-                    transaction: self.join_mode != JoinMode::JoinNothing,
-                    transaction_logs: self.join_mode == JoinMode::JoinAll,
-                    subtraces: self.join_mode == JoinMode::JoinAll,
-                    parents: self.join_mode == JoinMode::JoinAll,
+                    transaction: t.include_transactions,
+                    transaction_logs: t.include_transaction_logs,
+                    subtraces: t.include_transaction_traces,
+                    parents: t.include_transaction_traces,
                 })
                 .collect(),
             state_diffs: Vec::new(),
@@ -132,7 +135,7 @@ impl Query {
                     transaction_index: self.fields.transaction.transaction_index,
                     hash: self.fields.transaction.hash,
                     nonce: self.fields.transaction.nonce,
-                    from: self.fields.transaction.from,
+                    from: self.fields.transaction.from_,
                     to: self.fields.transaction.to,
                     input: self.fields.transaction.input,
                     value: self.fields.transaction.value,
@@ -180,14 +183,14 @@ impl Query {
                     type_: self.fields.trace.type_,
                     error: self.fields.trace.error,
                     revert_reason: self.fields.trace.error,
-                    create_from: self.fields.trace.from,
+                    create_from: self.fields.trace.from_,
                     create_value: self.fields.trace.value,
                     create_gas: self.fields.trace.gas,
                     create_init: self.fields.trace.init,
                     create_result_gas_used: self.fields.trace.gas_used,
                     create_result_code: self.fields.trace.code,
                     create_result_address: self.fields.trace.address,
-                    call_from: self.fields.trace.from,
+                    call_from: self.fields.trace.from_,
                     call_to: self.fields.trace.to,
                     call_value: self.fields.trace.value,
                     call_gas: self.fields.trace.gas,
@@ -265,30 +268,6 @@ impl<'py> pyo3::FromPyObject<'py> for Topic {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug, PartialEq)]
-pub enum JoinMode {
-    Default,
-    JoinAll,
-    #[default]
-    JoinNothing,
-}
-
-#[cfg(feature = "pyo3")]
-impl<'py> pyo3::FromPyObject<'py> for JoinMode {
-    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-        use pyo3::types::PyAnyMethods;
-
-        let s: &str = ob.extract()?;
-
-        match s {
-            "Default" => Ok(Self::Default),
-            "JoinAll" => Ok(Self::JoinAll),
-            "JoinNothing" => Ok(Self::JoinNothing),
-            _ => Err(anyhow!("unknown join mode: {}", s).into()),
-        }
-    }
-}
-
 // #[derive(Default, Debug, Clone)]
 // pub struct BlockRequest {
 //     pub hash: Vec<Hash>,
@@ -298,13 +277,15 @@ impl<'py> pyo3::FromPyObject<'py> for JoinMode {
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TransactionRequest {
-    pub from: Vec<Address>,
+    pub from_: Vec<Address>,
     pub to: Vec<Address>,
     pub sighash: Vec<Sighash>,
     pub status: Vec<u8>,
     pub type_: Vec<u8>,
     pub contract_deployment_address: Vec<Address>,
     pub hash: Vec<Hash>,
+    pub include_logs: bool,
+    pub include_traces: bool,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -315,12 +296,15 @@ pub struct LogRequest {
     pub topic1: Vec<Topic>,
     pub topic2: Vec<Topic>,
     pub topic3: Vec<Topic>,
+    pub include_transactions: bool,
+    pub include_transaction_logs: bool,
+    pub include_transaction_traces: bool,
 }
 
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TraceRequest {
-    pub from: Vec<Address>,
+    pub from_: Vec<Address>,
     pub to: Vec<Address>,
     pub address: Vec<Address>,
     pub call_type: Vec<String>,
@@ -328,6 +312,9 @@ pub struct TraceRequest {
     pub type_: Vec<String>,
     pub sighash: Vec<Sighash>,
     pub author: Vec<Address>,
+    pub include_transactions: bool,
+    pub include_transaction_logs: bool,
+    pub include_transaction_traces: bool,
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -423,7 +410,7 @@ impl BlockFields {
 pub struct TransactionFields {
     pub block_hash: bool,
     pub block_number: bool,
-    pub from: bool,
+    pub from_: bool,
     pub gas: bool,
     pub gas_price: bool,
     pub hash: bool,
@@ -472,7 +459,7 @@ impl TransactionFields {
         TransactionFields {
             block_hash: true,
             block_number: true,
-            from: true,
+            from_: true,
             gas: true,
             gas_price: true,
             hash: true,
@@ -557,7 +544,7 @@ impl LogFields {
 #[derive(Default, Debug, Clone, Copy)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TraceFields {
-    pub from: bool,
+    pub from_: bool,
     pub to: bool,
     pub call_type: bool,
     pub gas: bool,
@@ -587,7 +574,7 @@ pub struct TraceFields {
 impl TraceFields {
     pub fn all() -> Self {
         TraceFields {
-            from: true,
+            from_: true,
             to: true,
             call_type: true,
             gas: true,

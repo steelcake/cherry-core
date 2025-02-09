@@ -9,7 +9,7 @@ use pyo3::{intern, prelude::*};
 pub fn ingest_module(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let submodule = PyModule::new(py, "ingest")?;
 
-    m.add_function(wrap_pyfunction!(start_stream, m)?)?;
+    submodule.add_function(wrap_pyfunction!(start_stream, m)?)?;
 
     m.add_submodule(&submodule)?;
 
