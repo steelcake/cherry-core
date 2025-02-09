@@ -1,5 +1,10 @@
+import cherry_core
 from cherry_core import ingest
 import asyncio
+
+signature = "Transfer(address indexed from, address indexed to, uint256 amount)"
+topic0 = cherry_core.evm_signature_to_topic0(signature)
+contract_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
 async def main():
     stream = ingest.start_stream(ingest.StreamConfig(
@@ -11,14 +16,21 @@ async def main():
             ),
         ),
         query=ingest.EvmQuery(
-            from_block=0,
-            to_block=21123123,
+            from_block=20123123,
             logs=[ingest.LogRequest(
-
+                address=[contract_address],
+                topic0=[topic0]
             )],
             fields=ingest.Fields(
                 block=ingest.BlockFields(
                     number=True,
+                ),
+                log=ingest.LogFields(
+                    data=True,
+                    topic0=True,
+                    topic1=True,
+                    topic2=True,
+                    topic3=True,
                 )
             )
         ),
@@ -29,7 +41,9 @@ async def main():
         if res is None:
             break
 
-        number = res["blocks"].column("number")
-        print(number)
+        print(res["blocks"].column("number"))
+
+        decoded = cherry_core.evm_decode_events(signature, res["logs"])
+        print(decoded)
 
 asyncio.run(main())

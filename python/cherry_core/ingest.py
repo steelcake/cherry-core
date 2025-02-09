@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 from . import cherry_core as cc
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 import pyarrow
 from strenum import StrEnum
 

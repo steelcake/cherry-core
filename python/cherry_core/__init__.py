@@ -39,7 +39,7 @@ def evm_decode_call_inputs(signature: str, data: pyarrow.Array, allow_decode_fai
 def evm_decode_call_outputs(signature: str, data: pyarrow.Array, allow_decode_fail: bool = False) -> pyarrow.RecordBatch:
     return cc.evm_decode_call_outputs(signature, data, allow_decode_fail)
 
-def evm_decode_events(signature: str, data: pyarrow.Array, allow_decode_fail: bool = False) -> pyarrow.RecordBatch:
+def evm_decode_events(signature: str, data: pyarrow.RecordBatch, allow_decode_fail: bool = False) -> pyarrow.RecordBatch:
     return cc.evm_decode_events(signature, data, allow_decode_fail)
 
 def evm_event_signature_to_arrow_schema(signature: str) -> pyarrow.Schema:
