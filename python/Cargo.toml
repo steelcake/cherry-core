@@ -19,4 +19,5 @@ arrow = { workspace = true , features = ["pyarrow"] }
 anyhow = { workspace = true } 
 faster-hex = { workspace = true } 
 futures-lite = { workspace = true }
+sqd-portal-client = { workspace = true }
 

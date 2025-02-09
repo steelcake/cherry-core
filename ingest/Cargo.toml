@@ -9,7 +9,7 @@ authors = ["Ozgur Akkurt <oezgurmakkurt@gmail.com>"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-sqd-portal-client = "0.0.7"
+sqd-portal-client = { workspace = true }
 futures-lite = { workspace = true } 
 anyhow = { workspace = true }
 arrow = { workspace = true }

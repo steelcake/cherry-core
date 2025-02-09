@@ -16,7 +16,9 @@ async fn erc20_sqd() {
         to_block: Some(18123222),
         fields: cherry_ingest::evm::FieldSelection::all(),
         logs: vec![cherry_ingest::evm::LogRequest {
-            address: vec![Address(decode_hex("0xdAC17F958D2ee523a2206206994597C13D831ec7"))],
+            address: vec![Address(decode_hex(
+                "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            ))],
             topic0: vec![Topic(signature_to_topic0(signature).unwrap())],
             ..Default::default()
         }],

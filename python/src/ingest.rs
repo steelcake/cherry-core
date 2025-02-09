@@ -84,5 +84,64 @@ fn parse_stream_config(cfg: &Bound<'_, PyAny>) -> Result<baselib::ingest::Stream
         }
     };
 
-    todo!()
+    let provider = cfg
+        .getattr(intern!(cfg.py(), "provider"))
+        .context("get provider attribute")?;
+    let provider_kind = provider
+        .getattr(intern!(provider.py(), "kind"))
+        .context("get provider.kind attribute")?;
+    let provider_config = provider
+        .getattr(intern!(provider.py(), "config"))
+        .context("get provider.config attribute")?;
+
+    let provider_kind: &str = provider_kind
+        .extract()
+        .context("read provider.kind as string")?;
+    let provider_config: ProviderConfig =
+        provider_config.extract().context("read provider.config")?;
+
+    let provider = match provider_kind {
+        "sqd" => {
+            let mut client_config = sqd_portal_client::ClientConfig::default();
+
+            if let Some(v) = provider_config.max_num_retries {
+                client_config.max_num_retries = v;
+            }
+            if let Some(v) = provider_config.retry_backoff_ms {
+                client_config.retry_backoff_ms = v;
+            }
+            if let Some(v) = provider_config.retry_base_ms {
+                client_config.retry_base_ms = v;
+            }
+            if let Some(v) = provider_config.retry_ceiling_ms {
+                client_config.retry_ceiling_ms = v;
+            }
+            if let Some(v) = provider_config.http_req_timeout_millis {
+                client_config.http_req_timeout_millis = v;
+            }
+
+            let url = provider_config
+                .url
+                .context("url is required when using sqd")?
+                .parse()
+                .context("parse url")?;
+
+            baselib::ingest::Provider::Sqd { client_config, url }
+        }
+        _ => {
+            return Err(anyhow!("unknown provider: {}", provider_kind));
+        }
+    };
+
+    Ok(baselib::ingest::StreamConfig { format, provider })
+}
+
+#[derive(FromPyObject)]
+struct ProviderConfig {
+    url: Option<String>,
+    max_num_retries: Option<usize>,
+    retry_backoff_ms: Option<u64>,
+    retry_base_ms: Option<u64>,
+    retry_ceiling_ms: Option<u64>,
+    http_req_timeout_millis: Option<u64>,
 }
