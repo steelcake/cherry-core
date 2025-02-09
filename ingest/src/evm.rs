@@ -10,7 +10,7 @@ pub struct Query {
     pub transactions: Vec<TransactionRequest>,
     pub logs: Vec<LogRequest>,
     pub traces: Vec<TraceRequest>,
-    pub fields: FieldSelection,
+    pub fields: Fields,
 }
 
 impl Query {
@@ -319,14 +319,14 @@ pub struct TraceRequest {
 
 #[derive(Default, Debug, Clone, Copy)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
-pub struct FieldSelection {
+pub struct Fields {
     pub block: BlockFields,
     pub transaction: TransactionFields,
     pub log: LogFields,
     pub trace: TraceFields,
 }
 
-impl FieldSelection {
+impl Fields {
     pub fn all() -> Self {
         Self {
             block: BlockFields::all(),
