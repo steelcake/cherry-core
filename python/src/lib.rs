@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 use anyhow::{anyhow, Context, Result};
 use arrow::array::{Array, ArrayData, BinaryArray, Decimal256Array, RecordBatch, StringArray};
@@ -7,6 +8,13 @@ use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use pyo3::prelude::*;
 
 mod ingest;
+
+static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+});
 
 #[pymodule]
 fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {

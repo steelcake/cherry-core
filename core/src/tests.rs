@@ -14,7 +14,7 @@ async fn erc20_sqd() {
     let query = cherry_ingest::evm::Query {
         from_block: 18123123,
         to_block: Some(18123222),
-        fields: cherry_ingest::evm::FieldSelection::all(),
+        fields: cherry_ingest::evm::Fields::all(),
         logs: vec![cherry_ingest::evm::LogRequest {
             address: vec![Address(decode_hex(
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
