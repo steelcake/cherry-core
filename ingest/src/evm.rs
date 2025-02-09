@@ -1,3 +1,5 @@
+use anyhow::{anyhow, Context};
+
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct Query {
@@ -25,12 +27,12 @@ impl Query {
                 .transactions
                 .iter()
                 .map(|tx| sqd_portal_client::evm::TransactionRequest {
-                    from: tx.from.iter().map(|x| hex_encode(x.as_slice())).collect(),
-                    to: tx.to.iter().map(|x| hex_encode(x.as_slice())).collect(),
+                    from: tx.from.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
+                    to: tx.to.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
                     sighash: tx
                         .sighash
                         .iter()
-                        .map(|x| hex_encode(x.as_slice()))
+                        .map(|x| hex_encode(x.0.as_slice()))
                         .collect(),
                     logs: self.join_mode == JoinMode::JoinAll,
                     traces: self.join_mode != JoinMode::JoinNothing,
@@ -44,12 +46,28 @@ impl Query {
                     address: lg
                         .address
                         .iter()
-                        .map(|x| hex_encode(x.as_slice()))
+                        .map(|x| hex_encode(x.0.as_slice()))
                         .collect(),
-                    topic0: lg.topic0.iter().map(|x| hex_encode(x.as_slice())).collect(),
-                    topic1: lg.topic1.iter().map(|x| hex_encode(x.as_slice())).collect(),
-                    topic2: lg.topic2.iter().map(|x| hex_encode(x.as_slice())).collect(),
-                    topic3: lg.topic3.iter().map(|x| hex_encode(x.as_slice())).collect(),
+                    topic0: lg
+                        .topic0
+                        .iter()
+                        .map(|x| hex_encode(x.0.as_slice()))
+                        .collect(),
+                    topic1: lg
+                        .topic1
+                        .iter()
+                        .map(|x| hex_encode(x.0.as_slice()))
+                        .collect(),
+                    topic2: lg
+                        .topic2
+                        .iter()
+                        .map(|x| hex_encode(x.0.as_slice()))
+                        .collect(),
+                    topic3: lg
+                        .topic3
+                        .iter()
+                        .map(|x| hex_encode(x.0.as_slice()))
+                        .collect(),
                     transaction: self.join_mode != JoinMode::JoinNothing,
                     transaction_logs: self.join_mode == JoinMode::JoinAll,
                     transaction_traces: self.join_mode != JoinMode::JoinNothing,
@@ -60,16 +78,24 @@ impl Query {
                 .iter()
                 .map(|t| sqd_portal_client::evm::TraceRequest {
                     type_: t.type_.clone(),
-                    create_from: t.from.iter().map(|x| hex_encode(x.as_slice())).collect(),
-                    call_from: t.from.iter().map(|x| hex_encode(x.as_slice())).collect(),
-                    call_to: t.to.iter().map(|x| hex_encode(x.as_slice())).collect(),
-                    call_sighash: t.sighash.iter().map(|x| hex_encode(x.as_slice())).collect(),
+                    create_from: t.from.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
+                    call_from: t.from.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
+                    call_to: t.to.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
+                    call_sighash: t
+                        .sighash
+                        .iter()
+                        .map(|x| hex_encode(x.0.as_slice()))
+                        .collect(),
                     suicide_refund_address: t
                         .address
                         .iter()
-                        .map(|x| hex_encode(x.as_slice()))
+                        .map(|x| hex_encode(x.0.as_slice()))
                         .collect(),
-                    reward_author: t.author.iter().map(|x| hex_encode(x.as_slice())).collect(),
+                    reward_author: t
+                        .author
+                        .iter()
+                        .map(|x| hex_encode(x.0.as_slice()))
+                        .collect(),
                     transaction: self.join_mode != JoinMode::JoinNothing,
                     transaction_logs: self.join_mode == JoinMode::JoinAll,
                     subtraces: self.join_mode == JoinMode::JoinAll,
@@ -183,18 +209,84 @@ impl Query {
     }
 }
 
-pub type Hash = [u8; 32];
-pub type Address = [u8; 20];
-pub type Sighash = [u8; 4];
-pub type Topic = [u8; 32];
+#[derive(Debug, Clone, Copy)]
+pub struct Hash(pub [u8; 32]);
+
+#[derive(Debug, Clone, Copy)]
+pub struct Address(pub [u8; 20]);
+
+#[derive(Debug, Clone, Copy)]
+pub struct Sighash(pub [u8; 4]);
+
+#[derive(Debug, Clone, Copy)]
+pub struct Topic(pub [u8; 32]);
+
+#[cfg(feature = "pyo3")]
+fn extract_hex<const N: usize>(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyResult<[u8; N]> {
+    use pyo3::types::PyAnyMethods;
+
+    let s: &str = ob.extract()?;
+    let s = s.strip_prefix("0x").context("strip 0x prefix")?;
+    let mut out = [0; N];
+    faster_hex::hex_decode(s.as_bytes(), &mut out).context("decode hex")?;
+
+    Ok(out)
+}
+
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for Hash {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        let out = extract_hex(ob)?;
+        Ok(Self(out))
+    }
+}
+
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for Address {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        let out = extract_hex(ob)?;
+        Ok(Self(out))
+    }
+}
+
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for Sighash {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        let out = extract_hex(ob)?;
+        Ok(Self(out))
+    }
+}
+
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for Topic {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        let out = extract_hex(ob)?;
+        Ok(Self(out))
+    }
+}
 
 #[derive(Default, Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(feature = "pyo3", pyo3::prelude::pyclass(eq, eq_int))]
 pub enum JoinMode {
     Default,
     JoinAll,
     #[default]
     JoinNothing,
+}
+
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for JoinMode {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        use pyo3::types::PyAnyMethods;
+
+        let s: &str = ob.extract()?;
+
+        match s {
+            "Default" => Ok(Self::Default),
+            "JoinAll" => Ok(Self::JoinAll),
+            "JoinNothing" => Ok(Self::JoinNothing),
+            _ => Err(anyhow!("unknown join mode: {}", s).into()),
+        }
+    }
 }
 
 // #[derive(Default, Debug, Clone)]

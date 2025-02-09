@@ -64,14 +64,19 @@ fn start_stream(query: &Bound<'_, PyAny>) -> PyResult<ResponseStream> {
 }
 
 fn parse_stream_config(cfg: &Bound<'_, PyAny>) -> Result<baselib::ingest::StreamConfig> {
-    let format = cfg.getattr(intern!(cfg.py(), "format")).context("get format attribute")?;
+    let format = cfg
+        .getattr(intern!(cfg.py(), "format"))
+        .context("get format attribute")?;
     let format: &str = format.extract().context("read format as string")?;
 
-    let query = cfg.getattr(intern!(cfg.py(), "query")).context("get query attribute")?;
+    let query = cfg
+        .getattr(intern!(cfg.py(), "query"))
+        .context("get query attribute")?;
 
     let format = match format {
         "evm" => {
-            let evm_query: baselib::ingest::evm::Query = query.extract().context("extract evm query")?;
+            let evm_query: baselib::ingest::evm::Query =
+                query.extract().context("extract evm query")?;
             baselib::ingest::Format::Evm(evm_query)
         }
         _ => {
