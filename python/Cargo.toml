@@ -1,6 +1,6 @@
 [package]
 name = "cherry-core-python"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 description = "Core library for cherry blockchain data framework"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -13,9 +13,12 @@ name = "cherry_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.23.3", features = ["anyhow"] }
-baselib = { package = "cherry-core", path = "../core" }
+pyo3 = { workspace = true, features = ["anyhow", "experimental-async"] }
+baselib = { package = "cherry-core", path = "../core", features = ["pyo3"] }
 arrow = { workspace = true , features = ["pyarrow"] }
 anyhow = { workspace = true } 
 faster-hex = { workspace = true } 
+futures-lite = { workspace = true }
+sqd-portal-client = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 

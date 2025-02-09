@@ -8,7 +8,7 @@ use reqwest::Url;
 pub mod evm;
 
 #[derive(Debug, Clone)]
-pub struct Query {
+pub struct StreamConfig {
     pub format: Format,
     pub provider: Provider,
 }
@@ -28,23 +28,25 @@ pub enum Provider {
 
 #[allow(clippy::type_complexity)]
 pub fn start_stream(
-    query: Query,
-) -> Result<Pin<Box<dyn Stream<Item = Result<BTreeMap<String, RecordBatch>>>>>> {
-    match query.provider {
-        Provider::Sqd { client_config, url } => match query.format {
+    cfg: StreamConfig,
+) -> Result<Pin<Box<dyn Stream<Item = Result<BTreeMap<String, RecordBatch>>> + Send + Sync>>> {
+    match cfg.provider {
+        Provider::Sqd { client_config, url } => match cfg.format {
             Format::Evm(evm_query) => {
                 let evm_query = evm_query.to_sqd();
 
                 let client = sqd_portal_client::Client::new(url, client_config);
                 let client = Arc::new(client);
 
-                let stream = client.evm_arrow_finalized_stream(
+                let receiver = client.evm_arrow_finalized_stream(
                     evm_query,
                     sqd_portal_client::StreamConfig {
                         stop_on_head: true,
-                        head_poll_interval_millis: 10_000,
+                        ..Default::default()
                     },
                 );
+
+                let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
 
                 let stream = stream.map(|v| {
                     v.map(|v| {

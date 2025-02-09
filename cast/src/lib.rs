@@ -60,7 +60,7 @@ pub fn cast_schema<S: AsRef<str>>(map: &[(S, DataType)], schema: &Schema) -> Res
     Ok(Schema::new(fields))
 }
 
-pub fn encode_hex_impl<const PREFIXED: bool>(data: &RecordBatch) -> Result<RecordBatch> {
+pub fn hex_encode<const PREFIXED: bool>(data: &RecordBatch) -> Result<RecordBatch> {
     let schema = schema_binary_to_string(data.schema_ref());
     let mut columns = Vec::<Arc<dyn Array>>::with_capacity(data.columns().len());
 

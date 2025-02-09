@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use cherry_evm_decode::{decode_events, signature_to_topic0};
 use cherry_evm_validate::validate_block_data;
+use cherry_ingest::evm::{Address, Topic};
 use futures_lite::StreamExt;
 use hypersync_client::{self, ClientConfig, StreamConfig};
 
@@ -13,16 +14,18 @@ async fn erc20_sqd() {
     let query = cherry_ingest::evm::Query {
         from_block: 18123123,
         to_block: Some(18123222),
-        fields: cherry_ingest::evm::FieldSelection::all(),
+        fields: cherry_ingest::evm::Fields::all(),
         logs: vec![cherry_ingest::evm::LogRequest {
-            address: vec![decode_hex("0xdAC17F958D2ee523a2206206994597C13D831ec7")],
-            topic0: vec![signature_to_topic0(signature).unwrap()],
+            address: vec![Address(decode_hex(
+                "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            ))],
+            topic0: vec![Topic(signature_to_topic0(signature).unwrap())],
             ..Default::default()
         }],
         ..Default::default()
     };
 
-    let mut stream = cherry_ingest::start_stream(cherry_ingest::Query {
+    let mut stream = cherry_ingest::start_stream(cherry_ingest::StreamConfig {
         format: cherry_ingest::Format::Evm(query),
         provider: cherry_ingest::Provider::Sqd {
             client_config: Default::default(),
