@@ -20,4 +20,5 @@ anyhow = { workspace = true }
 faster-hex = { workspace = true } 
 futures-lite = { workspace = true }
 sqd-portal-client = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 

@@ -58,7 +58,13 @@ impl ResponseStream {
 fn start_stream(query: &Bound<'_, PyAny>) -> PyResult<ResponseStream> {
     let cfg = parse_stream_config(query).context("parse stream config")?;
 
-    let inner = baselib::ingest::start_stream(cfg).context("start stream")?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    let inner = runtime
+        .block_on(async move { baselib::ingest::start_stream(cfg).context("start stream") })?;
+    std::mem::forget(runtime);
 
     Ok(ResponseStream { inner: Some(inner) })
 }

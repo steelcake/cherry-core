@@ -10,7 +10,18 @@ async def main():
                 url="https://portal.sqd.dev/datasets/ethereum-mainnet"
             ),
         ),
-        query=ingest.EvmQuery(),
+        query=ingest.EvmQuery(
+            from_block=0,
+            to_block=21123123,
+            logs=[ingest.LogRequest(
+
+            )],
+            fields=ingest.Fields(
+                block=ingest.BlockFields(
+                    number=True,
+                )
+            )
+        ),
     ))
 
     while True:
@@ -18,6 +29,7 @@ async def main():
         if res is None:
             break
 
-        print(res)
+        number = res["blocks"].column("number")
+        print(number)
 
 asyncio.run(main())
