@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{Context, Result};
 
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
@@ -14,10 +14,56 @@ pub struct Query {
 }
 
 impl Query {
-    pub fn to_sqd(&self) -> sqd_portal_client::evm::Query {
-        let hex_encode = |addr| format!("0x{}", faster_hex::hex_string(addr));
+    pub fn to_sqd(&self) -> Result<sqd_portal_client::evm::Query> {
+        let hex_encode = |addr: &[u8]| format!("0x{}", faster_hex::hex_string(addr));
 
-        sqd_portal_client::evm::Query {
+        let mut logs: Vec<_> = Vec::with_capacity(self.logs.len());
+
+        for lg in self.logs.iter() {
+            let mut topic0 = Vec::with_capacity(lg.topic0.len() + lg.event_signatures.len());
+
+            topic0.extend_from_slice(lg.topic0.as_slice());
+
+            for sig in lg.event_signatures.iter() {
+                let t0 = cherry_evm_decode::signature_to_topic0(sig)
+                    .context("convert event signature to topic0")?;
+                topic0.push(Topic(t0));
+            }
+
+            let topic0 = topic0
+                .into_iter()
+                .map(|x| hex_encode(x.0.as_slice()))
+                .collect::<Vec<_>>();
+
+            logs.push(sqd_portal_client::evm::LogRequest {
+                address: lg
+                    .address
+                    .iter()
+                    .map(|x| hex_encode(x.0.as_slice()))
+                    .collect(),
+                topic0,
+                topic1: lg
+                    .topic1
+                    .iter()
+                    .map(|x| hex_encode(x.0.as_slice()))
+                    .collect(),
+                topic2: lg
+                    .topic2
+                    .iter()
+                    .map(|x| hex_encode(x.0.as_slice()))
+                    .collect(),
+                topic3: lg
+                    .topic3
+                    .iter()
+                    .map(|x| hex_encode(x.0.as_slice()))
+                    .collect(),
+                transaction: lg.include_transactions,
+                transaction_logs: lg.include_transaction_logs,
+                transaction_traces: lg.include_transaction_traces,
+            });
+        }
+
+        Ok(sqd_portal_client::evm::Query {
             type_: Default::default(),
             from_block: self.from_block,
             to_block: self.to_block.map(|x| x + 1),
@@ -42,40 +88,7 @@ impl Query {
                     state_diffs: false,
                 })
                 .collect(),
-            logs: self
-                .logs
-                .iter()
-                .map(|lg| sqd_portal_client::evm::LogRequest {
-                    address: lg
-                        .address
-                        .iter()
-                        .map(|x| hex_encode(x.0.as_slice()))
-                        .collect(),
-                    topic0: lg
-                        .topic0
-                        .iter()
-                        .map(|x| hex_encode(x.0.as_slice()))
-                        .collect(),
-                    topic1: lg
-                        .topic1
-                        .iter()
-                        .map(|x| hex_encode(x.0.as_slice()))
-                        .collect(),
-                    topic2: lg
-                        .topic2
-                        .iter()
-                        .map(|x| hex_encode(x.0.as_slice()))
-                        .collect(),
-                    topic3: lg
-                        .topic3
-                        .iter()
-                        .map(|x| hex_encode(x.0.as_slice()))
-                        .collect(),
-                    transaction: lg.include_transactions,
-                    transaction_logs: lg.include_transaction_logs,
-                    transaction_traces: lg.include_transaction_traces,
-                })
-                .collect(),
+            logs,
             traces: self
                 .traces
                 .iter()
@@ -208,7 +221,7 @@ impl Query {
                     reward_type: self.fields.trace.author,
                 },
             },
-        }
+        })
     }
 }
 
@@ -292,6 +305,7 @@ pub struct TransactionRequest {
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct LogRequest {
     pub address: Vec<Address>,
+    pub event_signatures: Vec<String>,
     pub topic0: Vec<Topic>,
     pub topic1: Vec<Topic>,
     pub topic2: Vec<Topic>,

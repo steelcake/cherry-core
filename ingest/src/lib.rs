@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, pin::Pin, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use arrow::record_batch::RecordBatch;
 use futures_lite::{Stream, StreamExt};
 use reqwest::Url;
@@ -33,7 +33,7 @@ pub fn start_stream(
     match cfg.provider {
         Provider::Sqd { client_config, url } => match cfg.format {
             Format::Evm(evm_query) => {
-                let evm_query = evm_query.to_sqd();
+                let evm_query = evm_query.to_sqd().context("convert to sqd query")?;
 
                 let client = sqd_portal_client::Client::new(url, client_config);
                 let client = Arc::new(client);
