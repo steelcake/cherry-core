@@ -19,6 +19,7 @@ class TransactionRequest:
 @dataclass
 class LogRequest:
     address: list[str] = field(default_factory=list)
+    event_signatures: list[str] = field(default_factory=list)
     topic0: list[str] = field(default_factory=list)
     topic1: list[str] = field(default_factory=list)
     topic2: list[str] = field(default_factory=list)

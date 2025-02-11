@@ -19,7 +19,8 @@ async def main():
             from_block=20123123,
             logs=[ingest.LogRequest(
                 address=[contract_address],
-                topic0=[topic0]
+                event_signatures=[signature],
+                # topic0=[topic0], same effect as above
             )],
             fields=ingest.Fields(
                 block=ingest.BlockFields(
