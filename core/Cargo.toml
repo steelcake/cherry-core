@@ -1,6 +1,6 @@
 [package]
 name = "cherry-core"
-version = "0.0.9"
+version = "0.0.10"
 edition = "2021"
 description = "Core library for cherry blockchain data framework"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -13,6 +13,7 @@ cherry-evm-validate = { path = "../evm-validate", version = "0.0.1" }
 cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
 cherry-cast = { path = "../cast", version = "0.0.3" }
 cherry-evm-schema = { path = "../evm-schema", version = "0.0.3" }
+cherry-svm-schema = { path = "../svm-schema", version = "0.0.1" }
 cherry-ingest = { path = "../ingest", version ="0.0.3" }
 
 [dev-dependencies]

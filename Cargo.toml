@@ -8,6 +8,7 @@ members = [
   "evm-schema",
   "python",
   "ingest",
+  "svm-schema",
 ]
 
 [workspace.dependencies]
