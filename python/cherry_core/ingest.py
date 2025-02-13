@@ -1,8 +1,8 @@
-from typing import Dict, Optional
+from typing import Dict, Optional 
 from . import cherry_core as cc
 from dataclasses import dataclass, field, fields
 import pyarrow
-from strenum import StrEnum
+from enum import Enum
 
 @dataclass
 class TransactionRequest:
@@ -180,10 +180,10 @@ class EvmQuery:
     traces: list[TraceRequest] = field(default_factory=list)
     fields: Fields = field(default_factory=Fields) 
 
-class ProviderKind(StrEnum):
+class ProviderKind(str, Enum):
     SQD = "sqd"
 
-class Format(StrEnum):
+class Format(str, Enum):
     EVM = "evm"
 
 @dataclass
