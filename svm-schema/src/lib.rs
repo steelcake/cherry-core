@@ -76,19 +76,43 @@ pub fn transactions_schema() -> Schema {
         Field::new("block_hash", DataType::Binary, true),
         Field::new("transaction_index", DataType::UInt32, true),
         Field::new("version", DataType::Int8, true),
-        Field::new("account_keys", DataType::List(Arc::new(Field::new("item", DataType::Binary, true))), true),
-        Field::new("address_table_lookups", DataType::List(Arc::new(Field::new("item", address_table_lookup_dt(), true))), true),
+        Field::new(
+            "account_keys",
+            DataType::List(Arc::new(Field::new("item", DataType::Binary, true))),
+            true,
+        ),
+        Field::new(
+            "address_table_lookups",
+            DataType::List(Arc::new(Field::new(
+                "item",
+                address_table_lookup_dt(),
+                true,
+            ))),
+            true,
+        ),
         Field::new("num_readonly_signed_accounts", DataType::UInt32, true),
         Field::new("num_readonly_unsigned_accounts", DataType::UInt32, true),
         Field::new("num_required_signatures", DataType::UInt32, true),
         Field::new("recent_blockhash", DataType::Binary, true),
-        Field::new("signatures", DataType::List(Arc::new(Field::new("item", DataType::Binary, true))), true),
+        Field::new(
+            "signatures",
+            DataType::List(Arc::new(Field::new("item", DataType::Binary, true))),
+            true,
+        ),
         // encoded as json string
         Field::new("err", DataType::Utf8, true),
         Field::new("fee", DataType::UInt64, true),
         Field::new("compute_units_consumed", DataType::UInt64, true),
-        Field::new("loaded_readonly_addresses", DataType::List(Arc::new(Field::new("item", DataType::Binary, true))), true),
-        Field::new("loaded_writeable_addresses", DataType::List(Arc::new(Field::new("item", DataType::Binary, true))), true),
+        Field::new(
+            "loaded_readonly_addresses",
+            DataType::List(Arc::new(Field::new("item", DataType::Binary, true))),
+            true,
+        ),
+        Field::new(
+            "loaded_writeable_addresses",
+            DataType::List(Arc::new(Field::new("item", DataType::Binary, true))),
+            true,
+        ),
         Field::new("fee_payer", DataType::Binary, true),
         Field::new("has_dropped_log_messages", DataType::Boolean, true),
     ])
@@ -97,16 +121,29 @@ pub fn transactions_schema() -> Schema {
 fn address_table_lookup_dt() -> DataType {
     DataType::Struct(Fields::from(vec![
         Arc::new(Field::new("account_key", DataType::Binary, true)),
-        Arc::new(Field::new("writeable_indexes", DataType::List(Arc::new(Field::new("item", DataType::UInt64, true))), true)),
-        Arc::new(Field::new("readonly_indexes", DataType::List(Arc::new(Field::new("item", DataType::UInt64, true))), true)),
+        Arc::new(Field::new(
+            "writeable_indexes",
+            DataType::List(Arc::new(Field::new("item", DataType::UInt64, true))),
+            true,
+        )),
+        Arc::new(Field::new(
+            "readonly_indexes",
+            DataType::List(Arc::new(Field::new("item", DataType::UInt64, true))),
+            true,
+        )),
     ]))
 }
 
 pub fn instructions_schema() -> Schema {
     Schema::new(vec![
         Field::new("block_slot", DataType::UInt64, true),
+        Field::new("block_hash", DataType::Binary, true),
         Field::new("transaction_index", DataType::UInt32, true),
-        Field::new("instruction_address", DataType::List(Arc::new(Field::new("item", DataType::UInt32, true))), true),
+        Field::new(
+            "instruction_address",
+            DataType::List(Arc::new(Field::new("item", DataType::UInt32, true))),
+            true,
+        ),
         Field::new("program_id", DataType::Binary, true),
         Field::new("a0", DataType::Binary, true),
         Field::new("a1", DataType::Binary, true),
@@ -119,7 +156,11 @@ pub fn instructions_schema() -> Schema {
         Field::new("a8", DataType::Binary, true),
         Field::new("a9", DataType::Binary, true),
         // accounts starting from index 10
-        Field::new("rest_of_accounts", DataType::List(Arc::new(Field::new("item", DataType::Binary, true))), true),
+        Field::new(
+            "rest_of_accounts",
+            DataType::List(Arc::new(Field::new("item", DataType::Binary, true))),
+            true,
+        ),
         Field::new("data", DataType::Binary, true),
         Field::new("d1", DataType::Binary, true),
         Field::new("d2", DataType::Binary, true),
@@ -153,8 +194,9 @@ impl BlocksBuilder {
                 Arc::new(self.parent_hash.finish()),
                 Arc::new(self.height.finish()),
                 Arc::new(self.timestamp.finish()),
-            ]
-        ).unwrap()
+            ],
+        )
+        .unwrap()
     }
 }
 
@@ -181,8 +223,9 @@ impl RewardsBuilder {
                 Arc::new(self.post_balance.finish()),
                 Arc::new(self.reward_type.finish()),
                 Arc::new(self.commission.finish()),
-            ]
-        ).unwrap()
+            ],
+        )
+        .unwrap()
     }
 }
 
@@ -223,8 +266,9 @@ impl TokenBalancesBuilder {
                 Arc::new(self.post_owner.finish()),
                 Arc::new(self.pre_amount.finish()),
                 Arc::new(self.post_amount.finish()),
-            ]
-        ).unwrap()
+            ],
+        )
+        .unwrap()
     }
 }
 
@@ -249,8 +293,9 @@ impl BalancesBuilder {
                 Arc::new(self.account.finish()),
                 Arc::new(self.pre.finish()),
                 Arc::new(self.post.finish()),
-            ]
-        ).unwrap()
+            ],
+        )
+        .unwrap()
     }
 }
 
@@ -279,8 +324,9 @@ impl LogsBuilder {
                 Arc::new(self.program_id.finish()),
                 Arc::new(self.kind.finish()),
                 Arc::new(self.message.finish()),
-            ]
-        ).unwrap()
+            ],
+        )
+        .unwrap()
     }
 }
 
@@ -347,8 +393,9 @@ impl TransactionsBuilder {
                 Arc::new(self.loaded_writeable_addresses.finish()),
                 Arc::new(self.fee_payer.finish()),
                 Arc::new(self.has_dropped_log_messages.finish()),
-            ]
-        ).unwrap()
+            ],
+        )
+        .unwrap()
     }
 }
 
@@ -411,8 +458,9 @@ impl InstructionsBuilder {
                 Arc::new(self.compute_units_consumed.finish()),
                 Arc::new(self.is_committed.finish()),
                 Arc::new(self.has_dropped_log_messages.finish()),
-            ]
-        ).unwrap()
+            ],
+        )
+        .unwrap()
     }
 }
 
