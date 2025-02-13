@@ -1,0 +1,12 @@
+[package]
+name = "cherry-svm-schema"
+version = "0.0.1"
+edition = "2021"
+description = "SVM schema definitions for cherry"
+homepage = "https://github.com/steelcake/cherry-core"
+repository = "https://github.com/steelcake/cherry-core"
+authors = ["Ozgur Akkurt <oezgurmakkurt@gmail.com>"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+arrow = { workspace = true }
