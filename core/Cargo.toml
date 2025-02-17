@@ -17,7 +17,7 @@ cherry-svm-schema = { path = "../svm-schema", version = "0.0.1" }
 cherry-ingest = { path = "../ingest", version ="0.0.3" }
 
 [dev-dependencies]
-hypersync-client = "0.17"
+hypersync-client = { workspace = true } 
 tokio = { version = "1", features = ["full"] }
 polars-arrow = "0.42"
 arrow = { workspace = true, features = ["ffi"]}

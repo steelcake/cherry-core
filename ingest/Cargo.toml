@@ -18,6 +18,7 @@ tokio = { workspace = true, features = ["sync"] }
 log = { workspace = true }
 tokio-stream = { workspace = true }
 pyo3 = { workspace = true, features = ["anyhow"], optional = true }
+hypersync-client = { workspace = true }
 
 cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
 
