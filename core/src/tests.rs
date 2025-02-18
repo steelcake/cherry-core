@@ -27,13 +27,11 @@ async fn erc20_hypersync() {
 
     let mut stream = cherry_ingest::start_stream(cherry_ingest::StreamConfig {
         format: cherry_ingest::Format::Evm(query),
-        provider: cherry_ingest::Provider::Sqd {
-            client_config: Default::default(),
-            url: "https://portal.sqd.dev/datasets/ethereum-mainnet"
-                .parse()
-                .unwrap(),
+        provider: cherry_ingest::ProviderConfig {
+            ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync)
         },
     })
+    .await
     .unwrap();
 
     while let Some(v) = stream.next().await {
@@ -64,13 +62,12 @@ async fn erc20_sqd() {
 
     let mut stream = cherry_ingest::start_stream(cherry_ingest::StreamConfig {
         format: cherry_ingest::Format::Evm(query),
-        provider: cherry_ingest::Provider::Sqd {
-            client_config: Default::default(),
-            url: "https://portal.sqd.dev/datasets/ethereum-mainnet"
-                .parse()
-                .unwrap(),
+        provider: cherry_ingest::ProviderConfig {
+            url: Some("https://portal.sqd.dev/datasets/ethereum-mainnet".to_owned()),
+            ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Sqd)
         },
     })
+    .await
     .unwrap();
 
     while let Some(v) = stream.next().await {

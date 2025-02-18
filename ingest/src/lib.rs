@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, pin::Pin};
 
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use arrow::record_batch::RecordBatch;
 use futures_lite::Stream;
 
@@ -29,6 +29,21 @@ pub struct ProviderConfig {
     pub retry_base_ms: Option<u64>,
     pub retry_ceiling_ms: Option<u64>,
     pub http_req_timeout_millis: Option<u64>,
+}
+
+impl ProviderConfig {
+    pub fn new(kind: ProviderKind) -> Self {
+        Self {
+            kind,
+            url: None,
+            bearer_token: None,
+            max_num_retries: None,
+            retry_backoff_ms: None,
+            retry_base_ms: None,
+            retry_ceiling_ms: None,
+            http_req_timeout_millis: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

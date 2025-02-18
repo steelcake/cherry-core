@@ -1,6 +1,6 @@
 use crate::{evm, DataStream, Format, StreamConfig};
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{new_null_array, Array, RecordBatch};
+use arrow::array::{builder, new_null_array, Array, BinaryArray, RecordBatch};
 use arrow::datatypes::DataType;
 use futures_lite::StreamExt as _;
 use hypersync_client::net_types as hypersync_nt;
@@ -164,6 +164,54 @@ fn map_hypersync_array(
     Ok(arr)
 }
 
+fn map_hypersync_binary_array_to_decimal256(
+    batch: &RecordBatch,
+    name: &str,
+    num_rows: usize,
+) -> Result<Arc<dyn Array>> {
+    let arr = map_hypersync_array(batch, name, num_rows, &DataType::Binary)?;
+    let arr = arr.as_any().downcast_ref::<BinaryArray>().unwrap();
+    let arr = cherry_cast::u256_column_from_binary(arr)
+        .with_context(|| format!("parse u256 values in {} column", name))?;
+    Ok(Arc::new(arr))
+}
+
+fn map_hypersync_u8_binary_array_to_boolean(
+    batch: &RecordBatch,
+    name: &str,
+    num_rows: usize,
+) -> Result<Arc<dyn Array>> {
+    let src = match batch.column_by_name(name) {
+        Some(arr) => Arc::clone(arr),
+        None => new_null_array(&DataType::Boolean, num_rows),
+    };
+    let src = src
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .with_context(|| format!("expected {} column to be binary type", name))?;
+
+    let mut arr = builder::BooleanBuilder::with_capacity(src.len());
+
+    for v in src.iter() {
+        match v {
+            None => arr.append_null(),
+            Some(v) => match v {
+                [0] => arr.append_value(false),
+                [1] => arr.append_value(true),
+                _ => {
+                    return Err(anyhow!(
+                        "column {} has an invalid value {}. All values should be zero or one.",
+                        name,
+                        faster_hex::hex_string(v),
+                    ))
+                }
+            },
+        }
+    }
+
+    Ok(Arc::new(arr.finish()))
+}
+
 fn map_blocks(blocks: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
     let mut batches = Vec::with_capacity(blocks.len());
 
@@ -174,12 +222,51 @@ fn map_blocks(blocks: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
         let num_rows = batch.num_rows();
         let batch = RecordBatch::try_new(
             schema.clone(),
-            vec![map_hypersync_array(
-                &batch,
-                "number",
-                num_rows,
-                &DataType::UInt64,
-            )?],
+            vec![
+                map_hypersync_array(&batch, "number", num_rows, &DataType::UInt64)?,
+                map_hypersync_array(&batch, "hash", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "parent_hash", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "nonce", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "sha3_uncles", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "logs_bloom", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "transactions_root", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "state_root", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "receipts_root", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "miner", num_rows, &DataType::Binary)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "difficulty", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "total_difficulty", num_rows)?,
+                map_hypersync_array(&batch, "extra_data", num_rows, &DataType::Binary)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "size", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "gas_limit", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "gas_used", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "timestamp", num_rows)?,
+                new_null_array(
+                    schema.column_with_name("uncles").unwrap().1.data_type(),
+                    num_rows,
+                ),
+                map_hypersync_binary_array_to_decimal256(&batch, "base_fee_per_gas", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "blob_gas_used", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "excess_blob_gas", num_rows)?,
+                map_hypersync_array(
+                    &batch,
+                    "parent_beacon_block_root",
+                    num_rows,
+                    &DataType::Binary,
+                )?,
+                map_hypersync_array(&batch, "withdrawals_root", num_rows, &DataType::Binary)?,
+                new_null_array(
+                    schema
+                        .column_with_name("withdrawals")
+                        .unwrap()
+                        .1
+                        .data_type(),
+                    num_rows,
+                ),
+                map_hypersync_array(&batch, "l1_block_number", num_rows, &DataType::UInt64)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "send_count", num_rows)?,
+                map_hypersync_array(&batch, "send_root", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "mix_hash", num_rows, &DataType::Binary)?,
+            ],
         )
         .context("map hypersync columns to common format")?;
         batches.push(batch);
@@ -188,16 +275,187 @@ fn map_blocks(blocks: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
     arrow::compute::concat_batches(&schema, batches.iter()).context("concat batches")
 }
 
-fn map_transactions(blocks: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
-    todo!()
+fn map_transactions(transactions: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
+    let mut batches = Vec::with_capacity(transactions.len());
+
+    let schema = Arc::new(cherry_evm_schema::transactions_schema());
+
+    for batch in transactions.iter() {
+        let batch = polars_arrow_to_arrow_rs(batch);
+        let num_rows = batch.num_rows();
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                map_hypersync_array(&batch, "block_hash", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "block_number", num_rows, &DataType::UInt64)?,
+                map_hypersync_array(&batch, "from", num_rows, &DataType::Binary)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "gas", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "gas_price", num_rows)?,
+                map_hypersync_array(&batch, "hash", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "input", num_rows, &DataType::Binary)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "nonce", num_rows)?,
+                map_hypersync_array(&batch, "to", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "transaction_index", num_rows, &DataType::UInt64)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "value", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "v", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "r", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "s", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(
+                    &batch,
+                    "max_priority_fee_per_gas",
+                    num_rows,
+                )?,
+                map_hypersync_binary_array_to_decimal256(&batch, "max_fee_per_gas", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "chain_id", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "cumulative_gas_used", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "effective_gas_price", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "gas_used", num_rows)?,
+                map_hypersync_array(&batch, "contract_address", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "logs_bloom", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "type", num_rows, &DataType::UInt8)?,
+                map_hypersync_array(&batch, "root", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "status", num_rows, &DataType::UInt8)?,
+                map_hypersync_array(&batch, "sighash", num_rows, &DataType::Binary)?,
+                map_hypersync_u8_binary_array_to_boolean(&batch, "y_parity", num_rows)?,
+                new_null_array(
+                    schema
+                        .column_with_name("access_list")
+                        .unwrap()
+                        .1
+                        .data_type(),
+                    num_rows,
+                ),
+                map_hypersync_binary_array_to_decimal256(&batch, "l1_fee", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "l1_gas_price", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "l1_gas_used", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "l1_fee_scalar", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "gas_used_for_l1", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "max_fee_per_blob_gas", num_rows)?,
+                new_null_array(
+                    schema
+                        .column_with_name("blob_versioned_hashes")
+                        .unwrap()
+                        .1
+                        .data_type(),
+                    num_rows,
+                ),
+                map_hypersync_binary_array_to_decimal256(&batch, "deposit_nonce", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "blob_gas_price", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(
+                    &batch,
+                    "deposit_receipt_version",
+                    num_rows,
+                )?,
+                map_hypersync_binary_array_to_decimal256(&batch, "blob_gas_used", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "l1_base_fee_scalar", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "l1_blob_base_fee", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(
+                    &batch,
+                    "l1_blob_base_fee_scalar",
+                    num_rows,
+                )?,
+                arrow::compute::cast_with_options(
+                    &map_hypersync_binary_array_to_decimal256(&batch, "l1_block_number", num_rows)?,
+                    &DataType::UInt64,
+                    &arrow::compute::CastOptions {
+                        safe: true,
+                        ..Default::default()
+                    },
+                )
+                .context("cast l1_block_number column from decimal256 to uint64")?,
+                map_hypersync_binary_array_to_decimal256(&batch, "mint", num_rows)?,
+                map_hypersync_array(&batch, "source_hash", num_rows, &DataType::Binary)?,
+            ],
+        )
+        .context("map hypersync columns to common format")?;
+        batches.push(batch);
+    }
+
+    arrow::compute::concat_batches(&schema, batches.iter()).context("concat batches")
 }
 
-fn map_logs(blocks: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
-    todo!()
+fn map_logs(logs: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
+    let mut batches = Vec::with_capacity(logs.len());
+
+    let schema = Arc::new(cherry_evm_schema::logs_schema());
+
+    for batch in logs.iter() {
+        let batch = polars_arrow_to_arrow_rs(batch);
+        let num_rows = batch.num_rows();
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                map_hypersync_array(&batch, "removed", num_rows, &DataType::Boolean)?,
+                map_hypersync_array(&batch, "log_index", num_rows, &DataType::UInt64)?,
+                map_hypersync_array(&batch, "transaction_index", num_rows, &DataType::UInt64)?,
+                map_hypersync_array(&batch, "transaction_hash", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "block_hash", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "block_number", num_rows, &DataType::UInt64)?,
+                map_hypersync_array(&batch, "address", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "data", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "topic0", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "topic1", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "topic2", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "topic3", num_rows, &DataType::Binary)?,
+            ],
+        )
+        .context("map hypersync columns to common format")?;
+        batches.push(batch);
+    }
+
+    arrow::compute::concat_batches(&schema, batches.iter()).context("concat batches")
 }
 
-fn map_traces(blocks: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
-    todo!()
+fn map_traces(traces: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
+    let mut batches = Vec::with_capacity(traces.len());
+
+    let schema = Arc::new(cherry_evm_schema::traces_schema());
+
+    for batch in traces.iter() {
+        let batch = polars_arrow_to_arrow_rs(batch);
+        let num_rows = batch.num_rows();
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                map_hypersync_array(&batch, "from", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "to", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "call_type", num_rows, &DataType::Utf8)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "gas", num_rows)?,
+                map_hypersync_array(&batch, "input", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "init", num_rows, &DataType::Binary)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "value", num_rows)?,
+                map_hypersync_array(&batch, "author", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "reward_type", num_rows, &DataType::Utf8)?,
+                map_hypersync_array(&batch, "block_hash", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "block_number", num_rows, &DataType::UInt64)?,
+                map_hypersync_array(&batch, "address", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "code", num_rows, &DataType::Binary)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "gas_used", num_rows)?,
+                map_hypersync_array(&batch, "output", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "subtraces", num_rows, &DataType::UInt64)?,
+                new_null_array(
+                    schema
+                        .column_with_name("trace_address")
+                        .unwrap()
+                        .1
+                        .data_type(),
+                    num_rows,
+                ),
+                map_hypersync_array(&batch, "transaction_hash", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "transaction_position", num_rows, &DataType::UInt64)?,
+                map_hypersync_array(&batch, "type", num_rows, &DataType::Utf8)?,
+                map_hypersync_array(&batch, "error", num_rows, &DataType::Utf8)?,
+                map_hypersync_array(&batch, "sighash", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "action_address", num_rows, &DataType::Binary)?,
+                map_hypersync_binary_array_to_decimal256(&batch, "balance", num_rows)?,
+                map_hypersync_array(&batch, "refund_address", num_rows, &DataType::Binary)?,
+            ],
+        )
+        .context("map hypersync columns to common format")?;
+        batches.push(batch);
+    }
+
+    arrow::compute::concat_batches(&schema, batches.iter()).context("concat batches")
 }
 
 fn polars_arrow_to_arrow_rs(
