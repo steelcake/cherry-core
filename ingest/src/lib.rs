@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, pin::Pin};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use arrow::record_batch::RecordBatch;
 use futures_lite::Stream;
 

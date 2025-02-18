@@ -1,7 +1,4 @@
-use std::collections::BTreeSet;
-
-use anyhow::{anyhow, Context, Result};
-use hypersync_client::net_types as hypersync_nt;
+use anyhow::{Context, Result};
 use serde::Serialize;
 
 #[derive(Default, Debug, Clone)]
