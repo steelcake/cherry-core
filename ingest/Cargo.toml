@@ -1,6 +1,6 @@
 [package]
 name = "cherry-ingest"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 description = "Library for ingesting evm data using common a query/response format"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -12,14 +12,20 @@ license = "MIT OR Apache-2.0"
 sqd-portal-client = { workspace = true }
 futures-lite = { workspace = true } 
 anyhow = { workspace = true }
-arrow = { workspace = true }
+arrow = { workspace = true, features = ["ffi"] }
+polars-arrow = { workspace = true }
 faster-hex = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 log = { workspace = true }
 tokio-stream = { workspace = true }
 pyo3 = { workspace = true, features = ["anyhow"], optional = true }
+hypersync-client = { workspace = true }
+serde = { workspace = true, features = ["derive"]}
+serde_json = { workspace = true }
 
 cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
+cherry-evm-schema = { path = "../evm-schema", version = "0.0.3" }
+cherry-cast = { path = "../cast", version = "0.0.4" }
 
 [dependencies.reqwest]
 version = "=0.12.9"

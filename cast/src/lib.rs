@@ -185,7 +185,7 @@ pub fn u256_column_from_binary(col: &BinaryArray) -> Result<Decimal256Array> {
         }
     }
 
-    Ok(arr.finish())
+    Ok(arr.with_precision_and_scale(76, 0).unwrap().finish())
 }
 
 pub fn u256_column_to_binary(col: &Decimal256Array) -> BinaryArray {

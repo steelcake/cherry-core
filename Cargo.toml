@@ -25,3 +25,7 @@ tokio = { version = "1", default-features = false }
 tokio-stream = "0.1"
 pyo3 = "0.23"
 sqd-portal-client = "0.0.7"
+hypersync-client = "0.17"
+serde = "1"
+serde_json = "1"
+polars-arrow = "0.42"
