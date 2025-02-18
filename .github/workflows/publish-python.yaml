@@ -28,12 +28,6 @@ jobs:
           - runner: ubuntu-22.04
             target: armv7
             manylinux: auto
-          - runner: ubuntu-22.04
-            target: s390x
-            manylinux: auto
-          - runner: ubuntu-22.04
-            target: ppc64le
-            manylinux: auto
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
