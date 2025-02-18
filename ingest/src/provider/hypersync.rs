@@ -1,6 +1,7 @@
 use crate::{evm, DataStream, Format, StreamConfig};
 use anyhow::{anyhow, Context, Result};
-use arrow::array::RecordBatch;
+use arrow::array::{new_null_array, Array, RecordBatch};
+use arrow::datatypes::DataType;
 use futures_lite::StreamExt as _;
 use hypersync_client::net_types as hypersync_nt;
 use std::sync::Arc;
@@ -142,8 +143,49 @@ pub async fn start_stream(cfg: StreamConfig) -> Result<DataStream> {
     }
 }
 
+fn map_hypersync_array(
+    batch: &RecordBatch,
+    name: &str,
+    num_rows: usize,
+    data_type: &DataType,
+) -> Result<Arc<dyn Array>> {
+    let arr = match batch.column_by_name(name) {
+        Some(arr) => Arc::clone(arr),
+        None => new_null_array(data_type, num_rows),
+    };
+    if arr.data_type() != data_type {
+        return Err(anyhow!(
+            "expected column {} to be of type {} but got {} instead",
+            name,
+            data_type,
+            arr.data_type()
+        ));
+    }
+    Ok(arr)
+}
+
 fn map_blocks(blocks: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
-    todo!()
+    let mut batches = Vec::with_capacity(blocks.len());
+
+    let schema = Arc::new(cherry_evm_schema::blocks_schema());
+
+    for batch in blocks.iter() {
+        let batch = polars_arrow_to_arrow_rs(batch);
+        let num_rows = batch.num_rows();
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![map_hypersync_array(
+                &batch,
+                "number",
+                num_rows,
+                &DataType::UInt64,
+            )?],
+        )
+        .context("map hypersync columns to common format")?;
+        batches.push(batch);
+    }
+
+    arrow::compute::concat_batches(&schema, batches.iter()).context("concat batches")
 }
 
 fn map_transactions(blocks: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {

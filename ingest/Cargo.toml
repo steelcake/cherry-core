@@ -24,6 +24,7 @@ serde = { workspace = true, features = ["derive"]}
 serde_json = { workspace = true }
 
 cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
+cherry-evm-schema = { path = "../evm-schema", version = "0.0.3" }
 
 [dependencies.reqwest]
 version = "=0.12.9"
