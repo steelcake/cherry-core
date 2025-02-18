@@ -1,5 +1,8 @@
+use std::collections::BTreeSet;
+
 use anyhow::{anyhow, Context, Result};
 use hypersync_client::net_types as hypersync_nt;
+use serde::Serialize;
 
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
@@ -7,7 +10,6 @@ pub struct Query {
     pub from_block: u64,
     pub to_block: Option<u64>,
     pub include_all_blocks: bool,
-    // pub blocks: Vec<BlockRequest>,
     pub transactions: Vec<TransactionRequest>,
     pub logs: Vec<LogRequest>,
     pub traces: Vec<TraceRequest>,
@@ -15,60 +17,6 @@ pub struct Query {
 }
 
 impl Query {
-    pub fn to_hypersync(&self) -> Result<hypersync_nt::Query> {
-        Ok(hypersync_nt::Query {
-            from_block: self.from_block,
-            to_block: self.to_block.map(|x| x+1),
-            include_all_blocks: self.include_all_blocks,
-            logs: self.logs.iter().map(|lg| Ok(hypersync_nt::LogSelection {
-                address: lg.address.iter().map(|addr| addr.0.into()).collect::<Vec<_>>(),
-                address_filter: None,
-                topics: vec![
-                    lg.topic0.iter().map(|x| Ok(x.0.into())).chain(lg.event_signatures.iter().map(|sig| {
-                        Ok(cherry_evm_decode::signature_to_topic0(sig).context("map signature to topic0")?.into())
-                    })).collect::<Result<Vec<_>>>()?,
-                    lg.topic1.iter().map(|x| x.0.into()).collect(),
-                    lg.topic2.iter().map(|x| x.0.into()).collect(),
-                    lg.topic3.iter().map(|x| x.0.into()).collect(),
-                ].as_slice().try_into().unwrap(),
-            })).collect::<Result<_>>()?,
-            transactions: self.transactions.iter().map(|tx| Ok(hypersync_nt::TransactionSelection {
-                from: tx.from_.iter().map(|x| x.0.into()).collect(),
-                to: tx.to.iter().map(|x| x.0.into()).collect(),
-                sighash: tx.sighash.iter().map(|x| x.0.into()).collect(),
-                status: if tx.status.len() == 1 {
-                    Some(*tx.status.first().unwrap())
-                } else if tx.status.len() == 0 {
-                    None
-                } else {
-                    return Err(anyhow!("failed to convert status query to hypersync. Only empty or single element arrays are supported."))
-                },
-                kind: tx.type_.clone(),
-                contract_address: tx.contract_deployment_address.iter().map(|x| x.0.into()).collect(),
-                hash: tx.hash.iter().map(|x| x.0.into()).collect(),
-                ..Default::default()
-            })).collect::<Result<_>>()?,
-            traces: self.traces.iter().map(|trc| Ok(hypersync_nt::TraceSelection {
-                from: trc.from_.iter().map(|x| x.0.into()).collect(),
-                to: trc.to.iter().map(|x| x.0.into()).collect(),
-                address: trc.address.iter().map(|x| x.0.into()).collect(),
-                call_type: trc.call_type.clone(),
-                reward_type: trc.reward_type.clone(),
-                kind: trc.type_.clone(),
-                sighash: trc.sighash.iter().map(|x| x.0.into()).collect(),
-                ..Default::default() 
-            })).collect::<Result<_>>()?,
-            join_mode: hypersync_nt::JoinMode::Default,
-            field_selection: hypersync_nt::FieldSelection {
-                block: todo!(),
-                transaction: todo!(),
-                log: todo!(),
-                trace: todo!(),
-            },
-            ..Default::default()
-        })
-    }
-
     pub fn to_sqd(&self) -> Result<sqd_portal_client::evm::Query> {
         let hex_encode = |addr: &[u8]| format!("0x{}", faster_hex::hex_string(addr));
 
@@ -386,7 +334,7 @@ pub struct TraceRequest {
     pub include_transaction_traces: bool,
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Serialize, Default, Debug, Clone, Copy)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct Fields {
     pub block: BlockFields,
@@ -406,7 +354,7 @@ impl Fields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct BlockFields {
     pub number: bool,
@@ -474,7 +422,7 @@ impl BlockFields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TransactionFields {
     pub block_hash: bool,
@@ -574,7 +522,7 @@ impl TransactionFields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct LogFields {
     pub removed: bool,
@@ -610,7 +558,7 @@ impl LogFields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TraceFields {
     pub from_: bool,

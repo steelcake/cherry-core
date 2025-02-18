@@ -8,6 +8,43 @@ use hypersync_client::{self, ClientConfig, StreamConfig};
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
+async fn erc20_hypersync() {
+    let signature = "Transfer(address indexed from, address indexed to, uint256 amount)";
+
+    let query = cherry_ingest::evm::Query {
+        from_block: 18123123,
+        to_block: Some(18123222),
+        fields: cherry_ingest::evm::Fields::all(),
+        logs: vec![cherry_ingest::evm::LogRequest {
+            address: vec![Address(decode_hex(
+                "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            ))],
+            topic0: vec![Topic(signature_to_topic0(signature).unwrap())],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let mut stream = cherry_ingest::start_stream(cherry_ingest::StreamConfig {
+        format: cherry_ingest::Format::Evm(query),
+        provider: cherry_ingest::Provider::Sqd {
+            client_config: Default::default(),
+            url: "https://portal.sqd.dev/datasets/ethereum-mainnet"
+                .parse()
+                .unwrap(),
+        },
+    })
+    .unwrap();
+
+    while let Some(v) = stream.next().await {
+        let v = v.unwrap();
+        let decoded = decode_events(signature, v.get("logs").unwrap(), false).unwrap();
+        dbg!(decoded);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
 async fn erc20_sqd() {
     let signature = "Transfer(address indexed from, address indexed to, uint256 amount)";
 
@@ -70,44 +107,6 @@ async fn decode_nested_list() {
         "from_block": 0,
         "logs": [{
             "address": ["0xC5893DcAB9AD32Fa47923FEbdE89883C62BfFbd6"],
-            "topics": [[hypersync_client::format::LogArgument::try_from(signature_to_topic0(signature).unwrap().as_slice()).unwrap()]]
-        }],
-        "field_selection": {
-            "log": hypersync_client::schema::log()
-                .fields
-                .iter()
-                .map(|f| f.name.clone())
-                .collect::<Vec<String>>(),
-        }
-    })).unwrap();
-
-    let res = client
-        .collect_arrow(query, StreamConfig::default())
-        .await
-        .unwrap();
-
-    let logs = res.data.logs.iter().map(polars_arrow_to_arrow_rs);
-
-    for batch in logs {
-        let decoded = decode_events(signature, &batch, false).unwrap();
-
-        dbg!(decoded);
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore]
-async fn decode_erc20() {
-    let client = hypersync_client::Client::new(ClientConfig::default()).unwrap();
-    let client = Arc::new(client);
-
-    let signature = "Transfer(address indexed from, address indexed to, uint256 amount)";
-
-    let query = serde_json::from_value(serde_json::json!({
-        "from_block": 18123123,
-        "to_block": 18123222,
-        "logs": [{
-            "address": ["0xdAC17F958D2ee523a2206206994597C13D831ec7"],
             "topics": [[hypersync_client::format::LogArgument::try_from(signature_to_topic0(signature).unwrap().as_slice()).unwrap()]]
         }],
         "field_selection": {
