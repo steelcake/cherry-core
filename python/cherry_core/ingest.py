@@ -1,6 +1,6 @@
 from typing import Dict, Optional 
 from . import cherry_core as cc
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field 
 import pyarrow
 from enum import Enum
 
@@ -182,13 +182,16 @@ class EvmQuery:
 
 class ProviderKind(str, Enum):
     SQD = "sqd"
+    HYPERSYNC = "hypersync"
 
 class Format(str, Enum):
     EVM = "evm"
 
 @dataclass
 class ProviderConfig:
+    kind: ProviderKind
     url: Optional[str] = None
+    bearer_token: Optional[str] = None
     max_num_retries: Optional[int] = None
     retry_backoff_ms: Optional[int] = None
     retry_base_ms: Optional[int] = None
@@ -196,15 +199,10 @@ class ProviderConfig:
     http_req_timeout_millis: Optional[int] = None
 
 @dataclass
-class Provider:
-    kind: ProviderKind
-    config: ProviderConfig
-
-@dataclass
 class StreamConfig:
     format: Format
     query: EvmQuery
-    provider: Provider
+    provider: ProviderConfig
 
 class ResponseStream:
     def __init__(self, inner):
