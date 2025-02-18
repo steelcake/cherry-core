@@ -40,7 +40,7 @@ jobs:
           args: --release --out dist --find-interpreter --manifest-path ./python/Cargo.toml  
           sccache: 'true'
           manylinux: ${{ matrix.platform.manylinux }}
-          before-script-linux: sudo apt-get install -y capnproto libcapnp-dev
+          before-script-linux: apt-get install -y capnproto libcapnp-dev
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
