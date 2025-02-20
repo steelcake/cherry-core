@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{Array, BinaryArray, BooleanArray, PrimitiveArray, UInt64Array};
+use arrow::array::{Array, BinaryArray, BooleanArray, PrimitiveArray, UInt64Array, UInt8Array};
 use arrow::{datatypes::UInt64Type, record_batch::RecordBatch};
 
-use alloy_primitives::{Bloom, Bytes, FixedBytes, Log};
-use alloy_consensus::{Eip658Value, Receipt, ReceiptWithBloom, TxReceipt};
+use alloy_primitives::{Bytes, FixedBytes, Log};
+use alloy_consensus::{Eip658Value, Receipt, ReceiptEnvelope};
 use alloy_consensus::proofs::calculate_receipt_root;
 
 /// Checks that:
@@ -308,22 +308,22 @@ pub fn validate_block_data(
         .map(|x| x.unwrap().try_into().unwrap())
         .collect::<Vec<[u8; 32]>>();
 
-    let block_transactions_root = blocks
-        .column_by_name("transactions_root")
-        .context("get block transactions_root column")?
-        .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get block transactions_root as binary")?
-        .iter()
-        .map(|x| x.unwrap().try_into().unwrap())
-        .collect::<Vec<[u8; 32]>>();
+    // let block_transactions_root = blocks
+    //     .column_by_name("transactions_root")
+    //     .context("get block transactions_root column")?
+    //     .as_any()
+    //     .downcast_ref::<BinaryArray>()
+    //     .context("get block transactions_root as binary")?
+    //     .iter()
+    //     .map(|x| x.unwrap().try_into().unwrap())
+    //     .collect::<Vec<[u8; 32]>>();
 
     validate_root_hashes(
         &block_receipts_root,
-        &block_transactions_root,
+        // &block_transactions_root,
         logs,
         transactions,
-    );
+    ).context("validate root hashes")?;
 
     Ok(())
 }
@@ -449,7 +449,7 @@ fn validate_transaction_hashes(
 
 fn validate_root_hashes(
     expected_receipts_root: &Vec<[u8; 32]>,
-    expected_transactions_root: &Vec<[u8; 32]>,
+    // expected_transactions_root: &Vec<[u8; 32]>,
     logs: &RecordBatch,
     transactions: &RecordBatch,
 ) -> Result<()> {
@@ -547,7 +547,7 @@ fn validate_root_hashes(
         let topic1 = log_topic1.unwrap().try_into().unwrap();
         let topic2 = log_topic2.unwrap().try_into().unwrap();
         let topic3 = log_topic3.unwrap().try_into().unwrap();
-        let log_data = log_data.unwrap();
+        let log_data = log_data.unwrap().try_into().unwrap();
         
         if block_pos == current_block_pos {
             if log_tx_idx == current_tx_idx {
@@ -603,6 +603,13 @@ fn validate_root_hashes(
         .downcast_ref::<BinaryArray>()
         .context("get tx logs bloom col as binary")?;
 
+    let tx_type = transactions
+        .column_by_name("type")
+        .context("get tx type column")?
+        .as_any()
+        .downcast_ref::<UInt8Array>()
+        .context("get tx type col as u8")?;
+
     let first_block_num = tx_block_nums
         .iter()
         .next()
@@ -620,36 +627,47 @@ fn validate_root_hashes(
     let mut current_tx_idx = 0;
 
     let mut receipts_root_by_block_pos_mapping = Vec::<FixedBytes<32>>::with_capacity(200);
-    let mut receipt_by_tx_idx_mapping = Vec::<ReceiptWithBloom>::with_capacity(200);
+    let mut receipt_by_tx_idx_mapping = Vec::<ReceiptEnvelope>::with_capacity(200);
     
-    for (((((block_pos, tx_idx), tx_status), tx_cumulative_gas_used), tx_logs_bloom), logs_by_block_pos_mapping) in block_pos
+    for ((((((block_pos, tx_tx_idx), tx_status), tx_cumulative_gas_used), tx_logs_bloom), tx_type), logs_by_block_pos_mapping) in block_pos
             .iter()
             .zip(tx_tx_idx.iter())
             .zip(tx_status.iter())
             .zip(tx_cumulative_gas_used.iter())
             .zip(tx_logs_bloom.iter())
+            .zip(tx_type.iter())
             .zip(logs_by_block_pos_mapping.iter()) {
 
         let block_pos = block_pos.unwrap();
-        let tx_idx = tx_idx.unwrap();
+        let tx_tx_idx = tx_tx_idx.unwrap();
         let tx_status = tx_status.unwrap();
         let tx_cumulative_gas_used = tx_cumulative_gas_used.unwrap();
         let tx_logs_bloom = tx_logs_bloom.unwrap();
         let tx_logs = logs_by_block_pos_mapping;
-
+        let tx_type = tx_type.unwrap();
         if block_pos == current_block_pos {
-            if tx_idx == current_tx_idx {
+            if tx_tx_idx == current_tx_idx {
                 let eip658value = Eip658Value::Eip658(tx_status);
                 let receipt = Receipt {
                     status: eip658value,
                     cumulative_gas_used: tx_cumulative_gas_used,
                     logs: tx_logs.to_vec(),
                 };
-                let bloom = Bloom::new(tx_logs_bloom.try_into().expect("logs bloom must be 256 bytes"));
-                let receiptwithbloom = ReceiptWithBloom::new(receipt.clone(), bloom);
-                receipt_by_tx_idx_mapping.push(receiptwithbloom);
+                let receiptwithbloom = receipt.with_bloom();
+                println!("tx_logs_bloom. Calculated: {:?}, Given: {:?}", receiptwithbloom.logs_bloom, tx_logs_bloom);
+                // let bloom = Bloom::new(tx_logs_bloom.try_into().expect("logs bloom must be 256 bytes"));
+                // let receiptwithbloom = ReceiptWithBloom::new(receipt.clone(), bloom);
+                let receipt_envelope = match tx_type {
+                    0 => ReceiptEnvelope::Legacy(receiptwithbloom),
+                    1 => ReceiptEnvelope::Eip2930(receiptwithbloom),
+                    2 => ReceiptEnvelope::Eip1559(receiptwithbloom),
+                    3 => ReceiptEnvelope::Eip4844(receiptwithbloom),
+                    4 => ReceiptEnvelope::Eip7702(receiptwithbloom),
+                    _ => return Err(anyhow!("Invalid tx type: {}", tx_type)),
+                };
+                receipt_by_tx_idx_mapping.push(receipt_envelope);
                 current_tx_idx += 1;
-            } else if tx_idx == 0 {
+            } else if tx_tx_idx == 0 {
                 // let receipts_with_bloom = receipt_by_tx_idx_mapping.iter().map(TxReceipt::with_bloom_ref).collect::<Vec<_>>();
                 let receipt_root = calculate_receipt_root(&receipt_by_tx_idx_mapping);
                 receipts_root_by_block_pos_mapping.push(receipt_root);
@@ -657,14 +675,20 @@ fn validate_root_hashes(
                 current_block_pos += 1;
                 current_tx_idx = 0;
             } else {
-                return Err(anyhow!("Found tx_idx gap at block {},{}. Expected tx_idx in logs {}", block_pos, tx_idx, current_tx_idx));
+                return Err(anyhow!("Found tx_idx gap at block {},{}. Expected tx_idx in logs {}", block_pos, tx_tx_idx, current_tx_idx));
             }
         } else {
             return Err(anyhow!("Found block pos gap at block {},{}. Expected block_pos in logs {}", block_pos, current_block_pos, current_block_pos));
         }
+
+
     };
 
-    
+    for (block_pos, (expected, calculated)) in expected_receipts_root.iter().zip(receipts_root_by_block_pos_mapping.iter()).enumerate() {
+        if expected != calculated {
+            return Err(anyhow!("Receipts root mismatch at block {}. Expected: {:?}, Found: {:?}", block_pos, expected, calculated));
+        }
+    }
 
 
 
