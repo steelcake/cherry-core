@@ -6,17 +6,13 @@ signature = "Transfer(address indexed from, address indexed to, uint256 amount)"
 topic0 = cherry_core.evm_signature_to_topic0(signature)
 contract_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
-async def main():
+async def run(provider: ingest.ProviderConfig):
     stream = ingest.start_stream(ingest.StreamConfig(
         format=ingest.Format.EVM,
-        provider=ingest.Provider(
-            kind=ingest.ProviderKind.SQD,
-            config=ingest.ProviderConfig(
-                url="https://portal.sqd.dev/datasets/ethereum-mainnet"
-            ),
-        ),
+        provider=provider,
         query=ingest.EvmQuery(
             from_block=20123123,
+            to_block=20123223,
             logs=[ingest.LogRequest(
                 address=[contract_address],
                 event_signatures=[signature],
@@ -47,4 +43,22 @@ async def main():
         decoded = cherry_core.evm_decode_events(signature, res["logs"])
         print(decoded)
 
-asyncio.run(main())
+print("running with sqd")
+asyncio.run(
+    run(
+        ingest.ProviderConfig(
+            kind=ingest.ProviderKind.SQD,
+            url="https://portal.sqd.dev/datasets/ethereum-mainnet",
+        )
+    )
+)
+
+print("running with hypersync")
+asyncio.run(
+    run(
+        ingest.ProviderConfig(
+            kind=ingest.ProviderKind.HYPERSYNC,
+            url="https://eth.hypersync.xyz",
+        )
+    )
+)

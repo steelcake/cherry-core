@@ -1,16 +1,16 @@
-use std::{collections::BTreeMap, pin::Pin, sync::Arc};
+use std::{collections::BTreeMap, pin::Pin};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use arrow::record_batch::RecordBatch;
-use futures_lite::{Stream, StreamExt};
-use reqwest::Url;
+use futures_lite::Stream;
 
 pub mod evm;
+mod provider;
 
 #[derive(Debug, Clone)]
 pub struct StreamConfig {
     pub format: Format,
-    pub provider: Provider,
+    pub provider: ProviderConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -19,50 +19,59 @@ pub enum Format {
 }
 
 #[derive(Debug, Clone)]
-pub enum Provider {
-    Sqd {
-        client_config: sqd_portal_client::ClientConfig,
-        url: Url,
-    },
+#[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
+pub struct ProviderConfig {
+    pub kind: ProviderKind,
+    pub url: Option<String>,
+    pub bearer_token: Option<String>,
+    pub max_num_retries: Option<usize>,
+    pub retry_backoff_ms: Option<u64>,
+    pub retry_base_ms: Option<u64>,
+    pub retry_ceiling_ms: Option<u64>,
+    pub http_req_timeout_millis: Option<u64>,
 }
 
-#[allow(clippy::type_complexity)]
-pub fn start_stream(
-    cfg: StreamConfig,
-) -> Result<Pin<Box<dyn Stream<Item = Result<BTreeMap<String, RecordBatch>>> + Send + Sync>>> {
-    match cfg.provider {
-        Provider::Sqd { client_config, url } => match cfg.format {
-            Format::Evm(evm_query) => {
-                let evm_query = evm_query.to_sqd().context("convert to sqd query")?;
+impl ProviderConfig {
+    pub fn new(kind: ProviderKind) -> Self {
+        Self {
+            kind,
+            url: None,
+            bearer_token: None,
+            max_num_retries: None,
+            retry_backoff_ms: None,
+            retry_base_ms: None,
+            retry_ceiling_ms: None,
+            http_req_timeout_millis: None,
+        }
+    }
+}
 
-                let client = sqd_portal_client::Client::new(url, client_config);
-                let client = Arc::new(client);
+#[derive(Debug, Clone, Copy)]
+pub enum ProviderKind {
+    Sqd,
+    Hypersync,
+}
 
-                let receiver = client.evm_arrow_finalized_stream(
-                    evm_query,
-                    sqd_portal_client::StreamConfig {
-                        stop_on_head: true,
-                        ..Default::default()
-                    },
-                );
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for ProviderKind {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        use pyo3::types::PyAnyMethods;
 
-                let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
+        let out: &str = ob.extract().context("read as string")?;
 
-                let stream = stream.map(|v| {
-                    v.map(|v| {
-                        let mut data = BTreeMap::new();
+        match out {
+            "sqd" => Ok(Self::Sqd),
+            "hypersync" => Ok(Self::Hypersync),
+            _ => Err(anyhow!("unknown provider kind: {}", out).into()),
+        }
+    }
+}
 
-                        data.insert("blocks".to_owned(), v.blocks);
-                        data.insert("transactions".to_owned(), v.transactions);
-                        data.insert("logs".to_owned(), v.logs);
-                        data.insert("traces".to_owned(), v.traces);
+type DataStream = Pin<Box<dyn Stream<Item = Result<BTreeMap<String, RecordBatch>>> + Send + Sync>>;
 
-                        data
-                    })
-                });
-
-                Ok(Box::pin(stream))
-            }
-        },
+pub async fn start_stream(cfg: StreamConfig) -> Result<DataStream> {
+    match cfg.provider.kind {
+        ProviderKind::Sqd => provider::sqd::start_stream(cfg),
+        ProviderKind::Hypersync => provider::hypersync::start_stream(cfg).await,
     }
 }

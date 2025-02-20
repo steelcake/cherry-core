@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use anyhow::Context;
+use serde::Serialize;
 
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
@@ -6,224 +7,13 @@ pub struct Query {
     pub from_block: u64,
     pub to_block: Option<u64>,
     pub include_all_blocks: bool,
-    // pub blocks: Vec<BlockRequest>,
     pub transactions: Vec<TransactionRequest>,
     pub logs: Vec<LogRequest>,
     pub traces: Vec<TraceRequest>,
     pub fields: Fields,
 }
 
-impl Query {
-    pub fn to_sqd(&self) -> Result<sqd_portal_client::evm::Query> {
-        let hex_encode = |addr: &[u8]| format!("0x{}", faster_hex::hex_string(addr));
-
-        let mut logs: Vec<_> = Vec::with_capacity(self.logs.len());
-
-        for lg in self.logs.iter() {
-            let mut topic0 = Vec::with_capacity(lg.topic0.len() + lg.event_signatures.len());
-
-            topic0.extend_from_slice(lg.topic0.as_slice());
-
-            for sig in lg.event_signatures.iter() {
-                let t0 = cherry_evm_decode::signature_to_topic0(sig)
-                    .context("convert event signature to topic0")?;
-                topic0.push(Topic(t0));
-            }
-
-            let topic0 = topic0
-                .into_iter()
-                .map(|x| hex_encode(x.0.as_slice()))
-                .collect::<Vec<_>>();
-
-            logs.push(sqd_portal_client::evm::LogRequest {
-                address: lg
-                    .address
-                    .iter()
-                    .map(|x| hex_encode(x.0.as_slice()))
-                    .collect(),
-                topic0,
-                topic1: lg
-                    .topic1
-                    .iter()
-                    .map(|x| hex_encode(x.0.as_slice()))
-                    .collect(),
-                topic2: lg
-                    .topic2
-                    .iter()
-                    .map(|x| hex_encode(x.0.as_slice()))
-                    .collect(),
-                topic3: lg
-                    .topic3
-                    .iter()
-                    .map(|x| hex_encode(x.0.as_slice()))
-                    .collect(),
-                transaction: lg.include_transactions,
-                transaction_logs: lg.include_transaction_logs,
-                transaction_traces: lg.include_transaction_traces,
-            });
-        }
-
-        Ok(sqd_portal_client::evm::Query {
-            type_: Default::default(),
-            from_block: self.from_block,
-            to_block: self.to_block.map(|x| x + 1),
-            include_all_blocks: self.include_all_blocks,
-            transactions: self
-                .transactions
-                .iter()
-                .map(|tx| sqd_portal_client::evm::TransactionRequest {
-                    from: tx
-                        .from_
-                        .iter()
-                        .map(|x| hex_encode(x.0.as_slice()))
-                        .collect(),
-                    to: tx.to.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
-                    sighash: tx
-                        .sighash
-                        .iter()
-                        .map(|x| hex_encode(x.0.as_slice()))
-                        .collect(),
-                    logs: tx.include_logs,
-                    traces: tx.include_traces,
-                    state_diffs: false,
-                })
-                .collect(),
-            logs,
-            traces: self
-                .traces
-                .iter()
-                .map(|t| sqd_portal_client::evm::TraceRequest {
-                    type_: t.type_.clone(),
-                    create_from: t.from_.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
-                    call_from: t.from_.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
-                    call_to: t.to.iter().map(|x| hex_encode(x.0.as_slice())).collect(),
-                    call_sighash: t
-                        .sighash
-                        .iter()
-                        .map(|x| hex_encode(x.0.as_slice()))
-                        .collect(),
-                    suicide_refund_address: t
-                        .address
-                        .iter()
-                        .map(|x| hex_encode(x.0.as_slice()))
-                        .collect(),
-                    reward_author: t
-                        .author
-                        .iter()
-                        .map(|x| hex_encode(x.0.as_slice()))
-                        .collect(),
-                    transaction: t.include_transactions,
-                    transaction_logs: t.include_transaction_logs,
-                    subtraces: t.include_transaction_traces,
-                    parents: t.include_transaction_traces,
-                })
-                .collect(),
-            state_diffs: Vec::new(),
-            fields: sqd_portal_client::evm::Fields {
-                block: sqd_portal_client::evm::BlockFields {
-                    number: self.fields.block.number,
-                    hash: self.fields.block.hash,
-                    parent_hash: self.fields.block.parent_hash,
-                    timestamp: self.fields.block.timestamp,
-                    transactions_root: self.fields.block.transactions_root,
-                    receipts_root: self.fields.block.receipts_root,
-                    state_root: self.fields.block.state_root,
-                    logs_bloom: self.fields.block.logs_bloom,
-                    sha3_uncles: self.fields.block.sha3_uncles,
-                    extra_data: self.fields.block.extra_data,
-                    miner: self.fields.block.miner,
-                    nonce: self.fields.block.nonce,
-                    mix_hash: self.fields.block.mix_hash,
-                    size: self.fields.block.size,
-                    gas_limit: self.fields.block.gas_limit,
-                    gas_used: self.fields.block.gas_used,
-                    difficulty: self.fields.block.difficulty,
-                    total_difficulty: self.fields.block.total_difficulty,
-                    base_fee_per_gas: self.fields.block.base_fee_per_gas,
-                    blob_gas_used: self.fields.block.blob_gas_used,
-                    excess_blob_gas: self.fields.block.excess_blob_gas,
-                    l1_block_number: self.fields.block.l1_block_number,
-                },
-                transaction: sqd_portal_client::evm::TransactionFields {
-                    transaction_index: self.fields.transaction.transaction_index,
-                    hash: self.fields.transaction.hash,
-                    nonce: self.fields.transaction.nonce,
-                    from: self.fields.transaction.from_,
-                    to: self.fields.transaction.to,
-                    input: self.fields.transaction.input,
-                    value: self.fields.transaction.value,
-                    gas: self.fields.transaction.gas,
-                    gas_price: self.fields.transaction.gas_price,
-                    max_fee_per_gas: self.fields.transaction.max_fee_per_gas,
-                    max_priority_fee_per_gas: self.fields.transaction.max_priority_fee_per_gas,
-                    v: self.fields.transaction.v,
-                    r: self.fields.transaction.r,
-                    s: self.fields.transaction.s,
-                    y_parity: self.fields.transaction.y_parity,
-                    chain_id: self.fields.transaction.chain_id,
-                    sighash: self.fields.transaction.sighash,
-                    contract_address: self.fields.transaction.contract_address,
-                    gas_used: self.fields.transaction.gas_used,
-                    cumulative_gas_used: self.fields.transaction.cumulative_gas_used,
-                    effective_gas_price: self.fields.transaction.effective_gas_price,
-                    type_: self.fields.transaction.type_,
-                    status: self.fields.transaction.status,
-                    max_fee_per_blob_gas: self.fields.transaction.max_fee_per_blob_gas,
-                    blob_versioned_hashes: self.fields.transaction.blob_versioned_hashes,
-                    l1_fee: self.fields.transaction.l1_fee,
-                    l1_fee_scalar: self.fields.transaction.l1_fee_scalar,
-                    l1_gas_price: self.fields.transaction.l1_gas_price,
-                    l1_gas_used: false,
-                    l1_blob_base_fee: self.fields.transaction.l1_blob_base_fee,
-                    l1_blob_base_fee_scalar: self.fields.transaction.l1_blob_base_fee_scalar,
-                    l1_base_fee_scalar: self.fields.transaction.l1_base_fee_scalar,
-                },
-                log: sqd_portal_client::evm::LogFields {
-                    log_index: self.fields.log.log_index,
-                    transaction_index: self.fields.log.transaction_index,
-                    transaction_hash: self.fields.log.transaction_hash,
-                    address: self.fields.log.address,
-                    data: self.fields.log.data,
-                    topics: self.fields.log.topic0
-                        || self.fields.log.topic1
-                        || self.fields.log.topic2
-                        || self.fields.log.topic3,
-                },
-                trace: sqd_portal_client::evm::TraceFields {
-                    transaction_index: self.fields.trace.transaction_position,
-                    trace_address: self.fields.trace.trace_address,
-                    subtraces: self.fields.trace.subtraces,
-                    type_: self.fields.trace.type_,
-                    error: self.fields.trace.error,
-                    revert_reason: self.fields.trace.error,
-                    create_from: self.fields.trace.from_,
-                    create_value: self.fields.trace.value,
-                    create_gas: self.fields.trace.gas,
-                    create_init: self.fields.trace.init,
-                    create_result_gas_used: self.fields.trace.gas_used,
-                    create_result_code: self.fields.trace.code,
-                    create_result_address: self.fields.trace.address,
-                    call_from: self.fields.trace.from_,
-                    call_to: self.fields.trace.to,
-                    call_value: self.fields.trace.value,
-                    call_gas: self.fields.trace.gas,
-                    call_input: self.fields.trace.input,
-                    call_sighash: self.fields.trace.sighash,
-                    call_type: self.fields.trace.type_,
-                    call_call_type: self.fields.trace.call_type,
-                    call_result_gas_used: self.fields.trace.gas_used,
-                    call_result_output: self.fields.trace.output,
-                    suicide_address: self.fields.trace.address,
-                    suicide_refund_address: self.fields.trace.refund_address,
-                    suicide_balance: self.fields.trace.balance,
-                    reward_author: self.fields.trace.author,
-                    reward_value: self.fields.trace.value,
-                    reward_type: self.fields.trace.author,
-                },
-            },
-        })
-    }
-}
+impl Query {}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Hash(pub [u8; 32]);
@@ -331,7 +121,7 @@ pub struct TraceRequest {
     pub include_transaction_traces: bool,
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Serialize, Default, Debug, Clone, Copy)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct Fields {
     pub block: BlockFields,
@@ -351,7 +141,7 @@ impl Fields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct BlockFields {
     pub number: bool,
@@ -419,7 +209,7 @@ impl BlockFields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TransactionFields {
     pub block_hash: bool,
@@ -519,7 +309,7 @@ impl TransactionFields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct LogFields {
     pub removed: bool,
@@ -555,7 +345,7 @@ impl LogFields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TraceFields {
     pub from_: bool,
