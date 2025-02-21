@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use cherry_evm_decode::{decode_events, signature_to_topic0};
-use cherry_evm_validate::validate_block_data;
+use cherry_evm_validate::{validate_block_data, validate_root_hashes};
 use cherry_ingest::evm::{Address, Topic};
 use futures_lite::StreamExt;
 use hypersync_client::{self, ClientConfig, StreamConfig};
@@ -109,7 +109,7 @@ async fn decode_nested_list() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore]
+// #[ignore]
 async fn validate_eth() {
     let client = hypersync_client::Client::new(ClientConfig {
         ..Default::default()
@@ -119,7 +119,7 @@ async fn validate_eth() {
 
     let query = serde_json::from_value(serde_json::json!({
         "from_block": 18123123,
-        "to_block": 18123143,
+        "to_block": 18123129,
         "blocks": [{}],
         "join_mode": "JoinAll",
         "field_selection": {
@@ -158,7 +158,30 @@ async fn validate_eth() {
     let traces = res.data.traces.iter().map(polars_arrow_to_arrow_rs);
 
     for (((blocks, transactions), logs), traces) in blocks.zip(transactions).zip(logs).zip(traces) {
+        // USING PARQUET TO DEBUG, REMOVE BEFORE MERGING
+        //write blocks, transactions, logs, traces to parquet
+        let blocks_file = std::fs::File::create("blocks.parquet").unwrap();
+        let mut blocks_writer = parquet::arrow::ArrowWriter::try_new(blocks_file, blocks.schema(), None).unwrap();
+        blocks_writer.write(&blocks).unwrap();
+        blocks_writer.close().unwrap();
+
+        let transactions_file = std::fs::File::create("transactions.parquet").unwrap();
+        let mut transactions_writer = parquet::arrow::ArrowWriter::try_new(transactions_file, transactions.schema(), None).unwrap();
+        transactions_writer.write(&transactions).unwrap();
+        transactions_writer.close().unwrap();
+
+        let logs_file = std::fs::File::create("logs.parquet").unwrap();
+        let mut logs_writer = parquet::arrow::ArrowWriter::try_new(logs_file, logs.schema(), None).unwrap();
+        logs_writer.write(&logs).unwrap();
+        logs_writer.close().unwrap();
+
+        let traces_file = std::fs::File::create("traces.parquet").unwrap();
+        let mut traces_writer = parquet::arrow::ArrowWriter::try_new(traces_file, traces.schema(), None).unwrap();
+        traces_writer.write(&traces).unwrap();
+        traces_writer.close().unwrap();
+
         validate_block_data(&blocks, &transactions, &logs, &traces).unwrap();
+        validate_root_hashes(&blocks, &logs, &transactions).unwrap();
     }
 }
 

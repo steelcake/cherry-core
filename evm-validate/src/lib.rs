@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{Array, BinaryArray, BooleanArray, PrimitiveArray, UInt64Array, UInt8Array};
+use arrow::array::{Array, BinaryArray, GenericByteArray, PrimitiveArray, UInt64Array, UInt8Array};
+use arrow::datatypes::{GenericBinaryType, UInt8Type};
 use arrow::{datatypes::UInt64Type, record_batch::RecordBatch};
 
-use alloy_primitives::{Bytes, FixedBytes, Log};
+use alloy_primitives::{Bloom, Bytes, FixedBytes, Log};
 use alloy_consensus::{Eip658Value, Receipt, ReceiptEnvelope};
 use alloy_consensus::proofs::calculate_receipt_root;
 
@@ -297,33 +300,6 @@ pub fn validate_block_data(
         }
         current_tx_pos = tx_pos;
     }
-    
-    let block_receipts_root = blocks
-        .column_by_name("receipts_root")
-        .context("get block receipts_root column")?
-        .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get block receipts_root as binary")?
-        .iter()
-        .map(|x| x.unwrap().try_into().unwrap())
-        .collect::<Vec<[u8; 32]>>();
-
-    // let block_transactions_root = blocks
-    //     .column_by_name("transactions_root")
-    //     .context("get block transactions_root column")?
-    //     .as_any()
-    //     .downcast_ref::<BinaryArray>()
-    //     .context("get block transactions_root as binary")?
-    //     .iter()
-    //     .map(|x| x.unwrap().try_into().unwrap())
-    //     .collect::<Vec<[u8; 32]>>();
-
-    validate_root_hashes(
-        &block_receipts_root,
-        // &block_transactions_root,
-        logs,
-        transactions,
-    ).context("validate root hashes")?;
 
     Ok(())
 }
@@ -447,13 +423,190 @@ fn validate_transaction_hashes(
     Ok(())
 }
 
-fn validate_root_hashes(
-    expected_receipts_root: &Vec<[u8; 32]>,
-    // expected_transactions_root: &Vec<[u8; 32]>,
+pub fn validate_root_hashes(
+    blocks: &RecordBatch,
     logs: &RecordBatch,
     transactions: &RecordBatch,
 ) -> Result<()> {
 
+    // CREATE A LOG MAPPING
+
+    let (log_block_nums, log_tx_idx, log_address, log_topic0, log_topic1, log_topic2, log_topic3, log_data) = extract_log_cols_as_arrays(logs)?;
+
+    // get first log block num and tx idx
+    let mut current_block_num = log_block_nums.value(0);
+    let mut current_tx_idx = log_tx_idx.value(0);
+    // initialize a vec to store all logs for a tx
+    let mut tx_logs = Vec::<Log>::with_capacity(20);
+    // initialize a map to store logs by block num and tx idx   
+    let mut logs_by_block_num_and_tx_idx = BTreeMap::<(u64, u64), Vec<Log>>::new();
+
+    let log_iterators = log_block_nums.iter()
+        .zip(log_tx_idx.iter())
+        .zip(log_address.iter())
+        .zip(log_topic0.iter())
+        .zip(log_topic1.iter())
+        .zip(log_topic2.iter())
+        .zip(log_topic3.iter())
+        .zip(log_data.iter());
+    
+    // iterate over logs rows
+    for (((((((block_nums_opt, tx_idx_opt), address_opt), topic0_opt), topic1_opt), topic2_opt), topic3_opt), data_opt) in log_iterators {
+        
+        // cast values to expected types
+        let block_num = block_nums_opt.unwrap();
+        let tx_idx = tx_idx_opt.unwrap();
+        let address = match address_opt.unwrap().try_into() {
+            Ok(a) => a,
+            Err(_) => return Err(anyhow!("address is invalid")),
+        };
+        // topics can be null
+        let topic0: Option<FixedBytes<32>> = topic0_opt.map(|t| t.try_into().expect("topic0 is invalid"));
+        let topic1: Option<FixedBytes<32>> = topic1_opt.map(|t| t.try_into().expect("topic1 is invalid"));
+        let topic2: Option<FixedBytes<32>> = topic2_opt.map(|t| t.try_into().expect("topic2 is invalid"));
+        let topic3: Option<FixedBytes<32>> = topic3_opt.map(|t| t.try_into().expect("topic3 is invalid"));
+        // create a vec of topics with None values removed
+        let topics: Vec<_> = [topic0, topic1, topic2, topic3]
+            .into_iter()
+            .flatten()
+            .collect();
+
+        let log_data = data_opt.unwrap_or_default();
+        let log_data = Bytes::copy_from_slice(log_data);
+        
+        // if the block num or tx idx has changed, store the previous tx logs in the mapping, clear the logs vec and update the current block num and tx idx
+        if block_num != current_block_num || tx_idx != current_tx_idx {
+            if !tx_logs.is_empty() {
+                logs_by_block_num_and_tx_idx.insert((current_block_num, current_tx_idx), tx_logs.clone());
+                tx_logs.clear();
+            }
+            current_block_num = block_num;
+            current_tx_idx = tx_idx;
+        }
+        
+        // create a log object and add it to the tx logs vec
+        let log = Log::new(address, topics, log_data).expect("log is invalid");
+        tx_logs.push(log);
+    };
+    // store the last tx logs in the mapping
+    logs_by_block_num_and_tx_idx.insert((current_block_num, current_tx_idx), tx_logs); 
+
+    // CREATE A RECEIPT MAPPING FROM TRANSACTIONS
+
+    let (tx_block_nums, tx_tx_idx, tx_status, tx_cumulative_gas_used, tx_logs_bloom, tx_type) = extract_transaction_cols_as_arrays(transactions)?;   
+
+    // get first tx block num
+    let mut current_block_num = tx_block_nums.value(0);
+    // initialize a map to store receipts by block num
+    let mut receipts_root_by_block_num_mapping = BTreeMap::<u64,FixedBytes<32>>::new();
+    // initialize a vec to store receipts for a tx
+    let mut block_tx_receipts = Vec::<ReceiptEnvelope>::with_capacity(200);
+    // initialize an empty vec of logs, used if the tx failed or doesn't have logs
+    let empty_logs = Vec::<Log>::new();
+
+    let tx_iterators = tx_block_nums
+        .iter()
+        .zip(tx_tx_idx.iter())
+        .zip(tx_status.iter())
+        .zip(tx_cumulative_gas_used.iter())
+        .zip(tx_logs_bloom.iter())
+        .zip(tx_type.iter());
+    
+    // iterate over transactions rows
+    for (((((tx_block_nums_opt, tx_tx_idx_opt), tx_status_opt), tx_cumulative_gas_used_opt), tx_logs_bloom_opt), tx_type_opt) in tx_iterators {
+
+        // cast values to expected types
+        let block_num = tx_block_nums_opt.unwrap();
+        let tx_idx = tx_tx_idx_opt.unwrap();
+        let status = tx_status_opt.unwrap();
+        let cumulative_gas_used = tx_cumulative_gas_used_opt.unwrap();
+        let logs_bloom = tx_logs_bloom_opt.unwrap();
+        let tx_type = tx_type_opt.unwrap();
+        // this hack to convert the cumulative_gas_used to a u64 shouldn't be needed
+        let cumulative_gas_used = alloy_primitives::U256::try_from_be_slice(cumulative_gas_used).context("fail to parse cumulative_gas_used as u256")?;
+        let cumulative_gas_used = u64::try_from(cumulative_gas_used).context("fail to parse cumulative_gas_used as u64")?;
+
+        // get the logs for the tx, if the tx failed or doesn't have logs, use an empty vec
+        let (eip658value, tx_logs) = match status {
+            0 => (Eip658Value::Eip658(false), &Vec::<Log>::new()),
+            1 => (Eip658Value::Eip658(true), logs_by_block_num_and_tx_idx.get(&(block_num, tx_idx)).unwrap_or(&empty_logs)),
+            _ => return Err(anyhow!("Invalid tx status: {}", status)), // Other chains may have different status values
+        };  
+        
+        // if the block num has changed, store the previous tx receipts in the mapping, clear the receipts vec and update the current block num
+        if block_num != current_block_num {
+            if !block_tx_receipts.is_empty() {
+                let receipt_root = calculate_receipt_root(&block_tx_receipts);
+                receipts_root_by_block_num_mapping.insert(current_block_num, receipt_root);
+                block_tx_receipts.clear();
+            }
+            current_block_num = block_num;
+        }
+
+        // create a receipt object
+        let receipt = Receipt {
+            status: eip658value,
+            cumulative_gas_used: cumulative_gas_used,
+            logs: tx_logs.to_vec(),
+        };
+        // calculate the receipt bloom with the receipt object
+        let receiptwithbloom = receipt.with_bloom();
+        // create an expected bloom object from the logs_bloom column value
+        let expected_bloom = Bloom::new(logs_bloom.try_into().expect("logs bloom must be 256 bytes"));
+
+        if receiptwithbloom.logs_bloom != expected_bloom {
+            return Err(anyhow!("Logs bloom mismatch at block {}, tx_idx {}.\nExpected:\n{},\nFound:\n{:?}", block_num, tx_idx, expected_bloom, receiptwithbloom.logs_bloom));
+        }
+        // create a receipt envelope object from the receipt_with_bloom object, otherchains may have different tx types
+        let receipt_envelope = match tx_type {
+            0 => ReceiptEnvelope::Legacy(receiptwithbloom),
+            1 => ReceiptEnvelope::Eip2930(receiptwithbloom),
+            2 => ReceiptEnvelope::Eip1559(receiptwithbloom),
+            3 => ReceiptEnvelope::Eip4844(receiptwithbloom),
+            4 => ReceiptEnvelope::Eip7702(receiptwithbloom),
+            _ => return Err(anyhow!("Invalid tx type: {}", tx_type)),
+        };
+        // add the receipt envelope to the block tx receipts vec
+        block_tx_receipts.push(receipt_envelope);
+    };
+    // calculate the receipt root for the last block, and store it in the mapping
+    let receipt_root = calculate_receipt_root(&block_tx_receipts);
+    receipts_root_by_block_num_mapping.insert(current_block_num, receipt_root);
+
+    //  COMPARE RECEIPTS ROOT WITH EXPECTED RECEIPTS ROOT
+
+    let (block_numbers, block_receipts_root) = extract_block_cols_as_arrays(blocks)?;
+
+    // create a map of block numbers to receipts roots
+    let mut expected_receipts_root_by_block_num_mapping = BTreeMap::<u64, FixedBytes<32>>::new();
+
+    // iterate over the block numbers and receipts roots
+    for (block_num, block_receipts_root) in block_numbers.iter().zip(block_receipts_root.iter()) {
+        let block_num = block_num.unwrap();
+        let receipts_root = block_receipts_root.unwrap().try_into().unwrap();
+        expected_receipts_root_by_block_num_mapping.insert(block_num, receipts_root);
+    }
+    
+    for (block_num, expected) in expected_receipts_root_by_block_num_mapping.iter() {
+        let calculated = receipts_root_by_block_num_mapping.get(block_num).unwrap();
+        if expected != calculated {
+            return Err(anyhow!("Receipts root mismatch at block {}.\nExpected:\n{},\nFound:\n{:?}", block_num, expected, calculated));
+        }
+    }
+
+    Ok(())
+}
+
+fn extract_log_cols_as_arrays(logs: &RecordBatch) -> Result<(
+        &PrimitiveArray<UInt64Type>,
+        &PrimitiveArray<UInt64Type>,
+        &GenericByteArray<GenericBinaryType<i32>>,
+        &GenericByteArray<GenericBinaryType<i32>>,
+        &GenericByteArray<GenericBinaryType<i32>>,
+        &GenericByteArray<GenericBinaryType<i32>>,
+        &GenericByteArray<GenericBinaryType<i32>>,
+        &GenericByteArray<GenericBinaryType<i32>>
+    )> {
     let log_block_nums = logs
         .column_by_name("block_number")
         .context("get log block num col")?
@@ -475,7 +628,7 @@ fn validate_root_hashes(
         .downcast_ref::<BinaryArray>()
         .context("get address as binary")?;
 
-   let log_topic0 = logs
+    let log_topic0 = logs
         .column_by_name("topic0")
         .context("get topic0 column")?
         .as_any()
@@ -510,189 +663,90 @@ fn validate_root_hashes(
         .downcast_ref::<BinaryArray>()
         .context("get data as binary")?;
 
-    let first_block_num = log_block_nums
-        .iter()
-        .next()
-        .map(Option::unwrap)
-        .unwrap_or_default();
+    // Return the extracted data
+    Ok((log_block_nums, log_tx_idx, log_address, log_topic0, log_topic1, log_topic2, log_topic3, log_data))
+}
 
-    let log_block_pos: PrimitiveArray<UInt64Type> = log_block_nums
-        .iter()
-        .map(|x| x.expect("log block num is null"))
-        .map(|x| x.checked_sub(first_block_num).unwrap())
-        .map(Some)
-        .collect::<PrimitiveArray<UInt64Type>>();
-
-    let mut current_block_pos = log_block_pos.value(0);
-    let mut current_tx_idx = log_tx_idx.value(0);
-
-    let mut tx_logs = Vec::<Log>::with_capacity(20);
-    let mut logs_by_tx_array = Vec::<Vec<Log>>::with_capacity(200);
-
-    let log_iterators = log_block_pos.iter()
-        .zip(log_tx_idx.iter())
-        .zip(log_address.iter())
-        .zip(log_topic0.iter())
-        .zip(log_topic1.iter())
-        .zip(log_topic2.iter())
-        .zip(log_topic3.iter())
-        .zip(log_data.iter());
-    
-    for (((((((block_pos_opt, tx_idx_opt), address_opt), topic0_opt), topic1_opt), topic2_opt), topic3_opt), data_opt) in log_iterators {
-         
-        let block_pos = block_pos_opt.unwrap();
-        let tx_idx = tx_idx_opt.unwrap();
-        let address = match address_opt.unwrap().try_into() {
-            Ok(a) => a,
-            Err(_) => return Err(anyhow!("address is invalid")),
-        };
-        let topic0 = topic0_opt.unwrap_or_default().try_into().unwrap_or_default();
-        let topic1 = topic1_opt.unwrap_or_default().try_into().unwrap_or_default();
-        let topic2 = topic2_opt.unwrap_or_default().try_into().unwrap_or_default();
-        let topic3 = topic3_opt.unwrap_or_default().try_into().unwrap_or_default();
-        let log_data = data_opt.unwrap_or_default().try_into().unwrap_or_default();
-        let log_data = Bytes::copy_from_slice(log_data);
-
-        // println!("block_pos: {}\nlog_tx_idx: {}\naddress: {:?}\ntopic0: {:?}\ntopic1: {:?}\ntopic2: {:?}\ntopic3: {:?}\nlog_data: {:?}\n\n", block_pos, tx_idx, address, topic0, topic1, topic2, topic3, log_data);
-        
-        if block_pos != current_block_pos || tx_idx != current_tx_idx {
-            if !tx_logs.is_empty() {
-                logs_by_tx_array.push(tx_logs.clone());
-                tx_logs.clear();
-            }
-            current_block_pos = block_pos;
-            current_tx_idx = tx_idx;
-        }
-
-        let log = Log::new(address, vec![topic0, topic1, topic2, topic3], log_data).expect("log is invalid");
-        tx_logs.push(log);
-    };
-    logs_by_tx_array.push(tx_logs);
-
+fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<(
+    &PrimitiveArray<UInt64Type>,
+    &PrimitiveArray<UInt64Type>,
+    &PrimitiveArray<UInt8Type>,
+    &GenericByteArray<GenericBinaryType<i32>>,
+    &GenericByteArray<GenericBinaryType<i32>>,
+    &PrimitiveArray<UInt8Type>,
+)> {
     let tx_block_nums = transactions
-        .column_by_name("block_number")
-        .context("get tx block num col")?
-        .as_any()
-        .downcast_ref::<UInt64Array>()
-        .context("get tx block num col as u64")?;
+    .column_by_name("block_number")
+    .context("get tx block num col")?
+    .as_any()
+    .downcast_ref::<UInt64Array>()
+    .context("get tx block num col as u64")?;
 
-    let tx_tx_idx = transactions
-        .column_by_name("transaction_index")
-        .context("get tx index column")?
-        .as_any()
-        .downcast_ref::<UInt64Array>()
-        .context("get tx index col as u64")?;
+let tx_tx_idx = transactions
+    .column_by_name("transaction_index")
+    .context("get tx index column")?
+    .as_any()
+    .downcast_ref::<UInt64Array>()
+    .context("get tx index col as u64")?;
 
-    let tx_status = transactions
-        .column_by_name("status")
-        .context("get tx status column")?
-        .as_any()
-        .downcast_ref::<UInt8Array>()
-        .context("get tx status col as u8")?;
+let tx_status = transactions
+    .column_by_name("status")
+    .context("get tx status column")?
+    .as_any()
+    .downcast_ref::<UInt8Array>()
+    .context("get tx status col as u8")?;
 
-    let tx_cumulative_gas_used = transactions
-        .column_by_name("cumulative_gas_used")
-        .context("get tx cumulative gas used column")?
-        .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx cumulative gas used col as binary")?;
+// Using cumulative_gas_used is a binary column, and converting to u64 is a hack
+// TODO: Find why I can't use the column directly as a u64
+let tx_cumulative_gas_used = transactions
+    .column_by_name("cumulative_gas_used")
+    .context("get tx cumulative gas used column")?
+    .as_any()
+    .downcast_ref::<BinaryArray>()
+    .context("get tx cumulative gas used col as binary")?;
 
-    let tx_logs_bloom = transactions
-        .column_by_name("logs_bloom")
-        .context("get tx logs bloom column")?
-        .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx logs bloom col as binary")?;
+let tx_logs_bloom = transactions
+    .column_by_name("logs_bloom")
+    .context("get tx logs bloom column")?
+    .as_any()
+    .downcast_ref::<BinaryArray>()
+    .context("get tx logs bloom col as binary")?;
 
-    let tx_type = transactions
-        .column_by_name("type")
-        .context("get tx type column")?
-        .as_any()
-        .downcast_ref::<UInt8Array>()
-        .context("get tx type col as u8")?;
+let tx_type = transactions
+    .column_by_name("type")
+    .context("get tx type column")?
+    .as_any()
+    .downcast_ref::<UInt8Array>()
+    .context("get tx type col as u8")?;
 
-    let first_block_num = tx_block_nums
-        .iter()
-        .next()
-        .map(Option::unwrap)
-        .unwrap_or_default();
-    
-    let tx_block_pos: PrimitiveArray<UInt64Type> = tx_block_nums
-        .iter()
-        .map(|x| x.expect("tx block num is null"))
-        .map(|x| x.checked_sub(first_block_num).unwrap())
-        .map(Some)
-        .collect::<PrimitiveArray<UInt64Type>>();
-        
-    let mut current_block_pos = tx_block_pos.value(0);
-    let mut current_tx_idx = tx_tx_idx.value(0);
+    Ok((tx_block_nums, tx_tx_idx, tx_status, tx_cumulative_gas_used, tx_logs_bloom, tx_type))
+}
 
-    let mut receipts_root_by_block_pos_mapping = Vec::<FixedBytes<32>>::with_capacity(200);
-    let mut receipt_by_tx_idx_mapping = Vec::<ReceiptEnvelope>::with_capacity(200);
+fn extract_block_cols_as_arrays(blocks: &RecordBatch) -> Result<(
+    &PrimitiveArray<UInt64Type>,
+    &GenericByteArray<GenericBinaryType<i32>>,
+)> {
 
-    let tx_iterators = tx_block_pos
-        .iter()
-        .zip(tx_tx_idx.iter())
-        .zip(tx_status.iter())
-        .zip(tx_cumulative_gas_used.iter())
-        .zip(tx_logs_bloom.iter())
-        .zip(tx_type.iter())
-        .zip(logs_by_tx_array.iter());
-    
-    for ((((((tx_block_pos_opt, tx_tx_idx_opt), tx_status_opt), tx_cumulative_gas_used_opt), tx_logs_bloom_opt), tx_type_opt), logs_by_tx_array_opt) in tx_iterators {
+    let block_numbers = blocks
+    .column_by_name("number")
+    .context("get block number column")?
+    .as_any()
+    .downcast_ref::<UInt64Array>()
+    .context("get block number column as u64")?;
 
-        let block_pos = tx_block_pos_opt.unwrap();
-        let tx_idx = tx_tx_idx_opt.unwrap();
-        let status = tx_status_opt.unwrap();
-        let cumulative_gas_used = tx_cumulative_gas_used_opt.unwrap();
-        let logs_bloom = tx_logs_bloom_opt.unwrap();
-        let tx_logs = logs_by_tx_array_opt;
-        let tx_type = tx_type_opt.unwrap();
+    let block_receipts_root = blocks
+    .column_by_name("receipts_root")
+    .context("get block receipts_root column")?
+    .as_any()
+    .downcast_ref::<BinaryArray>()
+    .context("get block receipts_root as binary")?;
 
-        if block_pos != current_block_pos || tx_idx != current_tx_idx {
-            if !receipt_by_tx_idx_mapping.is_empty() {
-                let receipt_root = calculate_receipt_root(&receipt_by_tx_idx_mapping);
-                receipts_root_by_block_pos_mapping.push(receipt_root.clone());
-                receipt_by_tx_idx_mapping.clear();
-            }
-            current_block_pos = block_pos;
-            current_tx_idx = tx_idx;
-        }
+    // let block_transactions_root = blocks
+    //     .column_by_name("transactions_root")
+    //     .context("get block transactions_root column")?
+    //     .as_any()
+    //     .downcast_ref::<BinaryArray>()
+    //     .context("get block transactions_root as binary")?
 
-        let eip658value = match status {
-            0 => Eip658Value::Eip658(true),
-            1 => Eip658Value::Eip658(false),
-            _ => return Err(anyhow!("Invalid tx status: {}", status)),
-        };
-        let receipt = Receipt {
-            status: eip658value,
-            cumulative_gas_used: 0 as u64,//tx_cumulative_gas_used,
-            logs: tx_logs.to_vec(),
-        };
-        let receiptwithbloom = receipt.with_bloom();
-        // println!("tx_logs_bloom. Calculated: {:?}, Given: {:?}", receiptwithbloom.logs_bloom, tx_logs_bloom);
-        // let bloom = Bloom::new(tx_logs_bloom.try_into().expect("logs bloom must be 256 bytes"));
-        // let receiptwithbloom = ReceiptWithBloom::new(receipt.clone(), bloom);
-        let receipt_envelope = match tx_type {
-            0 => ReceiptEnvelope::Legacy(receiptwithbloom),
-            1 => ReceiptEnvelope::Eip2930(receiptwithbloom),
-            2 => ReceiptEnvelope::Eip1559(receiptwithbloom),
-            3 => ReceiptEnvelope::Eip4844(receiptwithbloom),
-            4 => ReceiptEnvelope::Eip7702(receiptwithbloom),
-            _ => return Err(anyhow!("Invalid tx type: {}", tx_type)),
-        };
-        receipt_by_tx_idx_mapping.push(receipt_envelope);
-    };
-    receipts_root_by_block_pos_mapping.push(calculate_receipt_root(&receipt_by_tx_idx_mapping));
-    
-
-    for (block_pos, (expected, calculated)) in expected_receipts_root.iter().zip(receipts_root_by_block_pos_mapping.iter()).enumerate() {
-        if expected != calculated {
-            return Err(anyhow!("Receipts root mismatch at block {}. Expected: {:?}, Found: {:?}", block_pos, expected, calculated));
-        }
-    }
-
-
-
-    Ok(())
+    Ok((block_numbers, block_receipts_root))
 }
