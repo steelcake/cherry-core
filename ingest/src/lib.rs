@@ -6,6 +6,7 @@ use futures_lite::Stream;
 
 pub mod evm;
 mod provider;
+pub mod svm;
 
 #[derive(Debug, Clone)]
 pub struct StreamConfig {
@@ -16,6 +17,7 @@ pub struct StreamConfig {
 #[derive(Debug, Clone)]
 pub enum Format {
     Evm(evm::Query),
+    Svm(svm::Query),
 }
 
 #[derive(Debug, Clone)]

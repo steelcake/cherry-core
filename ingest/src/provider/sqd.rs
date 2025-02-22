@@ -1,11 +1,37 @@
-use crate::{evm, DataStream, Format, StreamConfig};
+use crate::{evm, svm, DataStream, Format, StreamConfig};
 use anyhow::{Context, Result};
 use futures_lite::StreamExt;
 use std::collections::BTreeMap;
 
 use std::sync::Arc;
 
-pub fn query_to_sqd(query: &evm::Query) -> Result<sqd_portal_client::evm::Query> {
+fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query> {
+    Ok(sqd_portal_client::svm::Query {
+        type_: Default::default(),
+        from_block: query.from_block,
+        to_block: query.to_block,
+        include_all_blocks: query.include_all_blocks,
+        fields: sqd_portal_client::svm::Fields {
+            instruction: sqd_portal_client::svm::InstructionFields {
+
+            },
+            transaction: (),
+            log: (),
+            balance: (),
+            token_balance: (),
+            reward: (),
+            block: (),
+        },
+        instructions: (),
+        transactions: (),
+        logs: (),
+        balances: (),
+        token_balances: (),
+        rewards: (),
+    })
+}
+
+fn evm_query_to_sqd(query: &evm::Query) -> Result<sqd_portal_client::evm::Query> {
     let hex_encode = |addr: &[u8]| format!("0x{}", faster_hex::hex_string(addr));
 
     let mut logs: Vec<_> = Vec::with_capacity(query.logs.len());
@@ -112,8 +138,14 @@ pub fn query_to_sqd(query: &evm::Query) -> Result<sqd_portal_client::evm::Query>
         state_diffs: Vec::new(),
         fields: sqd_portal_client::evm::Fields {
             block: sqd_portal_client::evm::BlockFields {
-                number: query.fields.block.number,
-                hash: query.fields.block.hash,
+                number: query.fields.block.number
+                    || query.fields.transaction.block_number
+                    || query.fields.log.block_number
+                    || query.fields.trace.block_number,
+                hash: query.fields.block.hash
+                    || query.fields.transaction.block_hash
+                    || query.fields.log.block_hash
+                    || query.fields.trace.block_hash,
                 parent_hash: query.fields.block.parent_hash,
                 timestamp: query.fields.block.timestamp,
                 transactions_root: query.fields.block.transactions_root,
@@ -216,37 +248,67 @@ pub fn query_to_sqd(query: &evm::Query) -> Result<sqd_portal_client::evm::Query>
 }
 
 pub fn start_stream(cfg: StreamConfig) -> Result<DataStream> {
+    let url = cfg
+        .provider
+        .url
+        .context("url is required when using sqd")?
+        .parse()
+        .context("parse url")?;
+
+    let mut client_config = sqd_portal_client::ClientConfig::default();
+
+    if let Some(v) = cfg.provider.max_num_retries {
+        client_config.max_num_retries = v;
+    }
+    if let Some(v) = cfg.provider.retry_backoff_ms {
+        client_config.retry_backoff_ms = v;
+    }
+    if let Some(v) = cfg.provider.retry_base_ms {
+        client_config.retry_base_ms = v;
+    }
+    if let Some(v) = cfg.provider.retry_ceiling_ms {
+        client_config.retry_ceiling_ms = v;
+    }
+    if let Some(v) = cfg.provider.http_req_timeout_millis {
+        client_config.http_req_timeout_millis = v;
+    }
+
+    let client = sqd_portal_client::Client::new(url, client_config);
+    let client = Arc::new(client);
     match cfg.format {
+        Format::Svm(svm_query) => {
+            let svm_query = svm_query_to_sqd(&svm_query).context("convert to sqd query")?;
+
+            let receiver = client.svm_arrow_finalized_stream(
+                svm_query,
+                sqd_portal_client::StreamConfig {
+                    stop_on_head: true,
+                    ..Default::default()
+                },
+            );
+
+            let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
+
+            let stream = stream.map(|v| {
+                v.map(|v| {
+                    let mut data = BTreeMap::new();
+
+                    data.insert("blocks".to_owned(), v.blocks);
+                    data.insert("rewards".to_owned(), v.rewards);
+                    data.insert("token_balances".to_owned(), v.token_balances);
+                    data.insert("balances".to_owned(), v.balances);
+                    data.insert("logs".to_owned(), v.logs);
+                    data.insert("transactions".to_owned(), v.transactions);
+                    data.insert("instructions".to_owned(), v.instructions);
+
+                    data
+                })
+            });
+
+            Ok(Box::pin(stream))
+        }
         Format::Evm(evm_query) => {
-            let evm_query = query_to_sqd(&evm_query).context("convert to sqd query")?;
-
-            let url = cfg
-                .provider
-                .url
-                .context("url is required when using sqd")?
-                .parse()
-                .context("parse url")?;
-
-            let mut client_config = sqd_portal_client::ClientConfig::default();
-
-            if let Some(v) = cfg.provider.max_num_retries {
-                client_config.max_num_retries = v;
-            }
-            if let Some(v) = cfg.provider.retry_backoff_ms {
-                client_config.retry_backoff_ms = v;
-            }
-            if let Some(v) = cfg.provider.retry_base_ms {
-                client_config.retry_base_ms = v;
-            }
-            if let Some(v) = cfg.provider.retry_ceiling_ms {
-                client_config.retry_ceiling_ms = v;
-            }
-            if let Some(v) = cfg.provider.http_req_timeout_millis {
-                client_config.http_req_timeout_millis = v;
-            }
-
-            let client = sqd_portal_client::Client::new(url, client_config);
-            let client = Arc::new(client);
+            let evm_query = evm_query_to_sqd(&evm_query).context("convert to sqd query")?;
 
             let receiver = client.evm_arrow_finalized_stream(
                 evm_query,
