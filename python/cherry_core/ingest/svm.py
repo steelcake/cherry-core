@@ -183,10 +183,10 @@ class RewardRequest:
 
 @dataclass
 class Query:
-    from_block: int
-    to_block: Optional[int]
-    include_all_blocks: bool
-    fields: Fields
+    from_block: int = 0
+    to_block: Optional[int] = None
+    include_all_blocks: bool = False
+    fields: Fields = field(default_factory=Fields)
     instructions: list[InstructionRequest] = field(default_factory=list)
     transactions: list[TransactionRequest] = field(default_factory=list)
     logs: list[LogRequest] = field(default_factory=list)
