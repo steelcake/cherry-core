@@ -81,6 +81,7 @@ fn field_selection_to_vec<S: serde::Serialize>(field_selection: &S) -> BTreeSet<
 
 pub async fn start_stream(cfg: StreamConfig) -> Result<DataStream> {
     match cfg.format {
+        Format::Svm(_) => Err(anyhow!("svm is not supported by hypersync")),
         Format::Evm(evm_query) => {
             let evm_query = query_to_hypersync(&evm_query).context("convert to hypersync query")?;
 
