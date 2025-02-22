@@ -43,11 +43,11 @@ decoded = cherry_core.evm_decode_events(signature, batch, allow_decode_fail=Fals
 decoded = cherry_core.cast([("amount", "Decimal128(38, 0)")], decoded, allow_cast_fail=False)
 
 # convert all binary columns to prefix hex string format like '0xabc'
-decoded = cherry_core.encode_prefix_hex(decoded)
+decoded = cherry_core.prefix_hex_encode(decoded)
 
 decoded = polars.from_arrow(decoded)
 decoded = typing.cast(polars.DataFrame, decoded)
-decoded = decoded.hstack(polars.from_arrow(cherry_core.encode_prefix_hex(batch)))
+decoded = decoded.hstack(polars.from_arrow(cherry_core.prefix_hex_encode(batch)))
 
 print(decoded)
 

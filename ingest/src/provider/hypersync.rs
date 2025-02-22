@@ -1,4 +1,4 @@
-use crate::{evm, DataStream, Format, StreamConfig};
+use crate::{evm, DataStream, ProviderConfig, Query};
 use anyhow::{anyhow, Context, Result};
 use arrow::array::{builder, new_null_array, Array, BinaryArray, RecordBatch};
 use arrow::datatypes::DataType;
@@ -79,28 +79,28 @@ fn field_selection_to_vec<S: serde::Serialize>(field_selection: &S) -> BTreeSet<
     output
 }
 
-pub async fn start_stream(cfg: StreamConfig) -> Result<DataStream> {
-    match cfg.format {
-        Format::Svm(_) => Err(anyhow!("svm is not supported by hypersync")),
-        Format::Evm(evm_query) => {
+pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
+    match cfg.query {
+        Query::Svm(_) => Err(anyhow!("svm is not supported by hypersync")),
+        Query::Evm(evm_query) => {
             let evm_query = query_to_hypersync(&evm_query).context("convert to hypersync query")?;
 
             let client_config = hypersync_client::ClientConfig {
-                url: match cfg.provider.url {
+                url: match cfg.url {
                     Some(url) => Some(url.parse().context("parse url")?),
                     None => None,
                 },
-                bearer_token: cfg.provider.bearer_token,
-                http_req_timeout_millis: match cfg.provider.http_req_timeout_millis {
+                bearer_token: cfg.bearer_token,
+                http_req_timeout_millis: match cfg.http_req_timeout_millis {
                     Some(x) => Some(
                         NonZeroU64::new(x).context("check http_req_timeout_millis isn't zero")?,
                     ),
                     None => None,
                 },
-                max_num_retries: cfg.provider.max_num_retries,
-                retry_backoff_ms: cfg.provider.retry_backoff_ms,
-                retry_base_ms: cfg.provider.retry_base_ms,
-                retry_ceiling_ms: cfg.provider.retry_ceiling_ms,
+                max_num_retries: cfg.max_num_retries,
+                retry_backoff_ms: cfg.retry_backoff_ms,
+                retry_base_ms: cfg.retry_base_ms,
+                retry_ceiling_ms: cfg.retry_ceiling_ms,
             };
 
             let client =

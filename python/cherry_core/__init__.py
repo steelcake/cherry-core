@@ -1,7 +1,6 @@
 from . import cherry_core as cc
 from typing import Tuple
 import pyarrow
-from . import ingest
 
 def cast(map: list[Tuple[str, str]], data: pyarrow.RecordBatch, allow_cast_fail: bool = False) -> pyarrow.RecordBatch:
     return cc.cast(map, data, allow_cast_fail)

@@ -11,21 +11,34 @@ mod provider;
 pub mod svm;
 
 #[derive(Debug, Clone)]
-pub struct StreamConfig {
-    pub format: Format,
-    pub provider: ProviderConfig,
-}
-
-#[derive(Debug, Clone)]
-pub enum Format {
+pub enum Query {
     Evm(evm::Query),
     Svm(svm::Query),
+}
+
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for Query {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        use pyo3::types::PyAnyMethods;
+
+        let kind = ob.getattr("kind").context("get kind attribute")?;
+        let kind: &str = kind.extract().context("kind as str")?;
+
+        let query = ob.getattr("params").context("get params attribute")?;
+
+        match kind {
+            "evm" => Ok(Self::Evm(query.extract().context("parse query")?)),
+            "svm" => Ok(Self::Svm(query.extract().context("parse query")?)),
+            _ => Err(anyhow!("unknown query kind: {}", kind).into()),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
+    pub query: Query,
     pub url: Option<String>,
     pub bearer_token: Option<String>,
     pub max_num_retries: Option<usize>,
@@ -36,9 +49,10 @@ pub struct ProviderConfig {
 }
 
 impl ProviderConfig {
-    pub fn new(kind: ProviderKind) -> Self {
+    pub fn new(kind: ProviderKind, query: Query) -> Self {
         Self {
             kind,
+            query,
             url: None,
             bearer_token: None,
             max_num_retries: None,
@@ -73,9 +87,9 @@ impl<'py> pyo3::FromPyObject<'py> for ProviderKind {
 
 type DataStream = Pin<Box<dyn Stream<Item = Result<BTreeMap<String, RecordBatch>>> + Send + Sync>>;
 
-pub async fn start_stream(cfg: StreamConfig) -> Result<DataStream> {
-    match cfg.provider.kind {
-        ProviderKind::Sqd => provider::sqd::start_stream(cfg),
-        ProviderKind::Hypersync => provider::hypersync::start_stream(cfg).await,
+pub async fn start_stream(provider_config: ProviderConfig) -> Result<DataStream> {
+    match provider_config.kind {
+        ProviderKind::Sqd => provider::sqd::start_stream(provider_config),
+        ProviderKind::Hypersync => provider::hypersync::start_stream(provider_config).await,
     }
 }

@@ -1,4 +1,4 @@
-use crate::{evm, svm, DataStream, Format, StreamConfig};
+use crate::{evm, svm, DataStream, ProviderConfig, Query};
 use anyhow::{Context, Result};
 use futures_lite::StreamExt;
 use std::collections::BTreeMap;
@@ -501,9 +501,8 @@ fn evm_query_to_sqd(query: &evm::Query) -> Result<sqd_portal_client::evm::Query>
     })
 }
 
-pub fn start_stream(cfg: StreamConfig) -> Result<DataStream> {
+pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
     let url = cfg
-        .provider
         .url
         .context("url is required when using sqd")?
         .parse()
@@ -511,26 +510,26 @@ pub fn start_stream(cfg: StreamConfig) -> Result<DataStream> {
 
     let mut client_config = sqd_portal_client::ClientConfig::default();
 
-    if let Some(v) = cfg.provider.max_num_retries {
+    if let Some(v) = cfg.max_num_retries {
         client_config.max_num_retries = v;
     }
-    if let Some(v) = cfg.provider.retry_backoff_ms {
+    if let Some(v) = cfg.retry_backoff_ms {
         client_config.retry_backoff_ms = v;
     }
-    if let Some(v) = cfg.provider.retry_base_ms {
+    if let Some(v) = cfg.retry_base_ms {
         client_config.retry_base_ms = v;
     }
-    if let Some(v) = cfg.provider.retry_ceiling_ms {
+    if let Some(v) = cfg.retry_ceiling_ms {
         client_config.retry_ceiling_ms = v;
     }
-    if let Some(v) = cfg.provider.http_req_timeout_millis {
+    if let Some(v) = cfg.http_req_timeout_millis {
         client_config.http_req_timeout_millis = v;
     }
 
     let client = sqd_portal_client::Client::new(url, client_config);
     let client = Arc::new(client);
-    match cfg.format {
-        Format::Svm(svm_query) => {
+    match cfg.query {
+        Query::Svm(svm_query) => {
             let svm_query = svm_query_to_sqd(&svm_query).context("convert to sqd query")?;
 
             let receiver = client.svm_arrow_finalized_stream(
@@ -561,7 +560,7 @@ pub fn start_stream(cfg: StreamConfig) -> Result<DataStream> {
 
             Ok(Box::pin(stream))
         }
-        Format::Evm(evm_query) => {
+        Query::Evm(evm_query) => {
             let evm_query = evm_query_to_sqd(&evm_query).context("convert to sqd query")?;
 
             let receiver = client.evm_arrow_finalized_stream(

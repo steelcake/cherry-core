@@ -1,8 +1,5 @@
-from typing import Dict, Optional 
-from . import cherry_core as cc
+from typing import Optional 
 from dataclasses import dataclass, field 
-import pyarrow
-from enum import Enum
 
 @dataclass
 class TransactionRequest:
@@ -171,7 +168,7 @@ class Fields:
     trace: TraceFields = field(default_factory=TraceFields)
 
 @dataclass
-class EvmQuery:
+class Query:
     from_block: int = 0
     to_block: Optional[int] = None
     include_all_blocks: bool = False
@@ -179,41 +176,3 @@ class EvmQuery:
     logs: list[LogRequest] = field(default_factory=list)
     traces: list[TraceRequest] = field(default_factory=list)
     fields: Fields = field(default_factory=Fields) 
-
-class ProviderKind(str, Enum):
-    SQD = "sqd"
-    HYPERSYNC = "hypersync"
-
-class Format(str, Enum):
-    EVM = "evm"
-
-@dataclass
-class ProviderConfig:
-    kind: ProviderKind
-    url: Optional[str] = None
-    bearer_token: Optional[str] = None
-    max_num_retries: Optional[int] = None
-    retry_backoff_ms: Optional[int] = None
-    retry_base_ms: Optional[int] = None
-    retry_ceiling_ms: Optional[int] = None
-    http_req_timeout_millis: Optional[int] = None
-
-@dataclass
-class StreamConfig:
-    format: Format
-    query: EvmQuery
-    provider: ProviderConfig
-
-class ResponseStream:
-    def __init__(self, inner):
-        self.inner = inner
-
-    def close(self):
-        self.inner.close()
-
-    async def next(self) -> Optional[Dict[str, pyarrow.RecordBatch]]:
-        return await self.inner.next()
-
-def start_stream(cfg: StreamConfig) -> ResponseStream:
-    inner = cc.ingest.start_stream(cfg)
-    return ResponseStream(inner) 
