@@ -183,7 +183,7 @@ fn map_hypersync_u8_binary_array_to_boolean(
 ) -> Result<Arc<dyn Array>> {
     let src = match batch.column_by_name(name) {
         Some(arr) => Arc::clone(arr),
-        None => new_null_array(&DataType::Boolean, num_rows),
+        None => return Ok(new_null_array(&DataType::Boolean, num_rows)),
     };
     let src = src
         .as_any()
