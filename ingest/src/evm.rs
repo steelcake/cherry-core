@@ -214,6 +214,7 @@ impl BlockFields {
 pub struct TransactionFields {
     pub block_hash: bool,
     pub block_number: bool,
+    #[serde(rename = "from")]
     pub from_: bool,
     pub gas: bool,
     pub gas_price: bool,
@@ -234,6 +235,7 @@ pub struct TransactionFields {
     pub gas_used: bool,
     pub contract_address: bool,
     pub logs_bloom: bool,
+    #[serde(rename = "type")]
     pub type_: bool,
     pub root: bool,
     pub status: bool,
@@ -348,6 +350,7 @@ impl LogFields {
 #[derive(Default, Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TraceFields {
+    #[serde(rename = "from")]
     pub from_: bool,
     pub to: bool,
     pub call_type: bool,
@@ -367,6 +370,7 @@ pub struct TraceFields {
     pub trace_address: bool,
     pub transaction_hash: bool,
     pub transaction_position: bool,
+    #[serde(rename = "type")]
     pub type_: bool,
     pub error: bool,
     pub sighash: bool,
