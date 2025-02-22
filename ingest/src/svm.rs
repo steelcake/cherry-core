@@ -26,6 +26,9 @@ pub struct D1(pub [u8; 1]);
 pub struct D2(pub [u8; 2]);
 
 #[derive(Debug, Clone, Copy)]
+pub struct D3(pub [u8; 3]);
+
+#[derive(Debug, Clone, Copy)]
 pub struct D4(pub [u8; 4]);
 
 #[derive(Debug, Clone, Copy)]
@@ -71,6 +74,14 @@ impl<'py> pyo3::FromPyObject<'py> for D2 {
 }
 
 #[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for D3 {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        let out = extract_base58(ob)?;
+        Ok(Self(out))
+    }
+}
+
+#[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for D4 {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
         let out = extract_base58(ob)?;
@@ -92,6 +103,7 @@ pub struct InstructionRequest {
     pub program_id: Vec<Address>,
     pub d1: Vec<D1>,
     pub d2: Vec<D2>,
+    pub d3: Vec<D3>,
     pub d4: Vec<D4>,
     pub d8: Vec<D8>,
     pub a0: Vec<Address>,
@@ -106,9 +118,9 @@ pub struct InstructionRequest {
     pub a9: Vec<Address>,
     pub is_committed: bool,
     pub transaction: bool,
-    pub transaction_token_balance: bool,
+    pub transaction_token_balances: bool,
     pub logs: bool,
-    pub inner_transactions: bool,
+    pub inner_instructions: bool,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -149,7 +161,7 @@ impl LogKind {
             "log" => Ok(Self::Log),
             "data" => Ok(Self::Data),
             "other" => Ok(Self::Other),
-            _ => Err(anyhow!("unknown log kind: {}", s).into()),
+            _ => Err(anyhow!("unknown log kind: {}", s)),
         }
     }
 }
@@ -180,7 +192,7 @@ pub struct TokenBalanceRequest {
     pub pre_program_id: Vec<Address>,
     pub post_program_id: Vec<Address>,
     pub pre_mint: Vec<Address>,
-    pub post_mind: Vec<Address>,
+    pub post_mint: Vec<Address>,
     pub pre_owner: Vec<Address>,
     pub post_owner: Vec<Address>,
     pub transaction: bool,
@@ -290,7 +302,7 @@ pub struct TransactionFields {
     pub version: bool,
     pub account_keys: bool,
     pub address_table_lookups: bool,
-    pub num_readonly_singed_accounts: bool,
+    pub num_readonly_signed_accounts: bool,
     pub num_readonly_unsigned_accounts: bool,
     pub num_required_signatures: bool,
     pub recent_blockhash: bool,
@@ -313,7 +325,7 @@ impl TransactionFields {
             version: true,
             account_keys: true,
             address_table_lookups: true,
-            num_readonly_singed_accounts: true,
+            num_readonly_signed_accounts: true,
             num_readonly_unsigned_accounts: true,
             num_required_signatures: true,
             recent_blockhash: true,

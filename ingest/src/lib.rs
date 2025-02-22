@@ -1,3 +1,5 @@
+#![allow(clippy::should_implement_trait)]
+
 use std::{collections::BTreeMap, pin::Pin};
 
 use anyhow::{anyhow, Context, Result};

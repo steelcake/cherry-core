@@ -6,6 +6,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query> {
+    let base58_encode = |addr: &[u8]| {
+        bs58::encode(addr)
+            .with_alphabet(bs58::Alphabet::BITCOIN)
+            .into_string()
+    };
+    let hex_encode = |addr: &[u8]| format!("0x{}", faster_hex::hex_string(addr));
+
     Ok(sqd_portal_client::svm::Query {
         type_: Default::default(),
         from_block: query.from_block,
@@ -13,21 +20,268 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
         include_all_blocks: query.include_all_blocks,
         fields: sqd_portal_client::svm::Fields {
             instruction: sqd_portal_client::svm::InstructionFields {
-
+                transaction_index: query.fields.instruction.transaction_index,
+                instruction_address: query.fields.instruction.instruction_address,
+                program_id: query.fields.instruction.program_id,
+                accounts: query.fields.instruction.a0
+                    || query.fields.instruction.a1
+                    || query.fields.instruction.a2
+                    || query.fields.instruction.a3
+                    || query.fields.instruction.a4
+                    || query.fields.instruction.a5
+                    || query.fields.instruction.a6
+                    || query.fields.instruction.a7
+                    || query.fields.instruction.a8
+                    || query.fields.instruction.a9
+                    || query.fields.instruction.rest_of_accounts,
+                data: query.fields.instruction.data,
+                d1: query.fields.instruction.d1,
+                d2: query.fields.instruction.d2,
+                d4: query.fields.instruction.d4,
+                d8: query.fields.instruction.d8,
+                error: query.fields.instruction.error,
+                compute_units_consumed: query.fields.instruction.compute_units_consumed,
+                is_committed: query.fields.instruction.is_committed,
+                has_dropped_log_messages: query.fields.instruction.has_dropped_log_messages,
             },
-            transaction: (),
-            log: (),
-            balance: (),
-            token_balance: (),
-            reward: (),
-            block: (),
+            transaction: sqd_portal_client::svm::TransactionFields {
+                transaction_index: query.fields.transaction.transaction_index,
+                version: query.fields.transaction.version,
+                account_keys: query.fields.transaction.account_keys,
+                address_table_lookups: query.fields.transaction.address_table_lookups,
+                num_readonly_signed_accounts: query.fields.transaction.num_readonly_signed_accounts,
+                num_readonly_unsigned_accounts: query
+                    .fields
+                    .transaction
+                    .num_readonly_unsigned_accounts,
+                num_required_signatures: query.fields.transaction.num_required_signatures,
+                recent_blockhash: query.fields.transaction.recent_blockhash,
+                signatures: query.fields.transaction.signatures,
+                err: query.fields.transaction.err,
+                fee: query.fields.transaction.fee,
+                compute_units_consumed: query.fields.transaction.compute_units_consumed,
+                loaded_addresses: query.fields.transaction.loaded_readonly_addresses
+                    || query.fields.transaction.loaded_writable_addresses,
+                fee_payer: query.fields.transaction.fee_payer,
+                has_dropped_log_messages: query.fields.transaction.has_dropped_log_messages,
+            },
+            log: sqd_portal_client::svm::LogFields {
+                transaction_index: query.fields.log.transaction_index,
+                log_index: query.fields.log.log_index,
+                instruction_address: query.fields.log.instruction_address,
+                program_id: query.fields.log.program_id,
+                kind: query.fields.log.kind,
+                message: query.fields.log.message,
+            },
+            balance: sqd_portal_client::svm::BalanceFields {
+                transaction_index: query.fields.balance.transaction_index,
+                account: query.fields.balance.account,
+                pre: query.fields.balance.pre,
+                post: query.fields.balance.post,
+            },
+            token_balance: sqd_portal_client::svm::TokenBalanceFields {
+                transaction_index: query.fields.token_balance.transaction_index,
+                account: query.fields.token_balance.account,
+                pre_mint: query.fields.token_balance.pre_mint,
+                post_mint: query.fields.token_balance.post_mint,
+                pre_decimals: query.fields.token_balance.pre_decimals,
+                post_decimals: query.fields.token_balance.post_decimals,
+                pre_program_id: query.fields.token_balance.pre_program_id,
+                post_program_id: query.fields.token_balance.post_program_id,
+                pre_owner: query.fields.token_balance.pre_owner,
+                post_owner: query.fields.token_balance.post_owner,
+                pre_amount: query.fields.token_balance.pre_amount,
+                post_amount: query.fields.token_balance.post_amount,
+            },
+            reward: sqd_portal_client::svm::RewardFields {
+                pubkey: query.fields.reward.pubkey,
+                lamports: query.fields.reward.lamports,
+                post_balance: query.fields.reward.post_balance,
+                reward_type: query.fields.reward.reward_type,
+                commission: query.fields.reward.commission,
+            },
+            block: sqd_portal_client::svm::BlockFields {
+                number: query.fields.block.slot
+                    || query.fields.instruction.block_slot
+                    || query.fields.transaction.block_slot
+                    || query.fields.log.block_slot
+                    || query.fields.balance.block_slot
+                    || query.fields.token_balance.block_slot
+                    || query.fields.reward.block_slot,
+                hash: query.fields.block.hash
+                    || query.fields.instruction.block_hash
+                    || query.fields.transaction.block_hash
+                    || query.fields.log.block_hash
+                    || query.fields.balance.block_hash
+                    || query.fields.token_balance.block_hash
+                    || query.fields.reward.block_hash,
+            },
         },
-        instructions: (),
-        transactions: (),
-        logs: (),
-        balances: (),
-        token_balances: (),
-        rewards: (),
+        instructions: query
+            .instructions
+            .iter()
+            .map(|inst| sqd_portal_client::svm::InstructionRequest {
+                program_id: inst
+                    .program_id
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                a0: inst
+                    .a0
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                a1: inst
+                    .a1
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                a2: inst
+                    .a2
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                a3: inst
+                    .a3
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                a4: inst
+                    .a4
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                a5: inst
+                    .a5
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                a6: inst
+                    .a6
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                a7: inst
+                    .a7
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                a8: inst
+                    .a8
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                a9: inst
+                    .a9
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                d1: inst.d1.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
+                d2: inst.d2.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
+                d3: inst.d3.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
+                d4: inst.d4.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
+                d8: inst.d8.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
+                inner_instructions: inst.inner_instructions,
+                is_committed: inst.is_committed,
+                logs: inst.logs,
+                transaction: inst.transaction,
+                transaction_token_balances: inst.transaction_token_balances,
+            })
+            .collect(),
+        transactions: query
+            .transactions
+            .iter()
+            .map(|tx| sqd_portal_client::svm::TransactionRequest {
+                fee_payer: tx
+                    .fee_payer
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                instructions: tx.instructions,
+                logs: tx.logs,
+            })
+            .collect(),
+        logs: query
+            .logs
+            .iter()
+            .map(|lg| sqd_portal_client::svm::LogRequest {
+                kind: lg.kind.iter().map(|v| v.as_str().to_owned()).collect(),
+                program_id: lg
+                    .program_id
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                transaction: lg.transaction,
+                instruction: lg.instruction,
+            })
+            .collect(),
+        balances: query
+            .balances
+            .iter()
+            .map(|bl| sqd_portal_client::svm::BalanceRequest {
+                account: bl
+                    .account
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                transaction: bl.transaction,
+                transaction_instructions: bl.transaction_instructions,
+            })
+            .collect(),
+        token_balances: query
+            .token_balances
+            .iter()
+            .map(|tb| sqd_portal_client::svm::TokenBalanceRequest {
+                account: tb
+                    .account
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                pre_program_id: tb
+                    .pre_program_id
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                post_program_id: tb
+                    .post_program_id
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                pre_mint: tb
+                    .pre_mint
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                post_mint: tb
+                    .post_mint
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                pre_owner: tb
+                    .pre_owner
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                post_owner: tb
+                    .post_owner
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+                transaction: tb.transaction,
+                transaction_instructions: tb.transaction_instructions,
+            })
+            .collect(),
+        rewards: query
+            .rewards
+            .iter()
+            .map(|r| sqd_portal_client::svm::RewardRequest {
+                pubkey: r
+                    .pubkey
+                    .iter()
+                    .map(|v| base58_encode(v.0.as_slice()))
+                    .collect(),
+            })
+            .collect(),
     })
 }
 
