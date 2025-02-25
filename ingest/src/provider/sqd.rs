@@ -115,6 +115,7 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     || query.fields.balance.block_hash
                     || query.fields.token_balance.block_hash
                     || query.fields.reward.block_hash,
+                timestamp: query.fields.block.timestamp,
             },
         },
         instructions: query
