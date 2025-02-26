@@ -18,3 +18,5 @@
 # data folder for test output
 data
 
+# jupyter notebooks
+*.ipynb
