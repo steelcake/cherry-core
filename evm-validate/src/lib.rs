@@ -9,6 +9,18 @@ use alloy_primitives::{Address, Bloom, Bytes, FixedBytes, Log, PrimitiveSignatur
 use alloy_consensus::{Eip658Value, Receipt, ReceiptEnvelope, TxEip1559, TxEip2930, TxEip4844, TxEip4844Variant, TxEnvelope, TxLegacy, SignableTransaction};
 use alloy_consensus::proofs::{calculate_transaction_root, calculate_receipt_root};
 use alloy_eips::eip2930::{AccessList, AccessListItem};
+use serde::Deserialize;
+
+struct LogArray<'a> {
+    block_number: &'a PrimitiveArray<UInt64Type>,
+    log_index: &'a PrimitiveArray<UInt64Type>,
+    address: &'a GenericByteArray<GenericBinaryType<i32>>,
+    topic0: &'a GenericByteArray<GenericBinaryType<i32>>,
+    topic1: &'a GenericByteArray<GenericBinaryType<i32>>,
+    topic2: &'a GenericByteArray<GenericBinaryType<i32>>,
+    topic3: &'a GenericByteArray<GenericBinaryType<i32>>,
+    data: &'a GenericByteArray<GenericBinaryType<i32>>,
+}   
 
 struct TransactionsArray<'a> {
     block_number: &'a PrimitiveArray<UInt64Type>,
@@ -35,6 +47,12 @@ struct TransactionsArray<'a> {
     access_list: &'a GenericByteArray<GenericBinaryType<i32>>,
     max_fee_per_blob_gas: &'a GenericByteArray<GenericBinaryType<i32>>,
     blob_versioned_hashes: &'a GenericByteArray<GenericBinaryType<i32>>,
+}
+
+struct BlockArray<'a> {
+    number: &'a PrimitiveArray<UInt64Type>,
+    receipts_root: &'a GenericByteArray<GenericBinaryType<i32>>,
+    transactions_root: &'a GenericByteArray<GenericBinaryType<i32>>,
 }
 
 /// Checks that:
@@ -451,6 +469,32 @@ fn validate_transaction_hashes(
     Ok(())
 }
 
+// AccessListWrapper is a wrapper around the AccessList type that allows it to be deserialized from a byte array.
+#[derive(Deserialize)]
+pub struct AccessListWrapper(pub Vec<AccessListItemWrapper>);
+
+impl Into<AccessList> for AccessListWrapper {
+    fn into(self) -> AccessList {
+        AccessList(self.0.into_iter().map(|item| item.into()).collect())
+    }
+}
+
+// AccessListItemWrapper is a wrapper around the AccessListItem type that allows it to be deserialized from a byte array.
+#[derive(Deserialize)]
+pub struct AccessListItemWrapper {
+    pub address: Address,
+    pub storage_keys: Vec<B256>,
+}
+
+impl Into<AccessListItem> for AccessListItemWrapper {
+    fn into(self) -> AccessListItem {
+        AccessListItem {
+            address: self.address,
+            storage_keys: self.storage_keys,
+        }
+    }
+}
+
 pub fn validate_root_hashes(
     blocks: &RecordBatch,
     logs: &RecordBatch,
@@ -459,24 +503,24 @@ pub fn validate_root_hashes(
 
     // CREATE A LOG MAPPING
 
-    let (log_block_nums, log_tx_idx, log_address, log_topic0, log_topic1, log_topic2, log_topic3, log_data) = extract_log_cols_as_arrays(logs)?;
+    let log_array = extract_log_cols_as_arrays(logs)?;
 
     // get first log block num and tx idx
-    let mut current_block_num = log_block_nums.value(0);
-    let mut current_tx_idx = log_tx_idx.value(0);
+    let mut current_block_num = log_array.block_number.value(0);
+    let mut current_tx_idx = log_array.log_index.value(0);
     // initialize a vec to store all logs for a tx
     let mut tx_logs = Vec::<Log>::with_capacity(20);
     // initialize a map to store logs by block num and tx idx   
     let mut logs_by_block_num_and_tx_idx = BTreeMap::<(u64, u64), Vec<Log>>::new();
 
-    let log_iterators = log_block_nums.iter()
-        .zip(log_tx_idx.iter())
-        .zip(log_address.iter())
-        .zip(log_topic0.iter())
-        .zip(log_topic1.iter())
-        .zip(log_topic2.iter())
-        .zip(log_topic3.iter())
-        .zip(log_data.iter());
+    let log_iterators = log_array.block_number.iter()
+        .zip(log_array.log_index.iter())
+        .zip(log_array.address.iter())
+        .zip(log_array.topic0.iter())
+        .zip(log_array.topic1.iter())
+        .zip(log_array.topic2.iter())
+        .zip(log_array.topic3.iter())
+        .zip(log_array.data.iter());
     
     // iterate over logs rows
     for (((((((block_nums_opt, tx_idx_opt), address_opt), topic0_opt), topic1_opt), topic2_opt), topic3_opt), data_opt) in log_iterators {
@@ -524,9 +568,12 @@ pub fn validate_root_hashes(
     let tx_array = extract_transaction_cols_as_arrays(transactions)?;  
     // get first tx block num
     let mut current_block_num = tx_array.block_number.value(0);
+    // initialize a map to store transaction root by block num
+    let mut transactions_root_by_block_num_mapping = BTreeMap::<u64, FixedBytes<32>>::new();
     // initialize a map to store receipts by block num
-    let mut receipts_root_by_block_num_mapping = BTreeMap::<u64,FixedBytes<32>>::new();
-    let mut transactions_root_by_block_num_mapping = BTreeMap::<u64,FixedBytes<32>>::new();
+    let mut receipts_root_by_block_num_mapping = BTreeMap::<u64, FixedBytes<32>>::new();
+    // initialize a vec to store tx envelopes for a tx
+    let mut block_tx_envelopes = Vec::<TxEnvelope>::with_capacity(200);
     // initialize a vec to store receipts for a tx
     let mut block_tx_receipts = Vec::<ReceiptEnvelope>::with_capacity(200);
     // initialize an empty vec of logs, used if the tx failed or doesn't have logs
@@ -612,14 +659,18 @@ pub fn validate_root_hashes(
             let u256 = U256::try_from_be_slice(bytes).expect("invalid max fee per gas");
             u256.try_into().unwrap()
         });
-        let chain_id = tx_chain_id_opt.unwrap_or_else(|| {println!("chain_id is None"); 1});      
+        let chain_id = tx_chain_id_opt; 
         let cumulative_gas_used = tx_cumulative_gas_used_opt.unwrap();
         let contract_address: Option<Address> = tx_contract_address_opt.map(|a| a.try_into().unwrap());
         let logs_bloom = tx_logs_bloom_opt.unwrap();
         let tx_type = tx_type_opt.unwrap();
         let status = tx_status_opt.unwrap();
         let expected_sighash = tx_sighash_opt;
-        let access_list = tx_access_list_opt;
+        let access_list: Option<AccessListWrapper> = tx_access_list_opt.map(|bytes| bincode::deserialize(bytes).unwrap_or_else(|_|{
+            println!("failed to deserialize access list, block {}, tx_hash {}", block_num, expected_hash);
+            return AccessListWrapper(vec![]);
+        }));
+        let access_list: Option<AccessList> = access_list.map(|list| list.into());
         let max_fee_per_blob_gas: Option<u128> = tx_max_fee_per_blob_gas_opt.map(|bytes| {
             let u256 = U256::try_from_be_slice(bytes).expect("invalid max fee per blob gas");
             u256.try_into().unwrap()
@@ -627,31 +678,21 @@ pub fn validate_root_hashes(
         let blob_versioned_hashes: Option<Vec<FixedBytes<32>>> = tx_blob_versioned_hashes_opt.map(|bytes| {
             bytes.chunks(32).map(|chunk| FixedBytes::from_slice(chunk)).collect()
         });
-        // This is wrong
-        let access_list: Option<AccessList> = match access_list {
-            Some(access_list) => {
-                let mut items = Vec::new();
-                for chunk in access_list.chunks(32) {
-                    let address = Address::from_slice(&chunk[..20]);
-                    let storage_keys = chunk[20..].chunks(32)
-                        .map(|key| B256::from_slice(key))
-                        .collect();
-                    items.push(AccessListItem { address, storage_keys });
-                }
-                Some(AccessList(items))
+        
+        // if the block num has changed, store the previous tx receipts and tx envelopes in the mapping, clear the receipts vec and update the current block num
+        if block_num != current_block_num {
+            if !block_tx_receipts.is_empty() {
+                let receipt_root = calculate_receipt_root(&block_tx_receipts);
+                let transactions_root = calculate_transaction_root(&block_tx_envelopes);
+                receipts_root_by_block_num_mapping.insert(current_block_num, receipt_root);
+                transactions_root_by_block_num_mapping.insert(current_block_num, transactions_root);
+                block_tx_receipts.clear();
+                block_tx_envelopes.clear();
             }
-            None => None,
-        };
-        
-        // CREATE TX OBJECTS
-        
-        let tx_kind = match contract_address {
-            None => TxKind::Call(to.expect("to is None")),
-            Some(_) => TxKind::Create
-        };
-        
-        let primitive_sig = PrimitiveSignature::new(r, s, v);
-        
+            current_block_num = block_num;
+        }
+
+        // validate sighash
         match expected_sighash {
             Some(expected_sighash) => {
                 let sighash: [u8; 4] = input[..4].try_into().expect("input must be at least 4 bytes long for a tx with a sighash");
@@ -665,11 +706,19 @@ pub fn validate_root_hashes(
                 }
             }
         }
-        
+
+        // create tx objects
+        let tx_kind = match contract_address {
+            None => TxKind::Call(to.expect("to is None")),
+            Some(_) => TxKind::Create
+        };
+        let primitive_sig = PrimitiveSignature::new(r, s, v);
+
+        // create transaction as envelope (to accept all tx types)
         let tx_envelope = match tx_type {
             0 => {
                 let tx= TxLegacy{
-                    chain_id: Some(chain_id),
+                    chain_id,
                     nonce,
                     gas_price,
                     gas_limit,
@@ -682,7 +731,7 @@ pub fn validate_root_hashes(
             },
             1 => {
                 let tx= TxEip2930{
-                    chain_id,
+                    chain_id: chain_id.expect("chain_id is None, for a Eip2930 transaction"),
                     nonce,
                     gas_price,
                     gas_limit,
@@ -696,7 +745,7 @@ pub fn validate_root_hashes(
             },
             2 => {
                 let tx= TxEip1559{
-                    chain_id,
+                    chain_id: chain_id.expect("chain_id is None, for a Eip1559 transaction"),
                     nonce,
                     gas_limit,
                     max_fee_per_gas: max_fee_per_gas.expect("max fee per gas is None, for a Eip1559 transaction"),
@@ -711,7 +760,7 @@ pub fn validate_root_hashes(
             },
             3 => {
                 let tx= TxEip4844Variant::TxEip4844(TxEip4844{
-                    chain_id,
+                    chain_id: chain_id.expect("chain_id is None, for a Eip4844 transaction"),
                     nonce,
                     gas_limit,
                     max_fee_per_gas: max_fee_per_gas.expect("max fee per gas is None, for a Eip4844 transaction"),
@@ -741,22 +790,14 @@ pub fn validate_root_hashes(
             _ => return Err(anyhow!("Invalid tx type: {}", tx_type)),
         };
 
+        //validate tx hash
         let calculated_tx_hash = tx_envelope.tx_hash();
         if calculated_tx_hash != &expected_hash {
             println!("Tx hash mismatch at block {}, tx_idx {}.\nExpected:\n{:?},\nFound:\n{:?}", block_num, tx_idx, expected_hash, calculated_tx_hash);
             // return Err(anyhow!("Tx hash mismatch at block {}, tx_idx {}.\nExpected:\n{:?},\nFound:\n{:?}", block_num, tx_idx, expected_hash, calculated_tx_hash));
         }
-        
-
-
-
-
-
-
-
-
-
-        
+        // add the tx envelope to the block tx envelopes vec
+        block_tx_envelopes.push(tx_envelope);
 
         // get the logs for the tx, if the tx failed or doesn't have logs, use an empty vec
         let (eip658value, tx_logs) = match status {
@@ -764,18 +805,6 @@ pub fn validate_root_hashes(
             1 => (Eip658Value::Eip658(true), logs_by_block_num_and_tx_idx.get(&(block_num, tx_idx)).unwrap_or(&empty_logs)),
             _ => return Err(anyhow!("Invalid tx status: {}", status)), // Other chains may have different status values
         };  
-        
-        // if the block num has changed, store the previous tx receipts in the mapping, clear the receipts vec and update the current block num
-        if block_num != current_block_num {
-            if !block_tx_receipts.is_empty() {
-                let receipt_root = calculate_receipt_root(&block_tx_receipts);
-                let transactions_root = calculate_transaction_root(&block_tx_receipts);
-                receipts_root_by_block_num_mapping.insert(current_block_num, receipt_root);
-                transactions_root_by_block_num_mapping.insert(current_block_num, transactions_root);
-                block_tx_receipts.clear();
-            }
-            current_block_num = block_num;
-        }
 
         // create a receipt object
         let receipt = Receipt {
@@ -783,16 +812,17 @@ pub fn validate_root_hashes(
             cumulative_gas_used: cumulative_gas_used,
             logs: tx_logs.to_vec(),
         };
+
         // calculate the receipt bloom with the receipt object
         let receiptwithbloom = receipt.with_bloom();
         // create an expected bloom object from the logs_bloom column value
         let expected_bloom = Bloom::new(logs_bloom.try_into().expect("logs bloom must be 256 bytes"));
-
+        // validate logs bloom
         if receiptwithbloom.logs_bloom != expected_bloom {
             println!("Logs bloom mismatch at block {}, tx_idx {}.\nExpected:\n{},\nFound:\n{:?}", block_num, tx_idx, expected_bloom, receiptwithbloom.logs_bloom);
             // return Err(anyhow!("Logs bloom mismatch at block {}, tx_idx {}.\nExpected:\n{},\nFound:\n{:?}", block_num, tx_idx, expected_bloom, receiptwithbloom.logs_bloom));
         }
-        // create a receipt envelope object from the receipt_with_bloom object, otherchains may have different tx types
+        // create a receipt envelope object from the receipt_with_bloom object
         let receipt_envelope = match tx_type {
             0 => ReceiptEnvelope::Legacy(receiptwithbloom),
             1 => ReceiptEnvelope::Eip2930(receiptwithbloom),
@@ -804,38 +834,41 @@ pub fn validate_root_hashes(
         // add the receipt envelope to the block tx receipts vec
         block_tx_receipts.push(receipt_envelope);
     };
+
+    // calculate the transactions root for the last block
+    let transactions_root = calculate_transaction_root(&block_tx_envelopes);
     // calculate the receipt root for the last block, and store it in the mapping
     let receipt_root = calculate_receipt_root(&block_tx_receipts);
-    let transactions_root = calculate_transaction_root(&block_tx_receipts);
-    receipts_root_by_block_num_mapping.insert(current_block_num, receipt_root);
     transactions_root_by_block_num_mapping.insert(current_block_num, transactions_root);
+    receipts_root_by_block_num_mapping.insert(current_block_num, receipt_root);
 
-    //  COMPARE RECEIPTS ROOT WITH EXPECTED RECEIPTS ROOT
+    // COMPARE TRANSACTION AND RECEIPTS ROOT WITH EXPECTED VALUES
 
-    let (block_numbers, block_receipts_root, block_transactions_root) = extract_block_cols_as_arrays(blocks)?;
+    // extract the block numbers, receipts roots and transactions roots from the blocks table
+    let block_array = extract_block_cols_as_arrays(blocks)?;
 
     // create a map of block numbers to receipts roots
-    let mut expected_receipts_root_by_block_num_mapping = BTreeMap::<u64, FixedBytes<32>>::new();
-    let mut expected_transactions_root_by_block_num_mapping = BTreeMap::<u64, FixedBytes<32>>::new();
+    let mut expected_transactions_and_receipts_root_by_block_num_mapping = BTreeMap::<u64, (FixedBytes<32>, FixedBytes<32>)>::new();
+
     // iterate over the block numbers and receipts roots
-    for ((block_num, block_receipts_root), block_transactions_root) in block_numbers.iter().zip(block_receipts_root.iter()).zip(block_transactions_root.iter()) {
-        let block_num = block_num.unwrap();
-        let receipts_root = block_receipts_root.unwrap().try_into().unwrap();
-        let transactions_root = block_transactions_root.unwrap().try_into().unwrap();
-        expected_receipts_root_by_block_num_mapping.insert(block_num, receipts_root);
-        expected_transactions_root_by_block_num_mapping.insert(block_num, transactions_root);
+    for ((block_num_opt, block_receipts_root_opt), block_transactions_root_opt) in block_array.number.iter().zip(block_array.receipts_root.iter()).zip(block_array.transactions_root.iter()) {
+        // cast the values to the expected types
+        let block_num = block_num_opt.unwrap();
+        let receipts_root = block_receipts_root_opt.unwrap().try_into().unwrap();
+        let transactions_root = block_transactions_root_opt.unwrap().try_into().unwrap();
+        // insert the values into the maps
+        expected_transactions_and_receipts_root_by_block_num_mapping.insert(block_num, (receipts_root, transactions_root));
     }
     
-    for (block_num, expected) in expected_receipts_root_by_block_num_mapping.iter() {
-        let calculated = receipts_root_by_block_num_mapping.get(block_num).unwrap();
-        if expected != calculated {
-            println!("Receipts root mismatch at block {}.\nExpected:\n{},\nFound:\n{:?}", block_num, expected, calculated);
+    for (block_num, (expected_receipts_root, expected_transactions_root)) in expected_transactions_and_receipts_root_by_block_num_mapping.iter() {
+        let calculated_receipts_root = receipts_root_by_block_num_mapping.get(block_num).unwrap();
+        let calculated_transactions_root = transactions_root_by_block_num_mapping.get(block_num).unwrap();
+        if expected_receipts_root != calculated_receipts_root {
+            println!("Receipts root mismatch at block {}.\nExpected:\n{},\nFound:\n{:?}", block_num, expected_receipts_root, calculated_receipts_root);
             // return Err(anyhow!("Receipts root mismatch at block {}.\nExpected:\n{},\nFound:\n{:?}", block_num, expected, calculated));
-        }
-        let calculated = transactions_root_by_block_num_mapping.get(block_num).unwrap();
-        println!("Transactions root of {}.\nExpected:\n{},\nFound:\n{:?}", block_num, expected, calculated);
-        if expected != calculated {
-            println!("Transactions root mismatch at block {}.\nExpected:\n{},\nFound:\n{:?}", block_num, expected, calculated);
+        };
+        if expected_transactions_root != calculated_transactions_root {
+            println!("Transactions root mismatch at block {}.\nExpected:\n{},\nFound:\n{:?}", block_num, expected_transactions_root, calculated_transactions_root);
             // return Err(anyhow!("Transactions root mismatch at block {}.\nExpected:\n{},\nFound:\n{:?}", block_num, expected, calculated));
         }
     }
@@ -843,16 +876,7 @@ pub fn validate_root_hashes(
     Ok(())
 }
 
-fn extract_log_cols_as_arrays(logs: &RecordBatch) -> Result<(
-        &PrimitiveArray<UInt64Type>,
-        &PrimitiveArray<UInt64Type>,
-        &GenericByteArray<GenericBinaryType<i32>>,
-        &GenericByteArray<GenericBinaryType<i32>>,
-        &GenericByteArray<GenericBinaryType<i32>>,
-        &GenericByteArray<GenericBinaryType<i32>>,
-        &GenericByteArray<GenericBinaryType<i32>>,
-        &GenericByteArray<GenericBinaryType<i32>>
-    )> {
+fn extract_log_cols_as_arrays(logs: &RecordBatch) -> Result<LogArray> {
     let log_block_nums = logs
         .column_by_name("block_number")
         .context("get log block num col")?
@@ -909,8 +933,19 @@ fn extract_log_cols_as_arrays(logs: &RecordBatch) -> Result<(
         .downcast_ref::<BinaryArray>()
         .context("get data as binary")?;
 
+    let log_array = LogArray {
+        block_number: log_block_nums,
+        log_index: log_tx_idx,
+        address: log_address,
+        topic0: log_topic0,
+        topic1: log_topic1,
+        topic2: log_topic2,
+        topic3: log_topic3,
+        data: log_data,
+    };
+
     // Return the extracted data
-    Ok((log_block_nums, log_tx_idx, log_address, log_topic0, log_topic1, log_topic2, log_topic3, log_data))
+    Ok(log_array)
 }
 
 fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<TransactionsArray> {
@@ -1163,11 +1198,7 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
     Ok(tx_array)
 }
 
-fn extract_block_cols_as_arrays(blocks: &RecordBatch) -> Result<(
-    &PrimitiveArray<UInt64Type>,
-    &GenericByteArray<GenericBinaryType<i32>>,
-    &GenericByteArray<GenericBinaryType<i32>>,
-)> {
+fn extract_block_cols_as_arrays(blocks: &RecordBatch) -> Result<BlockArray> {
 
     let block_numbers = blocks
         .column_by_name("number")
@@ -1190,5 +1221,11 @@ fn extract_block_cols_as_arrays(blocks: &RecordBatch) -> Result<(
         .downcast_ref::<BinaryArray>()
         .context("get block transactions_root as binary")?;
 
-    Ok((block_numbers, block_receipts_root, block_transactions_root))
+    let block_array = BlockArray {
+        number: block_numbers,
+        receipts_root: block_receipts_root,
+        transactions_root: block_transactions_root,
+    };
+
+    Ok(block_array)
 }

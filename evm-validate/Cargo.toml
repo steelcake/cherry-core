@@ -15,3 +15,5 @@ faster-hex = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-consensus = { workspace = true }
 alloy-eips = { workspace = true }
+serde = { workspace = true }
+bincode = { workspace = true }
