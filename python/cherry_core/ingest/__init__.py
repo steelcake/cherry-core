@@ -29,6 +29,9 @@ class ProviderConfig:
     retry_base_ms: Optional[int] = None
     retry_ceiling_ms: Optional[int] = None
     http_req_timeout_millis: Optional[int] = None
+    stop_on_head: bool = False
+    head_poll_interval_millis: Optional[int] = None
+    buffer_size: Optional[int] = None
 
 class ResponseStream:
     def __init__(self, inner):

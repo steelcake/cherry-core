@@ -1,4 +1,5 @@
 #![allow(clippy::should_implement_trait)]
+#![allow(clippy::field_reassign_with_default)]
 
 use std::{collections::BTreeMap, pin::Pin};
 
@@ -46,6 +47,9 @@ pub struct ProviderConfig {
     pub retry_base_ms: Option<u64>,
     pub retry_ceiling_ms: Option<u64>,
     pub http_req_timeout_millis: Option<u64>,
+    pub stop_on_head: bool,
+    pub head_poll_interval_millis: Option<u64>,
+    pub buffer_size: Option<usize>,
 }
 
 impl ProviderConfig {
@@ -60,6 +64,9 @@ impl ProviderConfig {
             retry_base_ms: None,
             retry_ceiling_ms: None,
             http_req_timeout_millis: None,
+            stop_on_head: false,
+            head_poll_interval_millis: None,
+            buffer_size: None,
         }
     }
 }

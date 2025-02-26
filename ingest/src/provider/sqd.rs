@@ -527,19 +527,24 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
         client_config.http_req_timeout_millis = v;
     }
 
+    let mut stream_config = sqd_portal_client::StreamConfig::default();
+    stream_config.stop_on_head = cfg.stop_on_head;
+
+    if let Some(head_poll_interval_millis) = cfg.head_poll_interval_millis {
+        stream_config.head_poll_interval_millis = head_poll_interval_millis;
+    }
+
+    if let Some(buffer_size) = cfg.buffer_size {
+        stream_config.buffer_size = buffer_size;
+    }
+
     let client = sqd_portal_client::Client::new(url, client_config);
     let client = Arc::new(client);
     match cfg.query {
         Query::Svm(svm_query) => {
             let svm_query = svm_query_to_sqd(&svm_query).context("convert to sqd query")?;
 
-            let receiver = client.svm_arrow_finalized_stream(
-                svm_query,
-                sqd_portal_client::StreamConfig {
-                    stop_on_head: true,
-                    ..Default::default()
-                },
-            );
+            let receiver = client.svm_arrow_finalized_stream(svm_query, stream_config);
 
             let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
 
@@ -564,13 +569,7 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
         Query::Evm(evm_query) => {
             let evm_query = evm_query_to_sqd(&evm_query).context("convert to sqd query")?;
 
-            let receiver = client.evm_arrow_finalized_stream(
-                evm_query,
-                sqd_portal_client::StreamConfig {
-                    stop_on_head: true,
-                    ..Default::default()
-                },
-            );
+            let receiver = client.evm_arrow_finalized_stream(evm_query, stream_config);
 
             let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
 
