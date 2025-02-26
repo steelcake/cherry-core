@@ -27,9 +27,8 @@ query = ingest.Query(
 asyncio.run(
     run(
         ingest.ProviderConfig(
-            kind=ingest.ProviderKind.SQD,
+            kind=ingest.ProviderKind.HYPERSYNC,
             query=query,
-            url="https://portal.sqd.dev/datasets/ethereum-mainnet",
             stop_on_head=False, # default is False as well
             head_poll_interval_millis=1000, # default is 1000
         )
