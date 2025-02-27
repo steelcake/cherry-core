@@ -1,14 +1,11 @@
+use super::common::{field_selection_to_set, prune_fields};
 use crate::{evm, DataStream, ProviderConfig, Query};
 use anyhow::{anyhow, Context, Result};
 use arrow::array::{builder, new_null_array, Array, BinaryArray, RecordBatch};
 use arrow::datatypes::DataType;
 use hypersync_client::net_types as hypersync_nt;
 use std::sync::Arc;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    num::NonZeroU64,
-    time::Duration,
-};
+use std::{collections::BTreeMap, num::NonZeroU64, time::Duration};
 use tokio::sync::mpsc;
 
 pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
@@ -56,35 +53,20 @@ pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
         })).collect::<Result<_>>()?,
         join_mode: hypersync_nt::JoinMode::Default,
         field_selection: hypersync_nt::FieldSelection {
-            block: field_selection_to_vec(&query.fields.block),
-            transaction: field_selection_to_vec(&query.fields.transaction),
-            log: field_selection_to_vec(&query.fields.log),
-            trace: field_selection_to_vec(&query.fields.trace),
+            block: field_selection_to_set(&query.fields.block),
+            transaction: field_selection_to_set(&query.fields.transaction),
+            log: field_selection_to_set(&query.fields.log),
+            trace: field_selection_to_set(&query.fields.trace),
         },
         ..Default::default()
     })
 }
 
-fn field_selection_to_vec<S: serde::Serialize>(field_selection: &S) -> BTreeSet<String> {
-    let json = serde_json::to_value(field_selection).unwrap();
-    let json = json.as_object().unwrap();
-
-    let mut output = BTreeSet::new();
-
-    for (key, value) in json.iter() {
-        if value.as_bool().unwrap() {
-            output.insert(key.clone());
-        }
-    }
-
-    output
-}
-
 pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
     match cfg.query {
         Query::Svm(_) => Err(anyhow!("svm is not supported by hypersync")),
-        Query::Evm(evm_query) => {
-            let evm_query = query_to_hypersync(&evm_query).context("convert to hypersync query")?;
+        Query::Evm(query) => {
+            let evm_query = query_to_hypersync(&query).context("convert to hypersync query")?;
 
             let client_config = hypersync_client::ClientConfig {
                 url: match cfg.url {
@@ -127,8 +109,11 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
 
             tokio::spawn(async move {
                 while let Some(res) = receiver.recv().await {
-                    let res =
-                        res.and_then(|r| map_response(&r.data).context("map data").map(|x| (r, x)));
+                    let res = res.and_then(|r| {
+                        map_response(&r.data, &query.fields)
+                            .context("map data")
+                            .map(|x| (r, x))
+                    });
                     match res {
                         Ok((r, data)) => {
                             evm_query.from_block = r.next_block;
@@ -161,6 +146,7 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
                     &client,
                     original_to_block,
                     &mut evm_query,
+                    &query.fields,
                     &tx,
                     rollback_offset,
                     head_poll_interval,
@@ -183,6 +169,7 @@ async fn chain_head_stream(
     client: &hypersync_client::Client,
     original_to_block: Option<u64>,
     evm_query: &mut hypersync_client::net_types::Query,
+    fields: &evm::Fields,
     tx: &mpsc::Sender<Result<BTreeMap<String, RecordBatch>>>,
     rollback_offset: u64,
     head_poll_interval: Duration,
@@ -204,7 +191,7 @@ async fn chain_head_stream(
 
         let res = client.get_arrow(evm_query).await.context("run query")?;
 
-        let data = map_response(&res.data).context("map data")?;
+        let data = map_response(&res.data, fields).context("map data")?;
 
         if tx.send(Ok(data)).await.is_err() {
             log::trace!("quitting chain head stream since the receiver is dropped");
@@ -236,6 +223,7 @@ fn make_rollback_offset(_chain_id: u64) -> u64 {
 
 fn map_response(
     resp: &hypersync_client::ArrowResponseData,
+    fields: &evm::Fields,
 ) -> Result<BTreeMap<String, RecordBatch>> {
     let mut data = BTreeMap::new();
 
@@ -252,6 +240,8 @@ fn map_response(
         "traces".to_owned(),
         map_traces(&resp.traces).context("map traces")?,
     );
+
+    prune_fields(&mut data, fields);
 
     Ok(data)
 }

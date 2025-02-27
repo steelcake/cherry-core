@@ -1,3 +1,4 @@
+use super::common::prune_fields;
 use crate::{evm, svm, DataStream, ProviderConfig, Query};
 use anyhow::{Context, Result};
 use futures_lite::StreamExt;
@@ -541,14 +542,14 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
     let client = sqd_portal_client::Client::new(url, client_config);
     let client = Arc::new(client);
     match cfg.query {
-        Query::Svm(svm_query) => {
-            let svm_query = svm_query_to_sqd(&svm_query).context("convert to sqd query")?;
+        Query::Svm(query) => {
+            let sqd_query = svm_query_to_sqd(&query).context("convert to sqd query")?;
 
-            let receiver = client.svm_arrow_finalized_stream(svm_query, stream_config);
+            let receiver = client.svm_arrow_finalized_stream(sqd_query, stream_config);
 
             let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
 
-            let stream = stream.map(|v| {
+            let stream = stream.map(move |v| {
                 v.map(|v| {
                     let mut data = BTreeMap::new();
 
@@ -560,20 +561,22 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
                     data.insert("transactions".to_owned(), v.transactions);
                     data.insert("instructions".to_owned(), v.instructions);
 
+                    prune_fields(&mut data, &query.fields);
+
                     data
                 })
             });
 
             Ok(Box::pin(stream))
         }
-        Query::Evm(evm_query) => {
-            let evm_query = evm_query_to_sqd(&evm_query).context("convert to sqd query")?;
+        Query::Evm(query) => {
+            let sqd_query = evm_query_to_sqd(&query).context("convert to sqd query")?;
 
-            let receiver = client.evm_arrow_finalized_stream(evm_query, stream_config);
+            let receiver = client.evm_arrow_finalized_stream(sqd_query, stream_config);
 
             let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
 
-            let stream = stream.map(|v| {
+            let stream = stream.map(move |v| {
                 v.map(|v| {
                     let mut data = BTreeMap::new();
 
@@ -581,6 +584,8 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
                     data.insert("transactions".to_owned(), v.transactions);
                     data.insert("logs".to_owned(), v.logs);
                     data.insert("traces".to_owned(), v.traces);
+
+                    prune_fields(&mut data, &query.fields);
 
                     data
                 })

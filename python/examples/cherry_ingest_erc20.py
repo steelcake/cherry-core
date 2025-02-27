@@ -15,6 +15,7 @@ async def run(provider: ingest.ProviderConfig):
             break
 
         print(res["blocks"].column("number"))
+        print(res)
 
         decoded = cherry_core.evm_decode_events(signature, res["logs"])
         print(decoded)
