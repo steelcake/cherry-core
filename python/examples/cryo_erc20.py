@@ -1,4 +1,4 @@
-rom cryo import collect as cryo_collect
+from cryo import collect as cryo_collect
 import cherry_core
 import typing
 import polars
