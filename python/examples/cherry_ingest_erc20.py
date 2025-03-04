@@ -1,6 +1,11 @@
 import cherry_core
 from cherry_core import ingest
 import asyncio
+import logging
+import os
+
+logging.basicConfig(level=os.environ.get("LOGLEVEL", "DEBUG").upper())
+logger = logging.getLogger(__name__)
 
 signature = "Transfer(address indexed from, address indexed to, uint256 amount)"
 topic0 = cherry_core.evm_signature_to_topic0(signature)
@@ -14,11 +19,11 @@ async def run(provider: ingest.ProviderConfig):
         if res is None:
             break
 
-        print(res["blocks"].column("number"))
-        print(res)
+        logger.info(res["blocks"].column("number"))
+        logger.debug(res)
 
         decoded = cherry_core.evm_decode_events(signature, res["logs"])
-        print(decoded)
+        logger.debug(decoded)
 
 query = ingest.Query(
     kind=ingest.QueryKind.EVM,
