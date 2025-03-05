@@ -1,6 +1,6 @@
 [package]
 name = "cherry-core-python"
-version = "0.0.17"
+version = "0.0.18"
 edition = "2021"
 description = "Core library for cherry blockchain data framework"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -22,4 +22,4 @@ futures-lite = { workspace = true }
 sqd-portal-client = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 env_logger = "0.11"
-
+bs58 = { workspace = true }

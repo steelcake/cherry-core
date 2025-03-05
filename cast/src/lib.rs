@@ -60,6 +60,42 @@ pub fn cast_schema<S: AsRef<str>>(map: &[(S, DataType)], schema: &Schema) -> Res
     Ok(Schema::new(fields))
 }
 
+pub fn base58_encode(data: &RecordBatch) -> Result<RecordBatch> {
+    let schema = schema_binary_to_string(data.schema_ref());
+    let mut columns = Vec::<Arc<dyn Array>>::with_capacity(data.columns().len());
+
+    for col in data.columns().iter() {
+        if col.data_type() == &DataType::Binary {
+            columns.push(Arc::new(base58_encode_column(
+                col.as_any().downcast_ref::<BinaryArray>().unwrap(),
+            )));
+        } else {
+            columns.push(col.clone());
+        }
+    }
+
+    RecordBatch::try_new(Arc::new(schema), columns).context("construct arrow batch")
+}
+
+pub fn base58_encode_column(col: &BinaryArray) -> StringArray {
+    let mut arr =
+        builder::StringBuilder::with_capacity(col.len(), (col.value_data().len() + 2) * 2);
+
+    for v in col.iter() {
+        match v {
+            Some(v) => {
+                let v = bs58::encode(v)
+                    .with_alphabet(bs58::Alphabet::BITCOIN)
+                    .into_string();
+                arr.append_value(v);
+            }
+            None => arr.append_null(),
+        }
+    }
+
+    arr.finish()
+}
+
 pub fn hex_encode<const PREFIXED: bool>(data: &RecordBatch) -> Result<RecordBatch> {
     let schema = schema_binary_to_string(data.schema_ref());
     let mut columns = Vec::<Arc<dyn Array>>::with_capacity(data.columns().len());
@@ -141,6 +177,26 @@ pub fn schema_decimal256_to_binary(schema: &Schema) -> Schema {
     }
 
     Schema::new(fields)
+}
+
+pub fn base58_decode_column(col: &StringArray) -> Result<BinaryArray> {
+    let mut arr = builder::BinaryBuilder::with_capacity(col.len(), col.value_data().len() / 2);
+
+    for v in col.iter() {
+        match v {
+            // TODO: this should be optimized by removing allocations if needed
+            Some(v) => {
+                let v = bs58::decode(v)
+                    .with_alphabet(bs58::Alphabet::BITCOIN)
+                    .into_vec()
+                    .context("bs58 decode")?;
+                arr.append_value(v);
+            }
+            None => arr.append_null(),
+        }
+    }
+
+    Ok(arr.finish())
 }
 
 pub fn hex_decode_column<const PREFIXED: bool>(col: &StringArray) -> Result<BinaryArray> {

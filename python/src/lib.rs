@@ -22,10 +22,13 @@ fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(cast, m)?)?;
     m.add_function(wrap_pyfunction!(cast_schema, m)?)?;
+    m.add_function(wrap_pyfunction!(base58_encode, m)?)?;
+    m.add_function(wrap_pyfunction!(base58_encode_column, m)?)?;
     m.add_function(wrap_pyfunction!(hex_encode, m)?)?;
     m.add_function(wrap_pyfunction!(prefix_hex_encode, m)?)?;
     m.add_function(wrap_pyfunction!(hex_encode_column, m)?)?;
     m.add_function(wrap_pyfunction!(prefix_hex_encode_column, m)?)?;
+    m.add_function(wrap_pyfunction!(base58_decode_column, m)?)?;
     m.add_function(wrap_pyfunction!(hex_decode_column, m)?)?;
     m.add_function(wrap_pyfunction!(prefix_hex_decode_column, m)?)?;
     m.add_function(wrap_pyfunction!(u256_column_from_binary, m)?)?;
@@ -41,6 +44,8 @@ fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(evm_validate_block_data, m)?)?;
     m.add_function(wrap_pyfunction!(evm_signature_to_topic0, m)?)?;
+    m.add_function(wrap_pyfunction!(base58_encode_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(base58_decode_string, m)?)?;
     ingest::ingest_module(py, m)?;
 
     Ok(())
@@ -101,6 +106,15 @@ fn hex_encode(batch: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
+fn base58_encode(batch: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
+    let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
+
+    let batch = baselib::cast::base58_encode(&batch).context("encode to base58")?;
+
+    Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
+}
+
+#[pyfunction]
 fn prefix_hex_encode(batch: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
     let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
 
@@ -116,6 +130,31 @@ fn u256_to_binary(batch: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject
     let batch = baselib::cast::u256_to_binary(&batch).context("map u256 columns to binary")?;
 
     Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
+}
+
+#[pyfunction]
+fn base58_encode_column(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
+    let mut col = ArrayData::from_pyarrow_bound(col).context("convert column from pyarrow")?;
+
+    // Ensure data is aligned (by potentially copying the buffers).
+    // This is needed because some python code (for example the
+    // python flight client) produces unaligned buffers
+    // See https://github.com/apache/arrow/issues/43552 for details
+    //
+    // https://github.com/apache/arrow-rs/blob/764b34af4abf39e46575b1e8e3eaf0a36976cafb/arrow/src/pyarrow.rs#L374
+    col.align_buffers();
+
+    if col.data_type() != &DataType::Binary {
+        return Err(anyhow!("unexpected data type {}. Expected Binary", col.data_type()).into());
+    }
+    let col = BinaryArray::from(col);
+
+    let col = baselib::cast::base58_encode_column(&col);
+
+    Ok(col
+        .into_data()
+        .to_pyarrow(py)
+        .context("map result back to pyarrow")?)
 }
 
 #[pyfunction]
@@ -148,6 +187,31 @@ fn hex_encode_column_impl<const PREFIXED: bool>(
     let col = BinaryArray::from(col);
 
     let col = baselib::cast::hex_encode_column::<PREFIXED>(&col);
+
+    Ok(col
+        .into_data()
+        .to_pyarrow(py)
+        .context("map result back to pyarrow")?)
+}
+
+#[pyfunction]
+fn base58_decode_column(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyObject> {
+    let mut col = ArrayData::from_pyarrow_bound(col).context("convert column from pyarrow")?;
+
+    // Ensure data is aligned (by potentially copying the buffers).
+    // This is needed because some python code (for example the
+    // python flight client) produces unaligned buffers
+    // See https://github.com/apache/arrow/issues/43552 for details
+    //
+    // https://github.com/apache/arrow-rs/blob/764b34af4abf39e46575b1e8e3eaf0a36976cafb/arrow/src/pyarrow.rs#L374
+    col.align_buffers();
+
+    if col.data_type() != &DataType::Utf8 {
+        return Err(anyhow!("unexpected data type {}. Expected Utf8", col.data_type()).into());
+    }
+    let col = StringArray::from(col);
+
+    let col = baselib::cast::base58_decode_column(&col).context("base58 decode")?;
 
     Ok(col
         .into_data()
@@ -372,4 +436,20 @@ fn evm_signature_to_topic0(signature: &str) -> PyResult<String> {
     let topic0 = baselib::evm_decode::signature_to_topic0(signature)?;
 
     Ok(format!("0x{}", faster_hex::hex_string(topic0.as_slice())))
+}
+
+#[pyfunction]
+fn base58_encode_bytes(bytes: &[u8]) -> String {
+    bs58::encode(bytes)
+        .with_alphabet(bs58::Alphabet::BITCOIN)
+        .into_string()
+}
+
+#[pyfunction]
+fn base58_decode_string(s: &str) -> PyResult<Vec<u8>> {
+    bs58::decode(s)
+        .with_alphabet(bs58::Alphabet::BITCOIN)
+        .into_vec()
+        .context("decode bs58")
+        .map_err(Into::into)
 }

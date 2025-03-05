@@ -8,17 +8,26 @@ def cast(map: list[Tuple[str, str]], data: pyarrow.RecordBatch, allow_cast_fail:
 def cast_schema(map: list[Tuple[str, str]], schema: pyarrow.Schema) -> pyarrow.Schema:
     return cc.cast_schema(map, schema)
 
+def base58_encode(data: pyarrow.RecordBatch) -> pyarrow.RecordBatch:
+    return cc.base58_encode(data)
+
 def hex_encode(data: pyarrow.RecordBatch) -> pyarrow.RecordBatch:
     return cc.hex_encode(data)
 
 def prefix_hex_encode(data: pyarrow.RecordBatch) -> pyarrow.RecordBatch:
     return cc.prefix_hex_encode(data)
 
+def base58_encode_column(col: pyarrow.Array) -> pyarrow.Array:
+    return cc.base58_encode_column(col)
+
 def hex_encode_column(col: pyarrow.Array) -> pyarrow.Array:
     return cc.hex_encode_column(col)
 
 def prefix_hex_encode_column(col: pyarrow.Array) -> pyarrow.Array:
     return cc.prefix_hex_encode_column(col)
+
+def base58_decode_column(col: pyarrow.Array) -> pyarrow.Array:
+    return cc.base58_decode_column(col)
 
 def hex_decode_column(col: pyarrow.Array) -> pyarrow.Array:
     return cc.hex_decode_column(col)
@@ -55,4 +64,10 @@ def evm_validate_block_data(blocks: pyarrow.RecordBatch, transactions: pyarrow.R
 
 def evm_signature_to_topic0(signature: str) -> str:
     return cc.evm_signature_to_topic0(signature)
+
+def base58_encode_bytes(b: bytes) -> str:
+    return cc.base58_encode_bytes(b)
+
+def base58_decode_string(s: str) -> bytes:
+    return cc.base58_decode_string(s)
 
