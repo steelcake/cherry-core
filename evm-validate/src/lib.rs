@@ -711,7 +711,7 @@ pub fn validate_root_hashes(
             },
             None => {
                 if input.len() > 0 {
-                    println!("sighash is None, How to know if this tx has UTF-8 input?");
+                    println!("sighash is None, with a non-zero input");
                 }
             }
         }

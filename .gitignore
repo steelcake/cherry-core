@@ -20,3 +20,6 @@ data
 
 # jupyter notebooks
 *.ipynb
+
+# uv.lock
+uv.lock
