@@ -533,12 +533,12 @@ pub fn validate_root_hashes(
             Err(_) => return Err(anyhow!("address is invalid")),
         };
         // topics can be null
-        let topic0: Option<FixedBytes<32>> = topic0_opt.map(|t| t.try_into().expect("topic0 is invalid"));
+        let topic0: FixedBytes<32> = topic0_opt.unwrap().try_into().expect("topic0 is invalid");
         let topic1: Option<FixedBytes<32>> = topic1_opt.map(|t| t.try_into().expect("topic1 is invalid"));
         let topic2: Option<FixedBytes<32>> = topic2_opt.map(|t| t.try_into().expect("topic2 is invalid"));
         let topic3: Option<FixedBytes<32>> = topic3_opt.map(|t| t.try_into().expect("topic3 is invalid"));
         // create a vec of topics with None values removed
-        let topics: Vec<_> = [topic0, topic1, topic2, topic3]
+        let topics: Vec<_> = [Some(topic0), topic1, topic2, topic3]
             .into_iter()
             .flatten()
             .collect();
@@ -644,10 +644,20 @@ pub fn validate_root_hashes(
         let to:Option<Address> = tx_to_opt.map(|a| a.try_into().unwrap());
         let tx_idx = tx_tx_idx_opt.unwrap();
         let value = U256::try_from_be_slice(tx_value_opt.unwrap()).expect("invalid value");
-        let v = match tx_v_opt.unwrap(){
-            [0] | [27] | [37] => false,
-            [1] | [28] | [38] => true,
-            _ => return Err(anyhow!("invalid v")),
+        let chain_id = tx_chain_id_opt; 
+        // EIP-155: The recovery identifier boollean is v - 27 for legacy transactions and v = chainId * 2 + 35 for EIP-155 transactions.
+        let r_id: u8 = (chain_id.unwrap_or(1) * 2 + 35).try_into().expect("invalid chain_id, produced signiture v is out of range");
+        let v = tx_v_opt.unwrap();
+        if v.len() != 1 {
+            return Err(anyhow!("invalid v"));
+        }
+        let v = v[0];
+        let v = if v == 0 || v == 27 || v == r_id {
+            false
+        } else if v == 1 || v == 28 || v == r_id + 1{
+            true
+        } else {
+            return Err(anyhow!("invalid v"));
         };
         let r: Uint<256, 4> = U256::try_from_be_slice(tx_r_opt.unwrap()).expect("invalid r");
         let s: Uint<256, 4> = U256::try_from_be_slice(tx_s_opt.unwrap()).expect("invalid s");
@@ -659,7 +669,6 @@ pub fn validate_root_hashes(
             let u256 = U256::try_from_be_slice(bytes).expect("invalid max fee per gas");
             u256.try_into().unwrap()
         });
-        let chain_id = tx_chain_id_opt; 
         let cumulative_gas_used = tx_cumulative_gas_used_opt.unwrap();
         let contract_address: Option<Address> = tx_contract_address_opt.map(|a| a.try_into().unwrap());
         let logs_bloom = tx_logs_bloom_opt.unwrap();
@@ -819,8 +828,8 @@ pub fn validate_root_hashes(
         let expected_bloom = Bloom::new(logs_bloom.try_into().expect("logs bloom must be 256 bytes"));
         // validate logs bloom
         if receiptwithbloom.logs_bloom != expected_bloom {
-            println!("Logs bloom mismatch at block {}, tx_idx {}.\nExpected:\n{},\nFound:\n{:?}", block_num, tx_idx, expected_bloom, receiptwithbloom.logs_bloom);
-            // return Err(anyhow!("Logs bloom mismatch at block {}, tx_idx {}.\nExpected:\n{},\nFound:\n{:?}", block_num, tx_idx, expected_bloom, receiptwithbloom.logs_bloom));
+            println!("Logs bloom mismatch at block {}, tx_idx {}, tx_hash {}.\nExpected:\n{},\nFound:\n{:?}", block_num, tx_idx, expected_hash, expected_bloom, receiptwithbloom.logs_bloom);
+            // return Err(anyhow!("Logs bloom mismatch at block {}, tx_idx {}, tx_hash {}.\nExpected:\n{},\nFound:\n{:?}", block_num, tx_idx, expected_hash, expected_bloom, receiptwithbloom.logs_bloom));
         }
         // create a receipt envelope object from the receipt_with_bloom object
         let receipt_envelope = match tx_type {
