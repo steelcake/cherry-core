@@ -1,6 +1,6 @@
 [package]
 name = "cherry-cast"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
 description = "Library for casting arrow colums with support for specific blockchain types"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -14,3 +14,4 @@ ruint = { workspace = true }
 anyhow = { workspace = true }
 faster-hex = { workspace = true }
 bs58 = { workspace = true }
+alloy-primitives = { workspace = true }

@@ -267,6 +267,21 @@ fn map_hypersync_array(
     Ok(arr)
 }
 
+fn map_hypersync_binary_array_to_u8(
+    batch: &RecordBatch,
+    name: &str,
+    num_rows: usize,
+) -> Result<Arc<dyn Array>> {
+    let arr = map_hypersync_array(batch, name, num_rows, &DataType::Binary)?;
+    let arr = arr.as_any().downcast_ref::<BinaryArray>().unwrap();
+    let arr = cherry_cast::u256_column_from_binary(arr)
+        .with_context(|| format!("parse u256 values in {} column", name))?;
+    let arr: &dyn Array = &arr;
+    let arr = arrow::compute::cast(arr, &DataType::UInt8)
+        .with_context(|| format!("cast u256 to u8 for column {}", name))?;
+    Ok(Arc::new(arr))
+}
+
 fn map_hypersync_binary_array_to_decimal256(
     batch: &RecordBatch,
     name: &str,
@@ -400,9 +415,9 @@ fn map_transactions(transactions: &[hypersync_client::ArrowBatch]) -> Result<Rec
                 map_hypersync_array(&batch, "to", num_rows, &DataType::Binary)?,
                 map_hypersync_array(&batch, "transaction_index", num_rows, &DataType::UInt64)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "value", num_rows)?,
-                map_hypersync_binary_array_to_decimal256(&batch, "v", num_rows)?,
-                map_hypersync_binary_array_to_decimal256(&batch, "r", num_rows)?,
-                map_hypersync_binary_array_to_decimal256(&batch, "s", num_rows)?,
+                map_hypersync_binary_array_to_u8(&batch, "v", num_rows)?,
+                map_hypersync_array(&batch, "r", num_rows, &DataType::Binary)?,
+                map_hypersync_array(&batch, "s", num_rows, &DataType::Binary)?,
                 map_hypersync_binary_array_to_decimal256(
                     &batch,
                     "max_priority_fee_per_gas",

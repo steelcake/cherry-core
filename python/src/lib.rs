@@ -302,7 +302,7 @@ fn u256_column_to_binary(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyO
     }
     let col = Decimal256Array::from(col);
 
-    let col = baselib::cast::u256_column_to_binary(&col);
+    let col = baselib::cast::u256_column_to_binary(&col).context("u256 to binary")?;
 
     Ok(col
         .into_data()
