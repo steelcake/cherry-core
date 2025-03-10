@@ -67,9 +67,9 @@ pub fn transactions_schema() -> Schema {
         Field::new("to", DataType::Binary, true),
         Field::new("transaction_index", DataType::UInt64, true),
         Field::new("value", DataType::Decimal256(76, 0), true),
-        Field::new("v", DataType::Decimal256(76, 0), true),
-        Field::new("r", DataType::Decimal256(76, 0), true),
-        Field::new("s", DataType::Decimal256(76, 0), true),
+        Field::new("v", DataType::Binary, true),
+        Field::new("r", DataType::Binary, true),
+        Field::new("s", DataType::Binary, true),
         Field::new(
             "max_priority_fee_per_gas",
             DataType::Decimal256(76, 0),

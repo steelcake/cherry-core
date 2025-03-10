@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{Array, BinaryArray, GenericByteArray, PrimitiveArray, UInt64Array, UInt8Array};
-use arrow::datatypes::{GenericBinaryType, UInt8Type};
+use arrow::array::{Array, BinaryArray, Decimal256Array, GenericByteArray, PrimitiveArray, UInt64Array, UInt8Array};
+use arrow::datatypes::{Decimal256Type, GenericBinaryType, UInt8Type};
 use arrow::{datatypes::UInt64Type, record_batch::RecordBatch};
 
 use alloy_primitives::{Address, Bloom, Bytes, FixedBytes, Log, PrimitiveSignature, TxKind, Uint, B256, U256};
@@ -24,28 +24,28 @@ struct LogArray<'a> {
 
 struct TransactionsArray<'a> {
     block_number: &'a PrimitiveArray<UInt64Type>,
-    gas_limit: PrimitiveArray<UInt64Type>,
-    gas_price: &'a GenericByteArray<GenericBinaryType<i32>>,
+    gas_limit: &'a PrimitiveArray<Decimal256Type>,
+    gas_price: &'a PrimitiveArray<Decimal256Type>,
     hash: &'a GenericByteArray<GenericBinaryType<i32>>,
     input: &'a GenericByteArray<GenericBinaryType<i32>>,
-    nonce: PrimitiveArray<UInt64Type>,
+    nonce: &'a PrimitiveArray<Decimal256Type>,
     to: &'a GenericByteArray<GenericBinaryType<i32>>,
     tx_index: &'a PrimitiveArray<UInt64Type>,
-    value: &'a GenericByteArray<GenericBinaryType<i32>>,
+    value: &'a PrimitiveArray<Decimal256Type>,
     v: &'a GenericByteArray<GenericBinaryType<i32>>,
     r: &'a GenericByteArray<GenericBinaryType<i32>>,
     s: &'a GenericByteArray<GenericBinaryType<i32>>,
-    max_priority_fee_per_gas: &'a GenericByteArray<GenericBinaryType<i32>>,
-    max_fee_per_gas: &'a GenericByteArray<GenericBinaryType<i32>>,
-    chain_id: PrimitiveArray<UInt64Type>,
-    cumulative_gas_used: PrimitiveArray<UInt64Type>,
+    max_priority_fee_per_gas: &'a PrimitiveArray<Decimal256Type>,
+    max_fee_per_gas: &'a PrimitiveArray<Decimal256Type>,
+    chain_id: &'a PrimitiveArray<Decimal256Type>,
+    cumulative_gas_used: &'a PrimitiveArray<Decimal256Type>,
     contract_address: &'a GenericByteArray<GenericBinaryType<i32>>,
     logs_bloom: &'a GenericByteArray<GenericBinaryType<i32>>,
     tx_type: &'a PrimitiveArray<UInt8Type>,
     status: &'a PrimitiveArray<UInt8Type>,
     sighash: &'a GenericByteArray<GenericBinaryType<i32>>,
     access_list: &'a GenericByteArray<GenericBinaryType<i32>>,
-    max_fee_per_blob_gas: &'a GenericByteArray<GenericBinaryType<i32>>,
+    max_fee_per_blob_gas: &'a PrimitiveArray<Decimal256Type>,
     blob_versioned_hashes: &'a GenericByteArray<GenericBinaryType<i32>>,
 }
 
@@ -634,17 +634,16 @@ pub fn validate_root_hashes(
 
         // cast values to expected types
         let block_num = tx_block_nums_opt.unwrap();
-        let gas_limit = tx_gas_limit_opt.unwrap();
-        let gas_price = U256::try_from_be_slice(tx_gas_price_opt.unwrap()).expect("invalid gas price");
-        let gas_price = gas_price.try_into().unwrap();
+        let gas_limit = u64::try_from(tx_gas_limit_opt.unwrap().as_i128()).unwrap();
+        let gas_price = u128::try_from(tx_gas_price_opt.unwrap().as_i128()).unwrap();
         let expected_hash: FixedBytes<32> = tx_hash_opt.unwrap().try_into().unwrap();
         let input = tx_input_opt.unwrap();
         let input = Bytes::copy_from_slice(input);
-        let nonce = tx_nonce_opt.unwrap();
+        let nonce = u64::try_from(tx_nonce_opt.unwrap().as_i128()).unwrap();
         let to:Option<Address> = tx_to_opt.map(|a| a.try_into().unwrap());
         let tx_idx = tx_tx_idx_opt.unwrap();
-        let value = U256::try_from_be_slice(tx_value_opt.unwrap()).expect("invalid value");
-        let chain_id = tx_chain_id_opt; 
+        let value = U256::try_from(tx_value_opt.unwrap().as_i128()).unwrap();
+        let chain_id = tx_chain_id_opt.map(|id| u64::try_from(id.as_i128()).unwrap());
         // EIP-155: The recovery identifier boollean is v - 27 for legacy transactions and v = chainId * 2 + 35 for EIP-155 transactions.
         let r_id: u8 = (chain_id.unwrap_or(1) * 2 + 35).try_into().expect("invalid chain_id, produced signiture v is out of range");
         let v = tx_v_opt.unwrap();
@@ -661,15 +660,10 @@ pub fn validate_root_hashes(
         };
         let r: Uint<256, 4> = U256::try_from_be_slice(tx_r_opt.unwrap()).expect("invalid r");
         let s: Uint<256, 4> = U256::try_from_be_slice(tx_s_opt.unwrap()).expect("invalid s");
-        let max_priority_fee_per_gas: Option<u128> = tx_max_priority_fee_per_gas_opt.map(|bytes| {
-            let u256 = U256::try_from_be_slice(bytes).expect("invalid max priority fee per gas");
-            u256.try_into().unwrap()
-        });
-        let max_fee_per_gas: Option<u128> = tx_max_fee_per_gas_opt.map(|bytes| {
-            let u256 = U256::try_from_be_slice(bytes).expect("invalid max fee per gas");
-            u256.try_into().unwrap()
-        });
-        let cumulative_gas_used = tx_cumulative_gas_used_opt.unwrap();
+        
+        let max_priority_fee_per_gas: Option<u128> = tx_max_priority_fee_per_gas_opt.map(|value| value.as_i128().try_into().unwrap());
+        let max_fee_per_gas: Option<u128> = tx_max_fee_per_gas_opt.map(|value| value.as_i128().try_into().unwrap());
+        let cumulative_gas_used = u64::try_from(tx_cumulative_gas_used_opt.unwrap().as_i128()).unwrap();
         let contract_address: Option<Address> = tx_contract_address_opt.map(|a| a.try_into().unwrap());
         let logs_bloom = tx_logs_bloom_opt.unwrap();
         let tx_type = tx_type_opt.unwrap();
@@ -680,10 +674,8 @@ pub fn validate_root_hashes(
             return AccessListWrapper(vec![]);
         }));
         let access_list: Option<AccessList> = access_list.map(|list| list.into());
-        let max_fee_per_blob_gas: Option<u128> = tx_max_fee_per_blob_gas_opt.map(|bytes| {
-            let u256 = U256::try_from_be_slice(bytes).expect("invalid max fee per blob gas");
-            u256.try_into().unwrap()
-        });
+
+        let max_fee_per_blob_gas: Option<u128> = tx_max_fee_per_blob_gas_opt.map(|value| value.as_i128().try_into().unwrap());
         let blob_versioned_hashes: Option<Vec<FixedBytes<32>>> = tx_blob_versioned_hashes_opt.map(|bytes| {
             bytes.chunks(32).map(|chunk| FixedBytes::from_slice(chunk)).collect()
         });
@@ -967,29 +959,17 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
 
     let tx_gas_limit = transactions
         .column_by_name("gas")
-        .context("get tx gas column")?
+        .context("get tx gas limit column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx gas col as binary")?;
-
-    // Convert BinaryArray to UInt64Array
-    let tx_gas_limit = UInt64Array::from_iter(
-        tx_gas_limit.iter().map(|opt_bytes| {
-            opt_bytes.map(|bytes| {
-                let u256 = alloy_primitives::U256::try_from_be_slice(bytes)
-                        .expect("failed to parse cumulative_gas_used as u256");
-                    u64::try_from(u256)
-                        .expect("cumulative_gas_used too large for u64")
-                })
-            })
-        );
+        .downcast_ref::<Decimal256Array>()
+        .context("get tx gas limit col as decimal256")?;
 
     let tx_gas_price = transactions
         .column_by_name("gas_price")
         .context("get tx gas price column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx gas price col as binary")?;
+        .downcast_ref::<Decimal256Array>()
+        .context("get tx gas price col as decimal256")?;
 
     let tx_hash = transactions
         .column_by_name("hash")
@@ -1009,21 +989,8 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         .column_by_name("nonce")
         .context("get tx nonce column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx nonce col as binary")?;
-
-    // Convert BinaryArray to UInt64Array
-    let tx_nonce = UInt64Array::from_iter(
-        tx_nonce.iter().map(|opt_bytes| {
-            opt_bytes.map(|bytes| {
-                let u256 = alloy_primitives::U256::try_from_be_slice(bytes)
-                    .expect("failed to parse nonce as u256");
-                u64::try_from(u256)
-                    .expect("nonce too large for u64")
-            })
-        })
-    );
-    
+        .downcast_ref::<Decimal256Array>()
+        .context("get tx nonce col as binary")?;    
 
     let tx_to = transactions
         .column_by_name("to")
@@ -1043,8 +1010,8 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         .column_by_name("value")
         .context("get tx value column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx value col as binary")?;
+        .downcast_ref::<Decimal256Array>()
+        .context("get tx value col as decimal256")?;
 
     let tx_v = transactions
         .column_by_name("v")
@@ -1071,54 +1038,29 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         .column_by_name("max_priority_fee_per_gas")
         .context("get tx max priority fee per gas column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx max priority fee per gas col as binary")?;
+        .downcast_ref::<Decimal256Array>()
+        .context("get tx max priority fee per gas col as decimal256")?;
 
     let tx_max_fee_per_gas = transactions
         .column_by_name("max_fee_per_gas")
         .context("get tx max fee per gas column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx max fee per gas col as binary")?;
+        .downcast_ref::<Decimal256Array>()
+        .context("get tx max fee per gas col as decimal256")?;
 
     let tx_chain_id = transactions
         .column_by_name("chain_id")
         .context("get tx chain id column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx chain id col as binary")?;
-
-    // Convert BinaryArray to UInt64Array
-    let tx_chain_id = UInt64Array::from_iter(
-        tx_chain_id.iter().map(|opt_bytes| {
-            opt_bytes.map(|bytes| {
-                let u256 = alloy_primitives::U256::try_from_be_slice(bytes)
-                    .expect("failed to parse chain_id as u256");
-                u64::try_from(u256)
-                    .expect("chain_id too large for u64")
-            })
-        })
-    );
-
+        .downcast_ref::<Decimal256Array>()
+        .context("get tx chain id col as decimal256")?;
 
     let tx_cumulative_gas_used = transactions
         .column_by_name("cumulative_gas_used")
         .context("get tx cumulative gas used column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx cumulative gas used col as binary")?;
-
-    // Convert BinaryArray to UInt64Array
-    let tx_cumulative_gas_used = UInt64Array::from_iter(
-        tx_cumulative_gas_used.iter().map(|opt_bytes| {
-            opt_bytes.map(|bytes| {
-                let u256 = alloy_primitives::U256::try_from_be_slice(bytes)
-                    .expect("failed to parse cumulative_gas_used as u256");
-                u64::try_from(u256)
-                    .expect("cumulative_gas_used too large for u64")
-            })
-        })
-    );
+        .downcast_ref::<Decimal256Array>()
+        .context("get tx cumulative gas used col as decimal256")?;
 
     let tx_contract_address = transactions
         .column_by_name("contract_address")
@@ -1166,8 +1108,8 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         .column_by_name("max_fee_per_blob_gas")
         .context("get tx max fee per blob gas column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx max fee per blob gas col as binary")?;
+        .downcast_ref::<Decimal256Array>()
+        .context("get tx max fee per blob gas col as decimal256")?;
     
     let tx_blob_versioned_hashes = transactions
         .column_by_name("blob_versioned_hashes")

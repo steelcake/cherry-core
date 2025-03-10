@@ -22,6 +22,9 @@ pyo3 = { workspace = true, features = ["anyhow"], optional = true }
 hypersync-client = { workspace = true }
 serde = { workspace = true, features = ["derive"]}
 serde_json = { workspace = true }
+bincode = { workspace = true }
+alloy-eips = { workspace = true }
+alloy-primitives = { workspace = true, features = ["serde"] }
 
 cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
 cherry-evm-schema = { path = "../evm-schema", version = "0.0.3" }

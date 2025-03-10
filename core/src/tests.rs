@@ -109,7 +109,7 @@ async fn decode_nested_list() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-// #[ignore]
+#[ignore]
 async fn validate_eth() {
     let client = hypersync_client::Client::new(ClientConfig {
         ..Default::default()
@@ -158,6 +158,68 @@ async fn validate_eth() {
     let traces = res.data.traces.iter().map(polars_arrow_to_arrow_rs);
 
     for (((blocks, transactions), logs), traces) in blocks.zip(transactions).zip(logs).zip(traces) {
+        // USING PARQUET TO DEBUG, REMOVE BEFORE MERGING
+        //write blocks, transactions, logs, traces to parquet
+        let blocks_file = std::fs::File::create("blocks.parquet").unwrap();
+        let mut blocks_writer = parquet::arrow::ArrowWriter::try_new(blocks_file, blocks.schema(), None).unwrap();
+        blocks_writer.write(&blocks).unwrap();
+        blocks_writer.close().unwrap();
+
+        let transactions_file = std::fs::File::create("transactions.parquet").unwrap();
+        let mut transactions_writer = parquet::arrow::ArrowWriter::try_new(transactions_file, transactions.schema(), None).unwrap();
+        transactions_writer.write(&transactions).unwrap();
+        transactions_writer.close().unwrap();
+
+        let logs_file = std::fs::File::create("logs.parquet").unwrap();
+        let mut logs_writer = parquet::arrow::ArrowWriter::try_new(logs_file, logs.schema(), None).unwrap();
+        logs_writer.write(&logs).unwrap();
+        logs_writer.close().unwrap();
+
+        let traces_file = std::fs::File::create("traces.parquet").unwrap();
+        let mut traces_writer = parquet::arrow::ArrowWriter::try_new(traces_file, traces.schema(), None).unwrap();
+        traces_writer.write(&traces).unwrap();
+        traces_writer.close().unwrap();
+
+        validate_block_data(&blocks, &transactions, &logs, &traces).unwrap();
+        validate_root_hashes(&blocks, &logs, &transactions).unwrap();
+    }
+}
+#[tokio::test(flavor = "multi_thread")]
+// #[ignore]
+async fn validate_eth_hypersync() {
+    let provider = cherry_ingest::ProviderConfig {
+        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync)
+    };
+    let query = cherry_ingest::evm::Query {
+        from_block: 18123123,
+        to_block: Some(18123125),
+        fields: cherry_ingest::evm::Fields::all(),
+        include_all_blocks: true,
+        transactions: vec![cherry_ingest::evm::TransactionRequest {
+            ..Default::default()
+        }],
+        logs: vec![cherry_ingest::evm::LogRequest {
+            ..Default::default()
+        }],
+        traces: vec![cherry_ingest::evm::TraceRequest {
+            ..Default::default()
+        }],
+    };
+
+    let mut stream = cherry_ingest::start_stream(cherry_ingest::StreamConfig {
+        format: cherry_ingest::Format::Evm(query),
+        provider,
+    })
+    .await
+    .unwrap();
+
+    while let Some(v) = stream.next().await {
+        let v = v.unwrap();
+        let blocks = v.get("blocks").unwrap();
+        let transactions = v.get("transactions").unwrap();
+        let logs = v.get("logs").unwrap();
+        let traces = v.get("traces").unwrap();
+
         // USING PARQUET TO DEBUG, REMOVE BEFORE MERGING
         //write blocks, transactions, logs, traces to parquet
         let blocks_file = std::fs::File::create("blocks.parquet").unwrap();
