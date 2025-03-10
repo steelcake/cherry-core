@@ -267,7 +267,7 @@ pub fn u256_column_to_binary(col: &Decimal256Array) -> Result<BinaryArray> {
 
 /// Converts all Decimal256 (U256) columns in the batch to big endian binary values
 pub fn u256_to_binary(data: &RecordBatch) -> Result<RecordBatch> {
-    let schema = schema_binary_to_string(data.schema_ref());
+    let schema = schema_decimal256_to_binary(data.schema_ref());
     let mut columns = Vec::<Arc<dyn Array>>::with_capacity(data.columns().len());
 
     for (i, col) in data.columns().iter().enumerate() {
