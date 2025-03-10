@@ -1,6 +1,7 @@
 from cherry_core import ingest
 import asyncio
 
+
 async def run(provider: ingest.ProviderConfig):
     stream = ingest.start_stream(provider)
 
@@ -11,6 +12,7 @@ async def run(provider: ingest.ProviderConfig):
 
         print(res["blocks"].column("number"))
 
+
 query = ingest.Query(
     kind=ingest.QueryKind.EVM,
     params=ingest.evm.Query(
@@ -20,8 +22,8 @@ query = ingest.Query(
             block=ingest.evm.BlockFields(
                 number=True,
             ),
-        )
-    )
+        ),
+    ),
 )
 
 asyncio.run(
@@ -29,9 +31,8 @@ asyncio.run(
         ingest.ProviderConfig(
             kind=ingest.ProviderKind.HYPERSYNC,
             query=query,
-            stop_on_head=False, # default is False as well
-            head_poll_interval_millis=1000, # default is 1000
+            stop_on_head=False,  # default is False as well
+            head_poll_interval_millis=1000,  # default is 1000
         )
     )
 )
-

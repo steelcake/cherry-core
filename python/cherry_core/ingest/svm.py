@@ -1,6 +1,7 @@
-from typing import Optional 
-from dataclasses import dataclass, field 
+from typing import Optional
+from dataclasses import dataclass, field
 from enum import Enum
+
 
 @dataclass
 class InstructionFields:
@@ -30,6 +31,7 @@ class InstructionFields:
     is_committed: bool = False
     has_dropped_log_messages: bool = False
 
+
 @dataclass
 class TransactionFields:
     block_slot: bool = False
@@ -51,6 +53,7 @@ class TransactionFields:
     fee_payer: bool = False
     has_dropped_log_messages: bool = False
 
+
 @dataclass
 class LogFields:
     block_slot: bool = False
@@ -62,6 +65,7 @@ class LogFields:
     kind: bool = False
     message: bool = False
 
+
 @dataclass
 class BalanceFields:
     block_slot: bool = False
@@ -70,6 +74,7 @@ class BalanceFields:
     account: bool = False
     pre: bool = False
     post: bool = False
+
 
 @dataclass
 class TokenBalanceFields:
@@ -88,6 +93,7 @@ class TokenBalanceFields:
     pre_amount: bool = False
     post_amount: bool = False
 
+
 @dataclass
 class RewardFields:
     block_slot: bool = False
@@ -98,6 +104,7 @@ class RewardFields:
     reward_type: bool = False
     commission: bool = False
 
+
 @dataclass
 class BlockFields:
     slot: bool = False
@@ -106,6 +113,7 @@ class BlockFields:
     parent_hash: bool = False
     height: bool = False
     timestamp: bool = False
+
 
 @dataclass
 class Fields:
@@ -116,6 +124,7 @@ class Fields:
     token_balance: TokenBalanceFields = field(default_factory=TokenBalanceFields)
     reward: RewardFields = field(default_factory=RewardFields)
     block: BlockFields = field(default_factory=BlockFields)
+
 
 @dataclass
 class InstructionRequest:
@@ -141,29 +150,36 @@ class InstructionRequest:
     logs: bool = False
     inner_instructions: bool = False
 
+
 @dataclass
 class TransactionRequest:
     fee_payer: list[str] = field(default_factory=list)
     instructions: bool = False
     logs: bool = False
 
+
 class LogKind(str, Enum):
     LOG = "log"
     DATA = "data"
     OTHER = "other"
 
+
 @dataclass
 class LogRequest:
     program_id: list[str] = field(default_factory=list)
-    kind: list[LogKind] = field(default_factory=list)  # Assuming LogKind is represented as a string
+    kind: list[LogKind] = field(
+        default_factory=list
+    )  # Assuming LogKind is represented as a string
     transaction: bool = False
     instruction: bool = False
+
 
 @dataclass
 class BalanceRequest:
     account: list[str] = field(default_factory=list)
     transaction: bool = False
     transaction_instructions: bool = False
+
 
 @dataclass
 class TokenBalanceRequest:
@@ -177,9 +193,11 @@ class TokenBalanceRequest:
     transaction: bool = False
     transaction_instructions: bool = False
 
+
 @dataclass
 class RewardRequest:
     pubkey: list[str] = field(default_factory=list)
+
 
 @dataclass
 class Query:
@@ -193,4 +211,3 @@ class Query:
     balances: list[BalanceRequest] = field(default_factory=list)
     token_balances: list[TokenBalanceRequest] = field(default_factory=list)
     rewards: list[RewardRequest] = field(default_factory=list)
-

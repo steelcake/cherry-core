@@ -2,6 +2,7 @@ from cherry_core import ingest
 import asyncio
 import argparse
 
+
 async def run(provider: ingest.ProviderConfig):
     stream = ingest.start_stream(provider)
 
@@ -11,6 +12,7 @@ async def run(provider: ingest.ProviderConfig):
             break
 
         print(res["transactions"].schema)
+
 
 async def main(provider_kind: ingest.ProviderKind):
     query = ingest.Query(
@@ -28,7 +30,7 @@ async def main(provider_kind: ingest.ProviderKind):
         ),
     )
 
-    url = None 
+    url = None
 
     if provider_kind == ingest.ProviderKind.SQD:
         url = "https://portal.sqd.dev/datasets/ethereum-mainnet"
@@ -40,10 +42,11 @@ async def main(provider_kind: ingest.ProviderKind):
             kind=provider_kind,
             url=url,
             query=query,
-            stop_on_head=False, # default is False as well
-            head_poll_interval_millis=1000, # default is 1000
+            stop_on_head=False,  # default is False as well
+            head_poll_interval_millis=1000,  # default is 1000
         )
     )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="example")

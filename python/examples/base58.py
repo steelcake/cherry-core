@@ -12,4 +12,3 @@ print(b)
 print(b2)
 
 print(b == b2)
-

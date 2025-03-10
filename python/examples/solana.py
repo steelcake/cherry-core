@@ -1,6 +1,7 @@
 from cherry_core import ingest
 import asyncio
 
+
 async def run(provider: ingest.ProviderConfig):
     stream = ingest.start_stream(provider)
 
@@ -11,6 +12,7 @@ async def run(provider: ingest.ProviderConfig):
 
         print(res["blocks"].column("slot"))
         print(res["blocks"].column("hash"))
+
 
 query = ingest.Query(
     kind=ingest.QueryKind.SVM,
@@ -23,8 +25,8 @@ query = ingest.Query(
                 slot=True,
                 hash=True,
             )
-        )
-    )
+        ),
+    ),
 )
 
 print("running with sqd")

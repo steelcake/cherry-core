@@ -1,5 +1,6 @@
-from typing import Optional 
-from dataclasses import dataclass, field 
+from typing import Optional
+from dataclasses import dataclass, field
+
 
 @dataclass
 class TransactionRequest:
@@ -13,6 +14,7 @@ class TransactionRequest:
     include_logs: bool = False
     include_traces: bool = False
 
+
 @dataclass
 class LogRequest:
     address: list[str] = field(default_factory=list)
@@ -24,6 +26,7 @@ class LogRequest:
     include_transactions: bool = False
     include_transaction_logs: bool = False
     include_transaction_traces: bool = False
+
 
 @dataclass
 class TraceRequest:
@@ -38,6 +41,7 @@ class TraceRequest:
     include_transactions: bool = False
     include_transaction_logs: bool = False
     include_transaction_traces: bool = False
+
 
 @dataclass
 class BlockFields:
@@ -69,6 +73,7 @@ class BlockFields:
     send_count: bool = False
     send_root: bool = False
     mix_hash: bool = False
+
 
 @dataclass
 class TransactionFields:
@@ -117,6 +122,7 @@ class TransactionFields:
     mint: bool = False
     source_hash: bool = False
 
+
 @dataclass
 class LogFields:
     removed: bool = False
@@ -131,6 +137,7 @@ class LogFields:
     topic1: bool = False
     topic2: bool = False
     topic3: bool = False
+
 
 @dataclass
 class TraceFields:
@@ -160,12 +167,14 @@ class TraceFields:
     balance: bool = False
     refund_address: bool = False
 
+
 @dataclass
 class Fields:
     block: BlockFields = field(default_factory=BlockFields)
     transaction: TransactionFields = field(default_factory=TransactionFields)
     log: LogFields = field(default_factory=LogFields)
     trace: TraceFields = field(default_factory=TraceFields)
+
 
 @dataclass
 class Query:
@@ -175,4 +184,4 @@ class Query:
     transactions: list[TransactionRequest] = field(default_factory=list)
     logs: list[LogRequest] = field(default_factory=list)
     traces: list[TraceRequest] = field(default_factory=list)
-    fields: Fields = field(default_factory=Fields) 
+    fields: Fields = field(default_factory=Fields)
