@@ -273,11 +273,11 @@ fn map_hypersync_binary_array_to_list_hashes(
         match opt_value {
             None => hashes_list_builder.append_null(),
             Some(bytes) => {
-                let hashes = bincode::deserialize::<Vec<FixedSizeData<32>>>(bytes).context("deserialize hashes failed")?;
-                let mut values = Vec::with_capacity(hashes.len());
-                for hash in hashes.iter() {
-                    values.push(Some(hash.as_slice().to_vec()));
-                }
+                let hashes = bincode::deserialize::<Vec<FixedSizeData<32>>>(bytes)
+                    .context("deserialize hashes failed")?;
+                let values: Vec<Option<Vec<u8>>> = hashes.iter()
+                    .map(|hash| Some(hash.as_slice().to_vec()))
+                    .collect();
                 hashes_list_builder.append_value(values);
                 hashes_list_builder.append(true);
             }
