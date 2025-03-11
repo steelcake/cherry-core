@@ -1,15 +1,14 @@
 use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{Array, BinaryArray, Decimal256Array, GenericByteArray, PrimitiveArray, UInt64Array, UInt8Array};
+use arrow::array::{Array, BinaryArray, Decimal256Array, GenericByteArray, GenericListArray, PrimitiveArray, UInt64Array, UInt8Array};
 use arrow::datatypes::{Decimal256Type, GenericBinaryType, UInt8Type};
 use arrow::{datatypes::UInt64Type, record_batch::RecordBatch};
 
-use alloy_primitives::{Address, Bloom, Bytes, FixedBytes, Log, PrimitiveSignature, TxKind, Uint, B256, U256};
+use alloy_primitives::{Address, Bloom, Bytes, FixedBytes, Log, PrimitiveSignature, TxKind, Uint, U256};
 use alloy_consensus::{Eip658Value, Receipt, ReceiptEnvelope, TxEip1559, TxEip2930, TxEip4844, TxEip4844Variant, TxEnvelope, TxLegacy, SignableTransaction};
 use alloy_consensus::proofs::{calculate_transaction_root, calculate_receipt_root};
-use alloy_eips::eip2930::{AccessList, AccessListItem};
-use serde::Deserialize;
+use alloy_eips::eip2930::AccessList;
 
 struct LogArray<'a> {
     block_number: &'a PrimitiveArray<UInt64Type>,
@@ -44,9 +43,9 @@ struct TransactionsArray<'a> {
     tx_type: &'a PrimitiveArray<UInt8Type>,
     status: &'a PrimitiveArray<UInt8Type>,
     sighash: &'a GenericByteArray<GenericBinaryType<i32>>,
-    access_list: &'a GenericByteArray<GenericBinaryType<i32>>,
+    access_list: &'a GenericListArray<i32>,
     max_fee_per_blob_gas: &'a PrimitiveArray<Decimal256Type>,
-    blob_versioned_hashes: &'a GenericByteArray<GenericBinaryType<i32>>,
+    blob_versioned_hashes: &'a GenericListArray<i32>,
 }
 
 struct BlockArray<'a> {
@@ -469,32 +468,6 @@ fn validate_transaction_hashes(
     Ok(())
 }
 
-// AccessListWrapper is a wrapper around the AccessList type that allows it to be deserialized from a byte array.
-#[derive(Deserialize)]
-pub struct AccessListWrapper(pub Vec<AccessListItemWrapper>);
-
-impl Into<AccessList> for AccessListWrapper {
-    fn into(self) -> AccessList {
-        AccessList(self.0.into_iter().map(|item| item.into()).collect())
-    }
-}
-
-// AccessListItemWrapper is a wrapper around the AccessListItem type that allows it to be deserialized from a byte array.
-#[derive(Deserialize)]
-pub struct AccessListItemWrapper {
-    pub address: Address,
-    pub storage_keys: Vec<B256>,
-}
-
-impl Into<AccessListItem> for AccessListItemWrapper {
-    fn into(self) -> AccessListItem {
-        AccessListItem {
-            address: self.address,
-            storage_keys: self.storage_keys,
-        }
-    }
-}
-
 pub fn validate_root_hashes(
     blocks: &RecordBatch,
     logs: &RecordBatch,
@@ -566,7 +539,6 @@ pub fn validate_root_hashes(
     // CREATE A TRANSACTION MAPPING
 
     let tx_array = extract_transaction_cols_as_arrays(transactions)?;  
-    // get first tx block num
     let mut current_block_num = tx_array.block_number.value(0);
     // initialize a map to store transaction root by block num
     let mut transactions_root_by_block_num_mapping = BTreeMap::<u64, FixedBytes<32>>::new();
@@ -666,19 +638,41 @@ pub fn validate_root_hashes(
         let cumulative_gas_used = u64::try_from(tx_cumulative_gas_used_opt.unwrap().as_i128()).unwrap();
         let contract_address: Option<Address> = tx_contract_address_opt.map(|a| a.try_into().unwrap());
         let logs_bloom = tx_logs_bloom_opt.unwrap();
-        let tx_type = tx_type_opt.unwrap();
         let status = tx_status_opt.unwrap();
         let expected_sighash = tx_sighash_opt;
-        let access_list: Option<AccessListWrapper> = tx_access_list_opt.map(|bytes| bincode::deserialize(bytes).unwrap_or_else(|_|{
-            println!("failed to deserialize access list, block {}, tx_hash {}", block_num, expected_hash);
-            return AccessListWrapper(vec![]);
-        }));
-        let access_list: Option<AccessList> = access_list.map(|list| list.into());
-
-        let max_fee_per_blob_gas: Option<u128> = tx_max_fee_per_blob_gas_opt.map(|value| value.as_i128().try_into().unwrap());
-        let blob_versioned_hashes: Option<Vec<FixedBytes<32>>> = tx_blob_versioned_hashes_opt.map(|bytes| {
-            bytes.chunks(32).map(|chunk| FixedBytes::from_slice(chunk)).collect()
+        let access_list: Option<AccessList> = tx_access_list_opt.and_then(|array| {
+            let access_list_array = match array.as_any().downcast_ref::<GenericListArray<i32>>() {
+                Some(arr) => arr,
+                None => return None
+            };
+            let access_list_items = match access_list_array.values().as_any().downcast_ref::<AccessList>() {
+                Some(items) => items,
+                None => return None
+            };
+            Some(access_list_items.clone())
         });
+        let max_fee_per_blob_gas: Option<u128> = tx_max_fee_per_blob_gas_opt.map(|value| value.as_i128().try_into().unwrap());
+        let blob_versioned_hashes: Option<Vec<FixedBytes<32>>> = tx_blob_versioned_hashes_opt.map(|array| {
+            let array = array.as_any().downcast_ref::<GenericListArray<i32>>().unwrap();
+            let values = array.values().as_any().downcast_ref::<GenericByteArray<GenericBinaryType<i32>>>().unwrap();
+            (0..values.len()).map(|i| values.value(i).try_into().unwrap()).collect()
+        });
+        
+        let tx_type = tx_type_opt.unwrap_or(
+            if access_list.is_some() {
+                if max_priority_fee_per_gas.is_some() {
+                    if max_fee_per_blob_gas.is_some() {
+                        3
+                    } else {
+                        2
+                    }
+                } else {
+                    1
+                }
+            } else {
+                0
+            }
+        );
         
         // if the block num has changed, store the previous tx receipts and tx envelopes in the mapping, clear the receipts vec and update the current block num
         if block_num != current_block_num {
@@ -1101,7 +1095,7 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         .column_by_name("access_list")
         .context("get tx access list column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
+        .downcast_ref::<GenericListArray<i32>>()
         .context("get tx access list col as binary")?;
 
     let tx_max_fee_per_blob_gas = transactions
@@ -1115,7 +1109,7 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         .column_by_name("blob_versioned_hashes")
         .context("get tx blob versioned hashes column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
+        .downcast_ref::<GenericListArray<i32>>()
         .context("get tx blob versioned hashes col as binary")?;
 
     let tx_array = TransactionsArray {

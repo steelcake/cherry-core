@@ -1,85 +1,17 @@
 use crate::{evm, DataStream, Format, StreamConfig};
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{builder, new_null_array, Array, BinaryArray, RecordBatch};
-use arrow::datatypes::{DataType, Field};
+use arrow::array::{builder, new_null_array, Array, BinaryArray, BinaryBuilder, RecordBatch};
+use arrow::datatypes::DataType;
 use futures_lite::StreamExt as _;
 use hypersync_client::net_types as hypersync_nt;
+use hypersync_client::format::{AccessList, FixedSizeData};
 use std::sync::Arc;
 use std::{
     collections::{BTreeMap, BTreeSet},
     num::NonZeroU64,
 };
-use serde::Deserialize;
-#[derive(Debug)]
-pub struct FixedSizeData<const N: usize>(Box<[u8; N]>);
-
-impl<'de, const N: usize> Deserialize<'de> for FixedSizeData<N> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let vec = Vec::<u8>::deserialize(deserializer)?;
-        let arr: Box<[u8; N]> = vec.try_into()
-            .map_err(|_| serde::de::Error::custom("incorrect length"))?;
-        Ok(Self(arr))
-    }
-}
-
-impl<const N: usize> Default for FixedSizeData<N> {
-    fn default() -> Self {
-        Self(Box::new([0; N]))
-    }
-}
-
-impl<const N: usize> From<&'_ FixedSizeData<N>> for alloy_primitives::FixedBytes<N> {
-    fn from(data: &'_ FixedSizeData<N>) -> Self {
-        Self::from(*data.0)
-    }
-}
-
-impl<const N: usize> AsRef<[u8]> for FixedSizeData<N> {
-    fn as_ref(&self) -> &[u8] {
-        &*self.0
-    }
-}
-
-impl<const N: usize> From<[u8; N]> for FixedSizeData<N> {
-    fn from(buf: [u8; N]) -> Self {
-        Self(Box::new(buf))
-    }
-}
-impl<const N: usize> TryFrom<&[u8]> for FixedSizeData<N> {
-    type Error = anyhow::Error;
-
-    fn try_from(buf: &[u8]) -> Result<FixedSizeData<N>> {
-        let buf: [u8; N] = buf.try_into().map_err(|_| anyhow!("failed to convert slice to fixed size data"))?;
-
-        Ok(FixedSizeData(Box::new(buf)))
-    }
-}
-
-impl<const N: usize> TryFrom<Vec<u8>> for FixedSizeData<N> {
-    type Error = anyhow::Error;
-
-    fn try_from(buf: Vec<u8>) -> Result<FixedSizeData<N>> {
-        let buf: Box<[u8; N]> = buf.try_into().map_err(|_| anyhow!("failed to convert slice to fixed size data"))?;
-        Ok(FixedSizeData(buf))
-    }
-}
-
-
-/// EVM hash is 32 bytes of data
-pub type Hash = FixedSizeData<32>;
-/// EVM address is 20 bytes of data
-pub type Address = FixedSizeData<20>;
-
-// AccessListItemWrapper is a wrapper around the AccessListItem type that allows it to be deserialized from a byte array.
-#[derive(Deserialize, Debug)]
-pub struct AccessListItemWrapper {
-    pub address: Option<Address>,
-    pub storage_keys: Option<Vec<Hash>>,
-}
-
+use cherry_evm_schema::AccessListBuilder;
+use arrow::array::ListBuilder;
 pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
     Ok(hypersync_nt::Query {
         from_block: query.from_block,
@@ -278,81 +210,81 @@ fn map_hypersync_u8_binary_array_to_boolean(
             },
         }
     }
-
     Ok(Arc::new(arr.finish()))
 }
 
-fn map_hypersync_binary_to_access_list_elem(
+fn map_hypersync_binary_array_to_access_list_elem(
     batch: &RecordBatch,
     name: &str,
     num_rows: usize,
 ) -> Result<Arc<dyn Array>> {
     let arr = map_hypersync_array(batch, name, num_rows, &DataType::Binary)?;
     let arr = arr.as_any().downcast_ref::<BinaryArray>().unwrap();
-    
-    // Create builders for the struct array
-    let mut address_builder = builder::BinaryBuilder::new();
-    let mut storage_keys_builder = builder::ListBuilder::new(builder::BinaryBuilder::new());
+    let mut access_list_builder = AccessListBuilder::default();
     
     // Process each element in the array
     for opt_value in arr.iter() {
-        println!("opt_value: {:?}", opt_value);
         match opt_value {
-            None => {
-                address_builder.append_null();
-                storage_keys_builder.append_null();
-            }
+            None => access_list_builder.0.append_null(),
             Some(bytes) => {
-                println!("Raw bytes as string: {}", String::from_utf8_lossy(bytes));
-                // Deserialize the binary data into AccessListWrapper
-                match bincode::deserialize::<Option<Vec<AccessListItemWrapper>>>(bytes) {
-                    Ok(Some(access_list_wrapper)) => {
-                        println!("Access_list_wrapper: {:?}", access_list_wrapper);
-                        // For each item in the access list
-                        for item in access_list_wrapper {
-                            println!("here");
-                            // Add the address
-                            address_builder.append_value(item.address.unwrap());
-                            
-                            // Add the storage keys
-                            let storage_keys_values = &mut storage_keys_builder.values();
-                            for key in item.storage_keys.unwrap() {
-                                storage_keys_values.append_value(key);
-                            }
-                            storage_keys_builder.append(true);
+                let access_list_wrapper = bincode::deserialize::<Vec<AccessList>>(bytes).context("deserialize access list failed")?;
+                let access_list_items_builder = access_list_builder.0.values();
+                for item in access_list_wrapper {
+                    access_list_items_builder
+                        .field_builder::<builder::BinaryBuilder>(0)
+                        .unwrap()
+                        .append_option(item.address);
+                    
+                    {
+                        let b = access_list_items_builder
+                            .field_builder::<builder::ListBuilder<builder::BinaryBuilder>>(1)
+                            .unwrap();
+    
+                        let v = item.storage_keys;
+                        let mut keys = vec![];
+                        if let Some(v) = v {
+                            for x in v {keys.push(Some(x.to_vec()));}
+                            b.append_value(keys);
+                        } else {
+                            b.append_null();
                         }
-                    },
-                    Ok(None) => {
-                        address_builder.append_null();
-                        storage_keys_builder.append_null();
-                    },
-                    Err(e) => {
-                        println!("Deserialization error: {:?}", e);
-                        // Handle deserialization error by appending null values
-                        address_builder.append_null();
-                        storage_keys_builder.append_null();
                     }
+                    access_list_items_builder.append(true);
                 }
+                access_list_builder.0.append(true);
             }
         }
     }
-    
-    // Create the struct array from the builders
-    let address_array = Arc::new(address_builder.finish());
-    let storage_keys_array = Arc::new(storage_keys_builder.finish());
-    
-    // Create the struct array fields with proper Field objects
-    let fields = vec![
-        (Arc::new(Field::new("address", DataType::Binary, true)), address_array as Arc<dyn Array>),
-        (Arc::new(Field::new("storage_keys", 
-                             DataType::List(Arc::new(Field::new("item", DataType::Binary, true))), 
-                             true)), 
-         storage_keys_array as Arc<dyn Array>),
-    ];
-    println!("fields: {:?}", fields);
+    let access_list_array = access_list_builder.0.finish();
+    let access_list_array = Arc::new(access_list_array);
     // Create and return the struct array
-    Ok(Arc::new(arrow::array::StructArray::from(fields)))
+    Ok(access_list_array)
 }
+
+fn map_hypersync_binary_array_to_list_hashes(
+    batch: &RecordBatch,
+    name: &str,
+    num_rows: usize,
+) -> Result<Arc<dyn Array>> {
+    let arr = map_hypersync_array(batch, name, num_rows, &DataType::Binary)?;
+    let arr = arr.as_any().downcast_ref::<BinaryArray>().unwrap();
+    let mut hashes_list_builder = ListBuilder::<BinaryBuilder>::new(BinaryBuilder::default());
+    for opt_value in arr.iter() {
+        match opt_value {
+            None => hashes_list_builder.append_null(),
+            Some(bytes) => {
+                let hashes = bincode::deserialize::<Vec<FixedSizeData<32>>>(bytes).context("deserialize hashes failed")?;
+                let mut values = Vec::with_capacity(hashes.len());
+                for hash in hashes.iter() {
+                    values.push(Some(hash.as_slice().to_vec()));
+                }
+                hashes_list_builder.append_value(values);
+                hashes_list_builder.append(true);
+            }
+        }
+    }
+    Ok(Arc::new(hashes_list_builder.finish()))
+}   
 
 fn map_blocks(blocks: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
     let mut batches = Vec::with_capacity(blocks.len());
@@ -455,21 +387,14 @@ fn map_transactions(transactions: &[hypersync_client::ArrowBatch]) -> Result<Rec
                 map_hypersync_array(&batch, "status", num_rows, &DataType::UInt8)?,
                 map_hypersync_array(&batch, "sighash", num_rows, &DataType::Binary)?,
                 map_hypersync_u8_binary_array_to_boolean(&batch, "y_parity", num_rows)?,
-                map_hypersync_binary_to_access_list_elem(&batch, "access_list", num_rows)?,
+                map_hypersync_binary_array_to_access_list_elem(&batch, "access_list", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "l1_fee", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "l1_gas_price", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "l1_gas_used", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "l1_fee_scalar", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "gas_used_for_l1", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "max_fee_per_blob_gas", num_rows)?,
-                new_null_array(
-                    schema
-                        .column_with_name("blob_versioned_hashes")
-                        .unwrap()
-                        .1
-                        .data_type(),
-                    num_rows,
-                ),
+                map_hypersync_binary_array_to_list_hashes(&batch, "blob_versioned_hashes", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "deposit_nonce", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "blob_gas_price", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "deposit_receipt_version", num_rows)?,
