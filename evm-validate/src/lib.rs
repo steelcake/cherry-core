@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{Array, BinaryArray, Decimal256Array, GenericByteArray, GenericListArray, PrimitiveArray, UInt64Array, UInt8Array};
+use arrow::array::{Array, AsArray, BinaryArray, Decimal256Array, GenericByteArray, GenericListArray, ListArray, PrimitiveArray, StructArray, UInt64Array, UInt8Array};
 use arrow::datatypes::{Decimal256Type, GenericBinaryType, UInt8Type};
 use arrow::{datatypes::UInt64Type, record_batch::RecordBatch};
 
-use alloy_primitives::{Address, Bloom, Bytes, FixedBytes, Log, PrimitiveSignature, TxKind, Uint, U256};
+use alloy_primitives::{Address, Bloom, Bytes, FixedBytes, Log, PrimitiveSignature, TxKind, Uint, B256, U256};
 use alloy_consensus::{Eip658Value, Receipt, ReceiptEnvelope, TxEip1559, TxEip2930, TxEip4844, TxEip4844Variant, TxEnvelope, TxLegacy, SignableTransaction};
 use alloy_consensus::proofs::{calculate_transaction_root, calculate_receipt_root};
-use alloy_eips::eip2930::AccessList;
+use alloy_eips::eip2930::{AccessList, AccessListItem};
 
 struct LogArray<'a> {
     block_number: &'a PrimitiveArray<UInt64Type>,
@@ -640,22 +640,22 @@ pub fn validate_root_hashes(
         let logs_bloom = tx_logs_bloom_opt.unwrap();
         let status = tx_status_opt.unwrap();
         let expected_sighash = tx_sighash_opt;
-        let access_list: Option<AccessList> = tx_access_list_opt.and_then(|array| {
-            let access_list_array = match array.as_any().downcast_ref::<GenericListArray<i32>>() {
-                Some(arr) => arr,
-                None => return None
-            };
-            let access_list_items = match access_list_array.values().as_any().downcast_ref::<AccessList>() {
-                Some(items) => items,
-                None => return None
-            };
-            Some(access_list_items.clone())
+        let access_list: Option<AccessList> = tx_access_list_opt.map(|array| {
+            let access_list_items = array.as_struct_opt().expect("access list is not a struct");
+            convert_arrow_array_into_access_list(&access_list_items).expect("access list is invalid")
         });
         let max_fee_per_blob_gas: Option<u128> = tx_max_fee_per_blob_gas_opt.map(|value| value.as_i128().try_into().unwrap());
         let blob_versioned_hashes: Option<Vec<FixedBytes<32>>> = tx_blob_versioned_hashes_opt.map(|array| {
-            let array = array.as_any().downcast_ref::<GenericListArray<i32>>().unwrap();
-            let values = array.values().as_any().downcast_ref::<GenericByteArray<GenericBinaryType<i32>>>().unwrap();
-            (0..values.len()).map(|i| values.value(i).try_into().unwrap()).collect()
+            let binary_array = array.as_any().downcast_ref::<BinaryArray>()
+                .expect("blob_versioned_hashes must be a BinaryArray");
+            binary_array.iter()
+                .map(|bytes| {
+                    let bytes = bytes.expect("blob versioned hash cannot be null");
+                    let mut hash = [0u8; 32];
+                    hash.copy_from_slice(&bytes);
+                    FixedBytes::<32>::new(hash)
+                })
+                .collect()
         });
         
         let tx_type = tx_type_opt.unwrap_or(
@@ -696,8 +696,8 @@ pub fn validate_root_hashes(
                 }
             },
             None => {
-                if input.len() > 0 {
-                    println!("sighash is None, with a non-zero input");
+                if input.len() > 4 {
+                    println!("sighash is None, with a non-zero input. tx_hash: {:?}", expected_hash);
                 }
             }
         }
@@ -788,7 +788,7 @@ pub fn validate_root_hashes(
         //validate tx hash
         let calculated_tx_hash = tx_envelope.tx_hash();
         if calculated_tx_hash != &expected_hash {
-            println!("Tx hash mismatch at block {}, tx_idx {}.\nExpected:\n{:?},\nFound:\n{:?}", block_num, tx_idx, expected_hash, calculated_tx_hash);
+            println!("Tx hash mismatch at block {}, tx_hash:\n{:?},\nFound:\ntx_envelope{:#?}", block_num, expected_hash, tx_envelope);
             // return Err(anyhow!("Tx hash mismatch at block {}, tx_idx {}.\nExpected:\n{:?},\nFound:\n{:?}", block_num, tx_idx, expected_hash, calculated_tx_hash));
         }
         // add the tx envelope to the block tx envelopes vec
@@ -856,6 +856,11 @@ pub fn validate_root_hashes(
     }
     
     for (block_num, (expected_receipts_root, expected_transactions_root)) in expected_transactions_and_receipts_root_by_block_num_mapping.iter() {
+        // null root is the root of an empty block
+        let null_root = <FixedBytes::<32> as alloy_primitives::hex::FromHex>::from_hex("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap();
+        if expected_receipts_root == expected_transactions_root && expected_receipts_root == &null_root { 
+            continue;
+        }
         let calculated_receipts_root = receipts_root_by_block_num_mapping.get(block_num).unwrap();
         let calculated_transactions_root = transactions_root_by_block_num_mapping.get(block_num).unwrap();
         if expected_receipts_root != calculated_receipts_root {
@@ -1173,4 +1178,78 @@ fn extract_block_cols_as_arrays(blocks: &RecordBatch) -> Result<BlockArray> {
     };
 
     Ok(block_array)
+}
+
+fn convert_arrow_array_into_access_list(array: &StructArray) -> Result<AccessList> {
+    let mut items = Vec::with_capacity(array.len());
+    
+    // Extract the child arrays
+    let address_array = array
+        .column_by_name("address")
+        .context("Missing 'address' field")?
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .context("'address' field is not a BinaryArray")?;
+    
+    let storage_keys_array = array
+        .column_by_name("storage_keys")
+        .context("Missing 'storage_keys' field")?
+        .as_any()
+        .downcast_ref::<ListArray>()
+        .context("'storage_keys' field is not a ListArray")?;
+    
+    let storage_keys_values = storage_keys_array
+        .values()
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .context("Storage keys values are not a BinaryArray")?;
+
+    let storage_keys_offsets = storage_keys_array
+        .offsets();
+    
+    // Convert each row to an AccessListItem
+    for i in 0..array.len() {
+        if array.is_null(i) {
+            continue;
+        }
+        
+        // Skip if either is null - they must be both valid or both null
+        if address_array.is_null(i) || storage_keys_array.is_null(i) {
+            continue;
+        }
+        
+        // Get address - convert binary to Address (20 bytes)
+        let bytes = address_array.value(i);
+        if bytes.len() != 20 {
+            return Err(anyhow::anyhow!("Invalid address length: {}", bytes.len()));
+        }
+        let mut addr = [0u8; 20];
+        addr.copy_from_slice(bytes);
+        let address = Address::new(addr);
+        
+        // Get storage keys - convert each binary to B256 (32 bytes)
+        let mut storage_keys = Vec::new();
+        let start_offset = *storage_keys_offsets.get(i).expect("start offset is null") as usize;
+        let end_offset = *storage_keys_offsets.get(i + 1).expect("end offset is null") as usize;
+        
+        for j in start_offset..end_offset {
+            let bytes = storage_keys_values.value(j);
+            
+            // Make sure we have the correct length for B256
+            if bytes.len() != 32 {
+                return Err(anyhow::anyhow!("Invalid B256 length: {}", bytes.len()));
+            }
+            
+            let mut b256 = [0u8; 32];
+            b256.copy_from_slice(bytes);
+            storage_keys.push(B256::new(b256));
+        }
+        
+        items.push(AccessListItem {
+            address,
+            storage_keys,
+        });
+    }
+    
+    Ok(AccessList(items))
 }

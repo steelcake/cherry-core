@@ -4,7 +4,7 @@ use arrow::array::{builder, new_null_array, Array, BinaryArray, BinaryBuilder, R
 use arrow::datatypes::DataType;
 use futures_lite::StreamExt as _;
 use hypersync_client::net_types as hypersync_nt;
-use hypersync_client::format::{AccessList, FixedSizeData};
+use hypersync_client::format::AccessList;
 use std::sync::Arc;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -273,13 +273,20 @@ fn map_hypersync_binary_array_to_list_hashes(
         match opt_value {
             None => hashes_list_builder.append_null(),
             Some(bytes) => {
-                let hashes = bincode::deserialize::<Vec<FixedSizeData<32>>>(bytes)
-                    .context("deserialize hashes failed")?;
-                let values: Vec<Option<Vec<u8>>> = hashes.iter()
-                    .map(|hash| Some(hash.as_slice().to_vec()))
+                if bytes.len() % 32 != 0 {
+                    return Err(anyhow!("invalid blob versioned hash: input length {} is not a multiple of 32 bytes", bytes.len()));
+                }
+
+                let values: Vec<_> = bytes
+                    .chunks_exact(32)
+                    .map(|chunk| Some(chunk.to_vec()))
                     .collect();
-                hashes_list_builder.append_value(values);
-                hashes_list_builder.append(true);
+
+                if values.is_empty() {
+                    hashes_list_builder.append_null();
+                } else {
+                    hashes_list_builder.append_value(values);
+                }
             }
         }
     }

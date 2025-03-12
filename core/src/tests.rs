@@ -191,8 +191,20 @@ async fn validate_eth_hypersync() {
         ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync)
     };
     let query = cherry_ingest::evm::Query {
-        from_block: 18123123,
-        to_block: Some(18123125),
+        from_block: 20814609,
+        to_block: Some(20814610),
+
+// 18004131 - 14
+// 18009783 - 19
+// 18011279 - 6
+// 18025083 - 7
+// 18027669 - 6
+// 20814548 - 7
+// 20814397 - 6
+// 20814349 - 7
+// 20812845 - 11
+
+
         fields: cherry_ingest::evm::Fields::all(),
         include_all_blocks: true,
         transactions: vec![cherry_ingest::evm::TransactionRequest {
