@@ -178,29 +178,16 @@ async fn validate_eth() {
         traces_writer.close().unwrap();
 
         validate_block_data(&blocks, &transactions, &logs, &traces).unwrap();
-        validate_root_hashes(&blocks, &logs, &transactions).unwrap();
+        let mut issues_collector = cherry_evm_validate::IssueCollector::with_default_config();
+        validate_root_hashes(&blocks, &logs, &transactions, &mut issues_collector).unwrap();
     }
 }
 #[tokio::test(flavor = "multi_thread")]
 // #[ignore]
 async fn validate_eth_hypersync() {
-    let provider = cherry_ingest::ProviderConfig {
-        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync)
-    };
     let query = cherry_ingest::evm::Query {
-        from_block: 20814609,
-        to_block: Some(20814610),
-
-// 18004131 - 14
-// 18009783 - 19
-// 18011279 - 6
-// 18025083 - 7
-// 18027669 - 6
-// 20814548 - 7
-// 20814397 - 6
-// 20814349 - 7
-// 20812845 - 11
-
+        from_block: 22040082,
+        to_block: Some(22040195),
 
         fields: cherry_ingest::evm::Fields::all(),
         include_all_blocks: true,
@@ -215,9 +202,8 @@ async fn validate_eth_hypersync() {
         }],
     };
 
-    let mut stream = cherry_ingest::start_stream(cherry_ingest::StreamConfig {
-        format: cherry_ingest::Format::Evm(query),
-        provider,
+    let mut stream = cherry_ingest::start_stream(cherry_ingest::ProviderConfig {
+        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync, cherry_ingest::Query::Evm(query))
     })
     .await
     .unwrap();
@@ -252,7 +238,17 @@ async fn validate_eth_hypersync() {
         traces_writer.close().unwrap();
 
         validate_block_data(&blocks, &transactions, &logs, &traces).unwrap();
-        validate_root_hashes(&blocks, &logs, &transactions).unwrap();
+
+        let issues_collector_config = cherry_evm_validate::IssueCollectorConfig {
+            console_output: false,
+            emit_report: true,
+            report_path: "issues.json".to_string(),
+            stop_on_issue: false,
+            report_format: cherry_evm_validate::ReportFormat::Json,
+            current_context: cherry_evm_validate::DataContext::default(),
+        };
+        let mut issues_collector = cherry_evm_validate::IssueCollector::new(issues_collector_config);
+        validate_root_hashes(&blocks, &logs, &transactions, &mut issues_collector).unwrap();
     }
 }
 

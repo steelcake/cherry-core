@@ -1,6 +1,7 @@
 mod issues_collector;
 
-use issues_collector::{DataContext, IssueCollector};
+pub use issues_collector::{DataContext, IssueCollector, IssueCollectorConfig, ReportFormat};
+
 use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Context, Result};
@@ -476,9 +477,10 @@ pub fn validate_root_hashes(
     blocks: &RecordBatch,
     logs: &RecordBatch,
     transactions: &RecordBatch,
+    issues_collector: &mut IssueCollector,
 ) -> Result<()> {
 
-    let mut ic = IssueCollector::with_default_config();
+    let ic = issues_collector;
 
     // CREATE A LOG MAPPING
 
@@ -809,7 +811,7 @@ pub fn validate_root_hashes(
         //validate tx hash
         let calculated_tx_hash = tx_envelope.tx_hash();
         if calculated_tx_hash != &expected_hash {
-            ic.report(format!("Calculated tx hash mismatch. Expected:\n{:?},\nFound:\n{:?}", expected_hash, calculated_tx_hash).as_str(), ());
+            ic.report(format!("Calculated tx hash mismatch. Expected: {:?}, Found: {:?}", expected_hash, calculated_tx_hash).as_str(), ());
         }
         block_tx_envelopes.push(tx_envelope);
 
@@ -833,7 +835,7 @@ pub fn validate_root_hashes(
         let expected_bloom = Bloom::new(logs_bloom.try_into().unwrap_or_else(|_| ic.report("logs bloom must be 256 bytes", [0; 256])));
         // validate logs bloom
         if receiptwithbloom.logs_bloom != expected_bloom {
-            ic.report(format!("Calculated logs bloom mismatch. Expected:\n{:?},\nFound:\n{:?}", expected_bloom, receiptwithbloom.logs_bloom).as_str(), ());
+            ic.report(format!("Calculated logs bloom mismatch.\nExpected {:?},\nFound: {:?}", expected_bloom, receiptwithbloom.logs_bloom).as_str(), ());
         }
         // create a receipt envelope object from the receipt_with_bloom object
         let receipt_envelope = match tx_type {
@@ -885,10 +887,10 @@ pub fn validate_root_hashes(
         let calculated_receipts_root = receipts_root_by_block_num_mapping.get(block_num).unwrap_or_else(|| ic.report("There is no calculated receipts root for this block", &FixedBytes::ZERO));
         let calculated_transactions_root = transactions_root_by_block_num_mapping.get(block_num).unwrap_or_else(|| ic.report("There is no calculated transactions root for this block", &FixedBytes::ZERO));
         if expected_receipts_root != calculated_receipts_root {
-            ic.report(format!("Receipts root mismatch. Expected:{:?}, Found:{:?}", expected_receipts_root, calculated_receipts_root).as_str(), ());
+            ic.report(format!("Receipts root mismatch. Expected: {:?}, Found: {:?}", expected_receipts_root, calculated_receipts_root).as_str(), ());
         };
         if expected_transactions_root != calculated_transactions_root {
-            ic.report(format!("Transactions root mismatch. Expected:{:?}, Found:{:?}", expected_transactions_root, calculated_transactions_root).as_str(), ());
+            ic.report(format!("Transactions root mismatch. Expected: {:?}, Found: {:?}", expected_transactions_root, calculated_transactions_root).as_str(), ());
         }
     }
 

@@ -57,7 +57,7 @@ pub struct DataContext {
 
 impl Display for DataContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "In table {}, row: {}", self.table, self.row)
+        write!(f, "In the {} table, row with {}.", self.table, self.row)
     }
 }
 
@@ -93,10 +93,11 @@ impl IssueCollector {
     pub fn report<D>(&mut self, issue: &str, default: D) -> D {
         let ctx = self.config.current_context.clone();
         if self.config.console_output {
-            eprintln!("Issue in {}: {}", ctx, issue);
+            eprintln!("Data issue found: {} {}", ctx, issue);
         }
 
         if self.config.stop_on_issue {
+            eprintln!("Validation failed. Configs have stop_on_issue set to true.");
             std::process::exit(1);
         }
 
@@ -107,7 +108,7 @@ impl IssueCollector {
 
     pub fn report_with_context<D>(&mut self, issue: &str, context: DataContext, default: D) -> D {
         if self.config.console_output {
-            eprintln!("Issue in {}: {}", context, issue);
+            eprintln!("Data issue found: {} {}", context, issue);
         }
 
         if self.config.stop_on_issue {
@@ -118,7 +119,7 @@ impl IssueCollector {
         
         default
     }
-    
+
     // Write report at the end of execution
     pub fn write_report(&self) -> std::io::Result<()> {
         if !self.config.emit_report || self.issues.is_empty() {
@@ -145,7 +146,7 @@ impl IssueCollector {
         writeln!(file, "=============================================")?;
         
         for (i, issue) in self.issues.iter().enumerate() {
-            writeln!(file, "\n#{}: Context: {}, Issue: {}", i + 1, issue.context, issue.issue)?;
+            writeln!(file, "#{}: Context: {} Issue: {}", i + 1, issue.context, issue.issue)?;
         }
         
         writeln!(file, "\nTotal issues: {}", self.issues.len())?;
