@@ -1,6 +1,6 @@
 [package]
 name = "cherry-svm-schema"
-version = "0.0.1"
+version = "0.0.3"
 edition = "2021"
 description = "SVM schema definitions for cherry"
 homepage = "https://github.com/steelcake/cherry-core"

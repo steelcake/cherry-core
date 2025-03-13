@@ -4,17 +4,17 @@ import typing
 import polars
 import pyarrow
 
-signature = "Transfer(address indexed from, address indexed to, uint256 amount)"
+signature = "Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)"
 topic0 = cherry_core.evm_signature_to_topic0(signature)
-contract_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+# contract_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
 # get filtered events from last 10 blocks
 data = cryo_collect(
     datatype="logs",
     blocks=["-10:"],
-    rpc="https://eth.rpc.hypersync.xyz",
+    rpc="https://base.rpc.hypersync.xyz",
     output_format="polars",
-    contract=[contract_address],
+    contract=[],
     topic0=[topic0],
     hex=False,
 )

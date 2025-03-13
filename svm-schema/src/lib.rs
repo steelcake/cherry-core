@@ -63,7 +63,11 @@ pub fn logs_schema() -> Schema {
         Field::new("block_hash", DataType::Binary, true),
         Field::new("transaction_index", DataType::UInt32, true),
         Field::new("log_index", DataType::UInt32, true),
-        Field::new("instruction_address", DataType::Binary, true),
+        Field::new(
+            "instruction_address",
+            DataType::List(Arc::new(Field::new("item", DataType::UInt32, true))),
+            true,
+        ),
         Field::new("program_id", DataType::Binary, true),
         Field::new("kind", DataType::Utf8, true),
         Field::new("message", DataType::Utf8, true),
@@ -109,7 +113,7 @@ pub fn transactions_schema() -> Schema {
             true,
         ),
         Field::new(
-            "loaded_writeable_addresses",
+            "loaded_writable_addresses",
             DataType::List(Arc::new(Field::new("item", DataType::Binary, true))),
             true,
         ),
@@ -122,7 +126,7 @@ fn address_table_lookup_dt() -> DataType {
     DataType::Struct(Fields::from(vec![
         Arc::new(Field::new("account_key", DataType::Binary, true)),
         Arc::new(Field::new(
-            "writeable_indexes",
+            "writable_indexes",
             DataType::List(Arc::new(Field::new("item", DataType::UInt64, true))),
             true,
         )),
@@ -305,7 +309,7 @@ pub struct LogsBuilder {
     pub block_hash: builder::BinaryBuilder,
     pub transaction_index: builder::UInt32Builder,
     pub log_index: builder::UInt32Builder,
-    pub instruction_address: builder::BinaryBuilder,
+    pub instruction_address: builder::ListBuilder<builder::UInt32Builder>,
     pub program_id: builder::BinaryBuilder,
     pub kind: builder::StringBuilder,
     pub message: builder::StringBuilder,
@@ -347,7 +351,7 @@ pub struct TransactionsBuilder {
     pub fee: builder::UInt64Builder,
     pub compute_units_consumed: builder::UInt64Builder,
     pub loaded_readonly_addresses: builder::ListBuilder<builder::BinaryBuilder>,
-    pub loaded_writeable_addresses: builder::ListBuilder<builder::BinaryBuilder>,
+    pub loaded_writable_addresses: builder::ListBuilder<builder::BinaryBuilder>,
     pub fee_payer: builder::BinaryBuilder,
     pub has_dropped_log_messages: builder::BooleanBuilder,
 }
@@ -390,7 +394,7 @@ impl TransactionsBuilder {
                 Arc::new(self.fee.finish()),
                 Arc::new(self.compute_units_consumed.finish()),
                 Arc::new(self.loaded_readonly_addresses.finish()),
-                Arc::new(self.loaded_writeable_addresses.finish()),
+                Arc::new(self.loaded_writable_addresses.finish()),
                 Arc::new(self.fee_payer.finish()),
                 Arc::new(self.has_dropped_log_messages.finish()),
             ],

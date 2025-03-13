@@ -6,10 +6,20 @@ use cherry_ingest::evm::{Address, Topic};
 use futures_lite::StreamExt;
 use hypersync_client::{self, ClientConfig, StreamConfig};
 
-async fn erc20(provider: cherry_ingest::ProviderConfig) {
+async fn erc20(cfg: cherry_ingest::ProviderConfig) {
     let signature = "Transfer(address indexed from, address indexed to, uint256 amount)";
+    let mut stream = cherry_ingest::start_stream(cfg).await.unwrap();
 
-    let query = cherry_ingest::evm::Query {
+    while let Some(v) = stream.next().await {
+        let v = v.unwrap();
+        let decoded = decode_events(signature, v.get("logs").unwrap(), false).unwrap();
+        dbg!(decoded);
+    }
+}
+
+fn erc20_query() -> cherry_ingest::Query {
+    let signature = "Transfer(address indexed from, address indexed to, uint256 amount)";
+    cherry_ingest::Query::Evm(cherry_ingest::evm::Query {
         from_block: 18123123,
         to_block: Some(18123222),
         fields: cherry_ingest::evm::Fields::all(),
@@ -21,27 +31,14 @@ async fn erc20(provider: cherry_ingest::ProviderConfig) {
             ..Default::default()
         }],
         ..Default::default()
-    };
-
-    let mut stream = cherry_ingest::start_stream(cherry_ingest::StreamConfig {
-        format: cherry_ingest::Format::Evm(query),
-        provider,
     })
-    .await
-    .unwrap();
-
-    while let Some(v) = stream.next().await {
-        let v = v.unwrap();
-        let decoded = decode_events(signature, v.get("logs").unwrap(), false).unwrap();
-        dbg!(decoded);
-    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn erc20_hypersync() {
     let provider = cherry_ingest::ProviderConfig {
-        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync)
+        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync, erc20_query())
     };
     erc20(provider).await;
 }
@@ -51,7 +48,7 @@ async fn erc20_hypersync() {
 async fn erc20_sqd() {
     let provider = cherry_ingest::ProviderConfig {
         url: Some("https://portal.sqd.dev/datasets/ethereum-mainnet".to_owned()),
-        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Sqd)
+        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Sqd, erc20_query())
     };
     erc20(provider).await;
 }

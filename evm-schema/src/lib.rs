@@ -330,9 +330,9 @@ pub struct TransactionsBuilder {
     pub to: builder::BinaryBuilder,
     pub transaction_index: builder::UInt64Builder,
     pub value: builder::Decimal256Builder,
-    pub v: builder::Decimal256Builder,
-    pub r: builder::Decimal256Builder,
-    pub s: builder::Decimal256Builder,
+    pub v: builder::UInt8Builder,
+    pub r: builder::BinaryBuilder,
+    pub s: builder::BinaryBuilder,
     pub max_priority_fee_per_gas: builder::Decimal256Builder,
     pub max_fee_per_gas: builder::Decimal256Builder,
     pub chain_id: builder::Decimal256Builder,
@@ -404,9 +404,9 @@ impl TransactionsBuilder {
                 Arc::new(self.to.finish()),
                 Arc::new(self.transaction_index.finish()),
                 Arc::new(self.value.with_precision_and_scale(76, 0).unwrap().finish()),
-                Arc::new(self.v.with_precision_and_scale(76, 0).unwrap().finish()),
-                Arc::new(self.r.with_precision_and_scale(76, 0).unwrap().finish()),
-                Arc::new(self.s.with_precision_and_scale(76, 0).unwrap().finish()),
+                Arc::new(self.v.finish()),
+                Arc::new(self.r.finish()),
+                Arc::new(self.s.finish()),
                 Arc::new(
                     self.max_priority_fee_per_gas
                         .with_precision_and_scale(76, 0)

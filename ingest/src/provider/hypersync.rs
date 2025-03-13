@@ -1,15 +1,13 @@
-use crate::{evm, DataStream, Format, StreamConfig};
+use super::common::{field_selection_to_set, prune_fields};
+use crate::{evm, DataStream, ProviderConfig, Query};
 use anyhow::{anyhow, Context, Result};
 use arrow::array::{builder, new_null_array, Array, BinaryArray, BinaryBuilder, RecordBatch};
 use arrow::datatypes::DataType;
-use futures_lite::StreamExt as _;
 use hypersync_client::net_types as hypersync_nt;
 use hypersync_client::format::AccessList;
 use std::sync::Arc;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    num::NonZeroU64,
-};
+use std::{collections::BTreeMap, num::NonZeroU64, time::Duration};
+use tokio::sync::mpsc;
 use cherry_evm_schema::AccessListBuilder;
 use arrow::array::ListBuilder;
 pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
@@ -57,92 +55,197 @@ pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
         })).collect::<Result<_>>()?,
         join_mode: hypersync_nt::JoinMode::Default,
         field_selection: hypersync_nt::FieldSelection {
-            block: field_selection_to_vec(&query.fields.block),
-            transaction: field_selection_to_vec(&query.fields.transaction),
-            log: field_selection_to_vec(&query.fields.log),
-            trace: field_selection_to_vec(&query.fields.trace),
+            block: field_selection_to_set(&query.fields.block),
+            transaction: field_selection_to_set(&query.fields.transaction),
+            log: field_selection_to_set(&query.fields.log),
+            trace: field_selection_to_set(&query.fields.trace),
         },
         ..Default::default()
     })
 }
 
-fn field_selection_to_vec<S: serde::Serialize>(field_selection: &S) -> BTreeSet<String> {
-    let json = serde_json::to_value(field_selection).unwrap();
-    let json = json.as_object().unwrap();
-
-    let mut output = BTreeSet::new();
-
-    for (key, value) in json.iter() {
-        if value.as_bool().unwrap() {
-            output.insert(key.clone());
-        }
-    }
-
-    output
-}
-
-pub async fn start_stream(cfg: StreamConfig) -> Result<DataStream> {
-    match cfg.format {
-        Format::Evm(evm_query) => {
-            let evm_query = query_to_hypersync(&evm_query).context("convert to hypersync query")?;
+pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
+    match cfg.query {
+        Query::Svm(_) => Err(anyhow!("svm is not supported by hypersync")),
+        Query::Evm(query) => {
+            let evm_query = query_to_hypersync(&query).context("convert to hypersync query")?;
 
             let client_config = hypersync_client::ClientConfig {
-                url: match cfg.provider.url {
+                url: match cfg.url {
                     Some(url) => Some(url.parse().context("parse url")?),
                     None => None,
                 },
-                bearer_token: cfg.provider.bearer_token,
-                http_req_timeout_millis: match cfg.provider.http_req_timeout_millis {
+                bearer_token: cfg.bearer_token,
+                http_req_timeout_millis: match cfg.http_req_timeout_millis {
                     Some(x) => Some(
                         NonZeroU64::new(x).context("check http_req_timeout_millis isn't zero")?,
                     ),
                     None => None,
                 },
-                max_num_retries: cfg.provider.max_num_retries,
-                retry_backoff_ms: cfg.provider.retry_backoff_ms,
-                retry_base_ms: cfg.provider.retry_base_ms,
-                retry_ceiling_ms: cfg.provider.retry_ceiling_ms,
+                max_num_retries: cfg.max_num_retries,
+                retry_backoff_ms: cfg.retry_backoff_ms,
+                retry_base_ms: cfg.retry_base_ms,
+                retry_ceiling_ms: cfg.retry_ceiling_ms,
             };
 
             let client =
                 hypersync_client::Client::new(client_config).context("init hypersync client")?;
             let client = Arc::new(client);
 
-            let receiver = client
-                .stream_arrow(evm_query, Default::default())
+            let chain_id = client.get_chain_id().await.context("get chain id")?;
+            let rollback_offset = make_rollback_offset(chain_id);
+
+            let (tx, rx) = mpsc::channel(cfg.buffer_size.unwrap_or(10));
+
+            let height = client.get_height().await.context("get height")?;
+
+            let mut evm_query = evm_query;
+            let original_to_block = evm_query.to_block;
+            evm_query.to_block = Some(make_to_block(original_to_block, height, rollback_offset));
+
+            let mut receiver = client
+                .clone()
+                .stream_arrow(evm_query.clone(), Default::default())
                 .await
                 .context("start hypersync stream")?;
 
-            let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
+            tokio::spawn(async move {
+                while let Some(res) = receiver.recv().await {
+                    let res = res.and_then(|r| {
+                        map_response(&r.data, &query.fields)
+                            .context("map data")
+                            .map(|x| (r, x))
+                    });
+                    match res {
+                        Ok((r, data)) => {
+                            evm_query.from_block = r.next_block;
+                            if tx.send(Ok(data)).await.is_err() {
+                                log::trace!("quitting ingest loop because the receiver is dropped");
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            tx.send(Err(e)).await.ok();
+                            return;
+                        }
+                    }
+                }
 
-            let stream = stream.map(|v| {
-                v.and_then(|res| {
-                    let mut data = BTreeMap::new();
+                if let Some(tb) = original_to_block {
+                    if evm_query.from_block == tb {
+                        return;
+                    }
+                }
 
-                    data.insert(
-                        "blocks".to_owned(),
-                        map_blocks(&res.data.blocks).context("map blocks")?,
-                    );
-                    data.insert(
-                        "transactions".to_owned(),
-                        map_transactions(&res.data.transactions).context("map transactions")?,
-                    );
-                    data.insert(
-                        "logs".to_owned(),
-                        map_logs(&res.data.logs).context("map logs")?,
-                    );
-                    data.insert(
-                        "traces".to_owned(),
-                        map_traces(&res.data.traces).context("map traces")?,
-                    );
+                if cfg.stop_on_head {
+                    return;
+                }
 
-                    Ok(data)
-                })
+                let head_poll_interval =
+                    Duration::from_millis(cfg.head_poll_interval_millis.unwrap_or(1_000));
+
+                let r = chain_head_stream(
+                    &client,
+                    original_to_block,
+                    &mut evm_query,
+                    &query.fields,
+                    &tx,
+                    rollback_offset,
+                    head_poll_interval,
+                )
+                .await;
+
+                if let Err(e) = r {
+                    tx.send(Err(e)).await.ok();
+                }
             });
+
+            let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
             Ok(Box::pin(stream))
         }
     }
+}
+
+async fn chain_head_stream(
+    client: &hypersync_client::Client,
+    original_to_block: Option<u64>,
+    evm_query: &mut hypersync_client::net_types::Query,
+    fields: &evm::Fields,
+    tx: &mpsc::Sender<Result<BTreeMap<String, RecordBatch>>>,
+    rollback_offset: u64,
+    head_poll_interval: Duration,
+) -> Result<()> {
+    let mut height = client.get_height().await.context("get height")?;
+
+    loop {
+        while height.saturating_sub(rollback_offset) < evm_query.from_block {
+            log::debug!(
+                "waiting for block: {}. server is at block {}",
+                evm_query.from_block,
+                height
+            );
+            tokio::time::sleep(head_poll_interval).await;
+            height = client.get_height().await.context("get height")?;
+        }
+
+        evm_query.to_block = Some(make_to_block(original_to_block, height, rollback_offset));
+
+        let res = client.get_arrow(evm_query).await.context("run query")?;
+
+        let data = map_response(&res.data, fields).context("map data")?;
+
+        if tx.send(Ok(data)).await.is_err() {
+            log::trace!("quitting chain head stream since the receiver is dropped");
+            return Ok(());
+        }
+
+        evm_query.from_block = res.next_block;
+        height = res.archive_height.unwrap_or(0);
+
+        if let Some(tb) = original_to_block {
+            if tb == res.next_block {
+                return Ok(());
+            }
+        }
+    }
+}
+
+fn make_to_block(original_to_block: Option<u64>, height: u64, rollback_offset: u64) -> u64 {
+    let safe_height = height.saturating_sub(rollback_offset);
+    match original_to_block {
+        Some(tb) => tb.min(safe_height + 1),
+        None => safe_height + 1,
+    }
+}
+
+fn make_rollback_offset(_chain_id: u64) -> u64 {
+    200
+}
+
+fn map_response(
+    resp: &hypersync_client::ArrowResponseData,
+    fields: &evm::Fields,
+) -> Result<BTreeMap<String, RecordBatch>> {
+    let mut data = BTreeMap::new();
+
+    data.insert(
+        "blocks".to_owned(),
+        map_blocks(&resp.blocks).context("map blocks")?,
+    );
+    data.insert(
+        "transactions".to_owned(),
+        map_transactions(&resp.transactions).context("map transactions")?,
+    );
+    data.insert("logs".to_owned(), map_logs(&resp.logs).context("map logs")?);
+    data.insert(
+        "traces".to_owned(),
+        map_traces(&resp.traces).context("map traces")?,
+    );
+
+    prune_fields(&mut data, fields);
+
+    Ok(data)
 }
 
 fn map_hypersync_array(
@@ -166,6 +269,21 @@ fn map_hypersync_array(
     Ok(arr)
 }
 
+fn map_hypersync_binary_array_to_u8(
+    batch: &RecordBatch,
+    name: &str,
+    num_rows: usize,
+) -> Result<Arc<dyn Array>> {
+    let arr = map_hypersync_array(batch, name, num_rows, &DataType::Binary)?;
+    let arr = arr.as_any().downcast_ref::<BinaryArray>().unwrap();
+    let arr = cherry_cast::u256_column_from_binary(arr)
+        .with_context(|| format!("parse u256 values in {} column", name))?;
+    let arr: &dyn Array = &arr;
+    let arr = arrow::compute::cast(arr, &DataType::UInt8)
+        .with_context(|| format!("cast u256 to u8 for column {}", name))?;
+    Ok(Arc::new(arr))
+}
+
 fn map_hypersync_binary_array_to_decimal256(
     batch: &RecordBatch,
     name: &str,
@@ -185,7 +303,7 @@ fn map_hypersync_u8_binary_array_to_boolean(
 ) -> Result<Arc<dyn Array>> {
     let src = match batch.column_by_name(name) {
         Some(arr) => Arc::clone(arr),
-        None => new_null_array(&DataType::Boolean, num_rows),
+        None => return Ok(new_null_array(&DataType::Boolean, num_rows)),
     };
     let src = src
         .as_any()

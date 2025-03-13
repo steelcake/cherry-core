@@ -1,6 +1,6 @@
 [package]
 name = "cherry-ingest"
-version = "0.0.4"
+version = "0.0.12"
 edition = "2021"
 description = "Library for ingesting evm data using common a query/response format"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -25,10 +25,11 @@ serde_json = { workspace = true }
 bincode = { workspace = true }
 alloy-eips = { workspace = true }
 alloy-primitives = { workspace = true, features = ["serde"] }
+bs58 = { workspace = true }
 
 cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
-cherry-evm-schema = { path = "../evm-schema", version = "0.0.3" }
-cherry-cast = { path = "../cast", version = "0.0.4" }
+cherry-evm-schema = { path = "../evm-schema", version = "0.0.4" }
+cherry-cast = { path = "../cast", version = "0.0.7" }
 
 [dependencies.reqwest]
 version = "=0.12.9"
