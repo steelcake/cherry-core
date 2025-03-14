@@ -10,6 +10,7 @@ use std::{collections::BTreeMap, num::NonZeroU64, time::Duration};
 use tokio::sync::mpsc;
 use cherry_evm_schema::AccessListBuilder;
 use arrow::array::ListBuilder;
+
 pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
     Ok(hypersync_nt::Query {
         from_block: query.from_block,

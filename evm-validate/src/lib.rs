@@ -1173,7 +1173,6 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         blob_versioned_hashes: tx_blob_versioned_hashes,
     };
     
-
     Ok(tx_array)
 }
 
