@@ -465,9 +465,12 @@ fn run_table_selection(
         }
     }
 
-    if let Some(f) = combined_filter {
-        out.insert(table_name.to_owned(), f);
-    }
+    let combined_filter = match combined_filter {
+        Some(cf) => cf,
+        None => return Ok(BTreeMap::new()),
+    };
+
+    out.insert(table_name.to_owned(), combined_filter.clone());
 
     for (i, inc) in selection.include.iter().enumerate() {
         if inc.other_table_field_names.len() != inc.field_names.len() {
@@ -488,6 +491,8 @@ fn run_table_selection(
 
         let self_arr = columns_to_binary_array(&table_data, &inc.field_names)
             .context("get row format binary arr for self")?;
+        let self_arr = compute::filter(&self_arr, &combined_filter)
+            .context("apply combined filter to self arr")?;
         let other_arr = columns_to_binary_array(&other_table_data, &inc.other_table_field_names)
             .with_context(|| {
                 format!(
@@ -553,4 +558,110 @@ fn columns_to_binary_array(
         .context("convert row format to binary array")?;
 
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow::{
+        array::AsArray,
+        datatypes::{Field, Schema},
+    };
+
+    use super::*;
+
+    #[test]
+    fn basic_test_cherry_query() {
+        let team_a = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Arc::new(Field::new("name", DataType::Utf8, true)),
+                Arc::new(Field::new("age", DataType::UInt64, true)),
+                Arc::new(Field::new("height", DataType::UInt64, true)),
+            ])),
+            vec![
+                Arc::new(StringArray::from_iter_values(
+                    vec!["kamil", "mahmut", "qwe", "kazim"].into_iter(),
+                )),
+                Arc::new(UInt64Array::from_iter(vec![11, 12, 13, 31].into_iter())),
+                Arc::new(UInt64Array::from_iter(vec![50, 60, 70, 60].into_iter())),
+            ],
+        )
+        .unwrap();
+        let team_b = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Arc::new(Field::new("name2", DataType::Utf8, true)),
+                Arc::new(Field::new("age2", DataType::UInt64, true)),
+                Arc::new(Field::new("height2", DataType::UInt64, true)),
+            ])),
+            vec![
+                Arc::new(StringArray::from_iter_values(vec![
+                    "yusuf", "abuzer", "asd",
+                ])),
+                Arc::new(UInt64Array::from_iter(vec![11, 12, 13].into_iter())),
+                Arc::new(UInt64Array::from_iter(vec![50, 61, 70].into_iter())),
+            ],
+        )
+        .unwrap();
+
+        let query = Query {
+            fields: [
+                ("team_a".to_owned(), vec!["name".to_owned()]),
+                ("team_b".to_owned(), vec!["name2".to_owned()]),
+            ]
+            .into_iter()
+            .collect(),
+            selection: [(
+                "team_a".to_owned(),
+                vec![TableSelection {
+                    filters: [(
+                        "name".to_owned(),
+                        Filter::Contains(
+                            Contains::new(Arc::new(StringArray::from_iter_values(
+                                vec!["kamil", "mahmut"].into_iter(),
+                            )))
+                            .unwrap(),
+                        ),
+                    )]
+                    .into_iter()
+                    .collect(),
+                    include: vec![
+                        Include {
+                            field_names: vec!["age".to_owned(), "height".to_owned()],
+                            other_table_field_names: vec!["age2".to_owned(), "height2".to_owned()],
+                            other_table_name: "team_b".to_owned(),
+                        },
+                        Include {
+                            field_names: vec!["height".to_owned()],
+                            other_table_field_names: vec!["height".to_owned()],
+                            other_table_name: "team_a".to_owned(),
+                        },
+                    ],
+                }],
+            )]
+            .into_iter()
+            .collect(),
+        };
+
+        let data = [("team_a".to_owned(), team_a), ("team_b".to_owned(), team_b)]
+            .into_iter()
+            .collect::<BTreeMap<_, _>>();
+
+        let res = run_query(&data, &query).unwrap();
+
+        let team_a = res.get("team_a").unwrap();
+        let team_b = res.get("team_b").unwrap();
+
+        assert_eq!(res.len(), 2);
+
+        let name = team_a.column_by_name("name").unwrap();
+        let name2 = team_b.column_by_name("name2").unwrap();
+
+        assert_eq!(team_a.num_columns(), 1);
+        assert_eq!(team_b.num_columns(), 1);
+
+        assert_eq!(
+            name.as_string(),
+            &StringArray::from_iter_values(["kamil", "mahmut", "kazim"])
+        );
+        assert_eq!(name2.as_string(), &StringArray::from_iter_values(["yusuf"]));
+    }
 }
