@@ -60,7 +60,7 @@ impl Filter {
                 let mut filter = if *b {
                     arr.clone()
                 } else {
-                    compute::not(&arr).context("negate array")?
+                    compute::not(arr).context("negate array")?
                 };
 
                 if let Some(nulls) = filter.nulls() {
@@ -113,44 +113,44 @@ impl Contains {
     }
 
     fn ht_from_array(array: &dyn Array) -> Result<HashTable<usize>> {
-        let ht = match array.data_type() {
-            &DataType::UInt8 => {
+        let ht = match *array.data_type() {
+            DataType::UInt8 => {
                 let array = array.as_any().downcast_ref::<UInt8Array>().unwrap();
                 Self::ht_from_primitive(array)
             }
-            &DataType::UInt16 => {
+            DataType::UInt16 => {
                 let array = array.as_any().downcast_ref::<UInt16Array>().unwrap();
                 Self::ht_from_primitive(array)
             }
-            &DataType::UInt32 => {
+            DataType::UInt32 => {
                 let array = array.as_any().downcast_ref::<UInt32Array>().unwrap();
                 Self::ht_from_primitive(array)
             }
-            &DataType::UInt64 => {
+            DataType::UInt64 => {
                 let array = array.as_any().downcast_ref::<UInt64Array>().unwrap();
                 Self::ht_from_primitive(array)
             }
-            &DataType::Int8 => {
+            DataType::Int8 => {
                 let array = array.as_any().downcast_ref::<Int8Array>().unwrap();
                 Self::ht_from_primitive(array)
             }
-            &DataType::Int16 => {
+            DataType::Int16 => {
                 let array = array.as_any().downcast_ref::<Int16Array>().unwrap();
                 Self::ht_from_primitive(array)
             }
-            &DataType::Int32 => {
+            DataType::Int32 => {
                 let array = array.as_any().downcast_ref::<Int32Array>().unwrap();
                 Self::ht_from_primitive(array)
             }
-            &DataType::Int64 => {
+            DataType::Int64 => {
                 let array = array.as_any().downcast_ref::<Int64Array>().unwrap();
                 Self::ht_from_primitive(array)
             }
-            &DataType::Binary => {
+            DataType::Binary => {
                 let array = array.as_any().downcast_ref::<BinaryArray>().unwrap();
                 Self::ht_from_bytes(array)
             }
-            &DataType::Utf8 => {
+            DataType::Utf8 => {
                 let array = array.as_any().downcast_ref::<StringArray>().unwrap();
                 Self::ht_from_bytes(array)
             }
@@ -189,53 +189,53 @@ impl Contains {
         }
         assert!(!self.array.is_nullable());
 
-        let filter = match arr.data_type() {
-            &DataType::UInt8 => {
+        let filter = match *arr.data_type() {
+            DataType::UInt8 => {
                 let self_arr = self.array.as_any().downcast_ref::<UInt8Array>().unwrap();
                 let other_arr = arr.as_any().downcast_ref().unwrap();
                 self.contains_primitive(self_arr, other_arr)
             }
-            &DataType::UInt16 => {
+            DataType::UInt16 => {
                 let self_arr = self.array.as_any().downcast_ref::<UInt16Array>().unwrap();
                 let other_arr = arr.as_any().downcast_ref().unwrap();
                 self.contains_primitive(self_arr, other_arr)
             }
-            &DataType::UInt32 => {
+            DataType::UInt32 => {
                 let self_arr = self.array.as_any().downcast_ref::<UInt32Array>().unwrap();
                 let other_arr = arr.as_any().downcast_ref().unwrap();
                 self.contains_primitive(self_arr, other_arr)
             }
-            &DataType::UInt64 => {
+            DataType::UInt64 => {
                 let self_arr = self.array.as_any().downcast_ref::<UInt64Array>().unwrap();
                 let other_arr = arr.as_any().downcast_ref().unwrap();
                 self.contains_primitive(self_arr, other_arr)
             }
-            &DataType::Int8 => {
+            DataType::Int8 => {
                 let self_arr = self.array.as_any().downcast_ref::<Int8Array>().unwrap();
                 let other_arr = arr.as_any().downcast_ref().unwrap();
                 self.contains_primitive(self_arr, other_arr)
             }
-            &DataType::Int16 => {
+            DataType::Int16 => {
                 let self_arr = self.array.as_any().downcast_ref::<Int16Array>().unwrap();
                 let other_arr = arr.as_any().downcast_ref().unwrap();
                 self.contains_primitive(self_arr, other_arr)
             }
-            &DataType::Int32 => {
+            DataType::Int32 => {
                 let self_arr = self.array.as_any().downcast_ref::<Int32Array>().unwrap();
                 let other_arr = arr.as_any().downcast_ref().unwrap();
                 self.contains_primitive(self_arr, other_arr)
             }
-            &DataType::Int64 => {
+            DataType::Int64 => {
                 let self_arr = self.array.as_any().downcast_ref::<Int64Array>().unwrap();
                 let other_arr = arr.as_any().downcast_ref().unwrap();
                 self.contains_primitive(self_arr, other_arr)
             }
-            &DataType::Binary => {
+            DataType::Binary => {
                 let self_arr = self.array.as_any().downcast_ref::<BinaryArray>().unwrap();
                 let other_arr = arr.as_any().downcast_ref().unwrap();
                 self.contains_bytes(self_arr, other_arr)
             }
-            &DataType::Utf8 => {
+            DataType::Utf8 => {
                 let self_arr = self.array.as_any().downcast_ref::<StringArray>().unwrap();
                 let other_arr = arr.as_any().downcast_ref().unwrap();
                 self.contains_bytes(self_arr, other_arr)
@@ -277,7 +277,7 @@ impl Contains {
             }
         } else {
             for v in other_arr.values().iter() {
-                filter.append_value(self_arr.values().iter().find(|x| *x == v).is_some());
+                filter.append_value(self_arr.values().iter().any(|x| x == v));
             }
         }
 
@@ -302,11 +302,7 @@ impl Contains {
             }
         } else {
             for v in iter_byte_array_without_validity(other_arr) {
-                filter.append_value(
-                    iter_byte_array_without_validity(self_arr)
-                        .find(|x| *x == v)
-                        .is_some(),
-                );
+                filter.append_value(iter_byte_array_without_validity(self_arr).any(|x| x == v));
             }
         }
 
@@ -372,7 +368,7 @@ pub fn run_query(
 
                     match combined_filter.as_ref() {
                         Some(e) => {
-                            let f = compute::or(e, &filter)
+                            let f = compute::or(e, filter)
                                 .with_context(|| format!("combine filters for {}", table_name));
                             let f = match f {
                                 Ok(v) => v,
@@ -489,11 +485,11 @@ fn run_table_selection(
             )
         })?;
 
-        let self_arr = columns_to_binary_array(&table_data, &inc.field_names)
+        let self_arr = columns_to_binary_array(table_data, &inc.field_names)
             .context("get row format binary arr for self")?;
         let self_arr = compute::filter(&self_arr, &combined_filter)
             .context("apply combined filter to self arr")?;
-        let other_arr = columns_to_binary_array(&other_table_data, &inc.other_table_field_names)
+        let other_arr = columns_to_binary_array(other_table_data, &inc.other_table_field_names)
             .with_context(|| {
                 format!(
                     "get row format binary arr for other table {}",
