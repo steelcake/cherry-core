@@ -497,7 +497,7 @@ fn map_transactions(transactions: &[hypersync_client::ArrowBatch]) -> Result<Rec
                 map_hypersync_array(&batch, "to", num_rows, &DataType::Binary)?,
                 map_hypersync_array(&batch, "transaction_index", num_rows, &DataType::UInt64)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "value", num_rows)?,
-                map_hypersync_array(&batch, "v", num_rows, &DataType::Binary)?,
+                map_hypersync_binary_array_to_u8(&batch, "v", num_rows)?,
                 map_hypersync_array(&batch, "r", num_rows, &DataType::Binary)?,
                 map_hypersync_array(&batch, "s", num_rows, &DataType::Binary)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "max_priority_fee_per_gas", num_rows)?,

@@ -67,7 +67,7 @@ pub fn transactions_schema() -> Schema {
         Field::new("to", DataType::Binary, true),
         Field::new("transaction_index", DataType::UInt64, true),
         Field::new("value", DataType::Decimal256(76, 0), true),
-        Field::new("v", DataType::Binary, true),
+        Field::new("v", DataType::UInt8, true),
         Field::new("r", DataType::Binary, true),
         Field::new("s", DataType::Binary, true),
         Field::new(

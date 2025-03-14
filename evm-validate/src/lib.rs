@@ -36,7 +36,7 @@ struct TransactionsArray<'a> {
     to: &'a GenericByteArray<GenericBinaryType<i32>>,
     tx_index: &'a PrimitiveArray<UInt64Type>,
     value: &'a PrimitiveArray<Decimal256Type>,
-    v: &'a GenericByteArray<GenericBinaryType<i32>>,
+    v: &'a PrimitiveArray<UInt8Type>,
     r: &'a GenericByteArray<GenericBinaryType<i32>>,
     s: &'a GenericByteArray<GenericBinaryType<i32>>,
     max_priority_fee_per_gas: &'a PrimitiveArray<Decimal256Type>,
@@ -651,11 +651,7 @@ pub fn validate_root_hashes(
         let chain_id = tx_chain_id_opt.and_then(|id| u64::try_from(id.as_i128()).ok().or_else(|| ic.report("chain_id is invalid", None)));
         // EIP-155: The recovery identifier boollean is v - 27 for legacy transactions and v = chainId * 2 + 35 for EIP-155 transactions.
         let r_id: u8 = (chain_id.unwrap_or(1) * 2 + 35).try_into().expect("invalid chain_id, produced signiture v is out of range");
-        let v = tx_v_opt.unwrap_or_else(|| ic.report("v is None", &[0]));
-        if v.len() != 1 {
-            return Err(anyhow!("invalid v"));
-        }
-        let v = v[0];
+        let v = tx_v_opt.unwrap_or_else(|| ic.report("v is None", 0));
         let v = if v == 0 || v == 27 || v == r_id {
             false
         } else if v == 1 || v == 28 || v == r_id + 1{
@@ -1045,8 +1041,8 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         .column_by_name("v")
         .context("get tx v column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get tx v col as binary")?;
+        .downcast_ref::<UInt8Array>()
+        .context("get tx v col as u8")?;
 
     let tx_r = transactions
         .column_by_name("r")
