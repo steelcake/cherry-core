@@ -68,6 +68,8 @@ pub fn transactions_schema() -> Schema {
         Field::new("transaction_index", DataType::UInt64, true),
         Field::new("value", DataType::Decimal256(76, 0), true),
         Field::new("v", DataType::UInt8, true),
+        // keep these binary even though they are uint256 because they don't fit in i256 in
+        // practice
         Field::new("r", DataType::Binary, true),
         Field::new("s", DataType::Binary, true),
         Field::new(

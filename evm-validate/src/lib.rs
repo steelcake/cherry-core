@@ -5,14 +5,22 @@ pub use issues_collector::{DataContext, IssueCollector, IssueCollectorConfig, Re
 use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{Array, AsArray, BinaryArray, Decimal256Array, GenericByteArray, GenericListArray, ListArray, PrimitiveArray, StructArray, UInt64Array, UInt8Array};
+use arrow::array::{
+    Array, AsArray, BinaryArray, Decimal256Array, GenericByteArray, GenericListArray, ListArray,
+    PrimitiveArray, StructArray, UInt64Array, UInt8Array,
+};
 use arrow::datatypes::{i256, Decimal256Type, GenericBinaryType, UInt8Type};
 use arrow::{datatypes::UInt64Type, record_batch::RecordBatch};
 
-use alloy_primitives::{Address, Bloom, Bytes, FixedBytes, Log, PrimitiveSignature, TxKind, Uint, B256, U256};
-use alloy_consensus::{Eip658Value, Receipt, ReceiptEnvelope, TxEip1559, TxEip2930, TxEip4844, TxEip4844Variant, TxEnvelope, TxLegacy, SignableTransaction};
-use alloy_consensus::proofs::{calculate_transaction_root, calculate_receipt_root};
+use alloy_consensus::proofs::{calculate_receipt_root, calculate_transaction_root};
+use alloy_consensus::{
+    Eip658Value, Receipt, ReceiptEnvelope, SignableTransaction, TxEip1559, TxEip2930, TxEip4844,
+    TxEip4844Variant, TxEnvelope, TxLegacy,
+};
 use alloy_eips::eip2930::{AccessList, AccessListItem};
+use alloy_primitives::{
+    Address, Bloom, Bytes, FixedBytes, Log, PrimitiveSignature, TxKind, Uint, B256, U256,
+};
 
 struct LogArray<'a> {
     block_number: &'a PrimitiveArray<UInt64Type>,
@@ -24,7 +32,7 @@ struct LogArray<'a> {
     topic2: &'a GenericByteArray<GenericBinaryType<i32>>,
     topic3: &'a GenericByteArray<GenericBinaryType<i32>>,
     data: &'a GenericByteArray<GenericBinaryType<i32>>,
-}   
+}
 
 struct TransactionsArray<'a> {
     block_number: &'a PrimitiveArray<UInt64Type>,
@@ -479,7 +487,6 @@ pub fn validate_root_hashes(
     transactions: &RecordBatch,
     issues_collector: &mut IssueCollector,
 ) -> Result<()> {
-
     let ic = issues_collector;
 
     // CREATE A LOG MAPPING
@@ -491,10 +498,12 @@ pub fn validate_root_hashes(
     let mut current_tx_idx = log_array.log_index.value(0);
     // initialize a vec to store all logs for a tx
     let mut tx_logs = Vec::<Log>::with_capacity(20);
-    // initialize a map to store logs by block num and tx idx   
+    // initialize a map to store logs by block num and tx idx
     let mut logs_by_block_num_and_tx_idx = BTreeMap::<(u64, u64), Vec<Log>>::new();
 
-    let log_iterators = log_array.block_number.iter()
+    let log_iterators = log_array
+        .block_number
+        .iter()
         .zip(log_array.log_index.iter())
         .zip(log_array.tx_index.iter())
         .zip(log_array.address.iter())
@@ -503,52 +512,95 @@ pub fn validate_root_hashes(
         .zip(log_array.topic2.iter())
         .zip(log_array.topic3.iter())
         .zip(log_array.data.iter());
-    
+
     // iterate over logs rows
-    for ((((((((block_nums_opt, log_idx_opt), tx_idx_opt), address_opt), topic0_opt), topic1_opt), topic2_opt), topic3_opt), data_opt) in log_iterators {
-        
+    for (
+        (
+            (
+                (
+                    ((((block_nums_opt, log_idx_opt), tx_idx_opt), address_opt), topic0_opt),
+                    topic1_opt,
+                ),
+                topic2_opt,
+            ),
+            topic3_opt,
+        ),
+        data_opt,
+    ) in log_iterators
+    {
         // cast values to expected types
         let block_num = block_nums_opt.unwrap(); // Block number can't be None because we are using it as key in the logs_by_block_num_and_tx_idx mapping
         let tx_idx = tx_idx_opt.unwrap(); // Tx index can't be None because we are using it as key in the logs_by_block_num_and_tx_idx mapping
-        let log_idx = log_idx_opt.unwrap_or_else(|| ic.report_with_context("log_idx is None", DataContext::new("Logs".to_string(), format!("Block_num {}, Tx_idx {}", block_num, tx_idx)), 99999));
-        ic.set_context(DataContext::new("Logs".to_string(), format!("Block_num {}, Tx_idx {}, Log_idx {}", block_num, tx_idx, log_idx)));
-        let address = address_opt.unwrap_or_else(|| ic.report("address is None", &[0; 20])).try_into().unwrap_or_else(|_| ic.report("address is invalid", Address::ZERO));
-        let topic0: FixedBytes<32> = topic0_opt.unwrap_or_else(|| ic.report("topic0 is None", &[0; 32])).try_into().unwrap_or_else(|_| ic.report("topic0 is invalid", FixedBytes::<32>::new([0; 32])));
-        let topic1: Option<FixedBytes<32>> = topic1_opt.and_then(|t| t.try_into().ok().or_else(|| ic.report("topic1 is invalid", None)));
-        let topic2: Option<FixedBytes<32>> = topic2_opt.and_then(|t| t.try_into().ok().or_else(|| ic.report("topic2 is invalid", None)));
-        let topic3: Option<FixedBytes<32>> = topic3_opt.and_then(|t| t.try_into().ok().or_else(|| ic.report("topic3 is invalid", None)));
+        let log_idx = log_idx_opt.unwrap_or_else(|| {
+            ic.report_with_context(
+                "log_idx is None",
+                DataContext::new(
+                    "Logs".to_string(),
+                    format!("Block_num {}, Tx_idx {}", block_num, tx_idx),
+                ),
+                99999,
+            )
+        });
+        ic.set_context(DataContext::new(
+            "Logs".to_string(),
+            format!(
+                "Block_num {}, Tx_idx {}, Log_idx {}",
+                block_num, tx_idx, log_idx
+            ),
+        ));
+        let address = address_opt
+            .unwrap_or_else(|| ic.report("address is None", &[0; 20]))
+            .try_into()
+            .unwrap_or_else(|_| ic.report("address is invalid", Address::ZERO));
+        let topic0: FixedBytes<32> = topic0_opt
+            .unwrap_or_else(|| ic.report("topic0 is None", &[0; 32]))
+            .try_into()
+            .unwrap_or_else(|_| ic.report("topic0 is invalid", FixedBytes::<32>::new([0; 32])));
+        let topic1: Option<FixedBytes<32>> = topic1_opt.and_then(|t| {
+            t.try_into()
+                .ok()
+                .or_else(|| ic.report("topic1 is invalid", None))
+        });
+        let topic2: Option<FixedBytes<32>> = topic2_opt.and_then(|t| {
+            t.try_into()
+                .ok()
+                .or_else(|| ic.report("topic2 is invalid", None))
+        });
+        let topic3: Option<FixedBytes<32>> = topic3_opt.and_then(|t| {
+            t.try_into()
+                .ok()
+                .or_else(|| ic.report("topic3 is invalid", None))
+        });
         let log_data = data_opt.unwrap_or_else(|| ic.report("log_data is None", &[0; 0]));
         let log_data = Bytes::copy_from_slice(log_data);
-
 
         // create a vec of topics with None values removed
         let topics: Vec<_> = [Some(topic0), topic1, topic2, topic3]
             .into_iter()
             .flatten()
             .collect();
-        
+
         // if the block num or tx idx has changed, store the previous tx logs in the mapping, clear the logs vec and update the current block num and tx idx
         if block_num != current_block_num || tx_idx != current_tx_idx {
             if !tx_logs.is_empty() {
-                logs_by_block_num_and_tx_idx.insert((current_block_num, current_tx_idx), tx_logs.clone());
+                logs_by_block_num_and_tx_idx
+                    .insert((current_block_num, current_tx_idx), tx_logs.clone());
                 tx_logs.clear();
             }
             current_block_num = block_num;
             current_tx_idx = tx_idx;
         }
-        
+
         // create a log object and add it to the tx logs vec
         let log = Log::new(address, topics, log_data).expect("log is invalid");
         tx_logs.push(log);
-
-    };
+    }
     // store the last tx logs in the mapping
-    logs_by_block_num_and_tx_idx.insert((current_block_num, current_tx_idx), tx_logs); 
+    logs_by_block_num_and_tx_idx.insert((current_block_num, current_tx_idx), tx_logs);
     ic.set_context(DataContext::default());
 
-
     // CREATE A TRANSACTION MAPPING
-    let tx_array = extract_transaction_cols_as_arrays(transactions)?;  
+    let tx_array = extract_transaction_cols_as_arrays(transactions)?;
     let mut current_block_num = tx_array.block_number.value(0);
     // initialize a map to store transaction root by block num
     let mut transactions_root_by_block_num_mapping = BTreeMap::<u64, FixedBytes<32>>::new();
@@ -562,7 +614,8 @@ pub fn validate_root_hashes(
     let empty_logs = Vec::<Log>::new();
 
     let tx_iterators = tx_array
-        .block_number.iter()
+        .block_number
+        .iter()
         .zip(tx_array.gas_limit.iter())
         .zip(tx_array.gas_price.iter())
         .zip(tx_array.hash.iter())
@@ -586,49 +639,101 @@ pub fn validate_root_hashes(
         .zip(tx_array.access_list.iter())
         .zip(tx_array.max_fee_per_blob_gas.iter())
         .zip(tx_array.blob_versioned_hashes.iter());
-    
+
     // iterate over transactions rows
-    for (((((((((((((((((((((((
-        tx_block_nums_opt
-        , tx_gas_limit_opt)
-        , tx_gas_price_opt)
-        , tx_hash_opt)
-        , tx_input_opt)
-        , tx_nonce_opt)
-        , tx_to_opt)
-        , tx_tx_idx_opt)
-        , tx_value_opt)
-        , tx_v_opt)
-        , tx_r_opt)
-        , tx_s_opt)
-        , tx_max_priority_fee_per_gas_opt)
-        , tx_max_fee_per_gas_opt)
-        , tx_chain_id_opt)
-        , tx_cumulative_gas_used_opt)
-        , tx_contract_address_opt)
-        , tx_logs_bloom_opt)
-        , tx_type_opt) 
-        , tx_status_opt)
-        , tx_sighash_opt)
-        , tx_access_list_opt)
-        , tx_max_fee_per_blob_gas_opt)
-        , tx_blob_versioned_hashes_opt) in tx_iterators {
-            
-        // create contingent row context 
+    for (
+        (
+            (
+                (
+                    (
+                        (
+                            (
+                                (
+                                    (
+                                        (
+                                            (
+                                                (
+                                                    (
+                                                        (
+                                                            (
+                                                                (
+                                                                    (
+                                                                        (
+                                                                            (
+                                                                                (
+                                                                                    (
+                                                                                        (
+                                                                                            (
+                                                                                                tx_block_nums_opt,
+                                                                                                tx_gas_limit_opt,
+                                                                                            ),
+                                                                                            tx_gas_price_opt,
+                                                                                        ),
+                                                                                        tx_hash_opt,
+                                                                                    ),
+                                                                                    tx_input_opt,
+                                                                                ),
+                                                                                tx_nonce_opt,
+                                                                            ),
+                                                                            tx_to_opt,
+                                                                        ),
+                                                                        tx_tx_idx_opt,
+                                                                    ),
+                                                                    tx_value_opt,
+                                                                ),
+                                                                tx_v_opt,
+                                                            ),
+                                                            tx_r_opt,
+                                                        ),
+                                                        tx_s_opt,
+                                                    ),
+                                                    tx_max_priority_fee_per_gas_opt,
+                                                ),
+                                                tx_max_fee_per_gas_opt,
+                                            ),
+                                            tx_chain_id_opt,
+                                        ),
+                                        tx_cumulative_gas_used_opt,
+                                    ),
+                                    tx_contract_address_opt,
+                                ),
+                                tx_logs_bloom_opt,
+                            ),
+                            tx_type_opt,
+                        ),
+                        tx_status_opt,
+                    ),
+                    tx_sighash_opt,
+                ),
+                tx_access_list_opt,
+            ),
+            tx_max_fee_per_blob_gas_opt,
+        ),
+        tx_blob_versioned_hashes_opt,
+    ) in tx_iterators
+    {
+        // create contingent row context
         let cont_row_ctx = match (tx_block_nums_opt, tx_tx_idx_opt) {
-            (Some(block_num), Some(tx_idx)) => format!("Block_num {}, Tx_idx {}", block_num, tx_idx),
-            _ => "Undefined".to_string()
+            (Some(block_num), Some(tx_idx)) => {
+                format!("Block_num {}, Tx_idx {}", block_num, tx_idx)
+            }
+            _ => "Undefined".to_string(),
         };
 
         // Try to unwrap and cast tx_hash to a FixedBytes<32>, report if issue and set context to the contingent row
-        let expected_hash: FixedBytes<32> = match tx_hash_opt {//try to unwrap tx_hash
+        let expected_hash: FixedBytes<32> = match tx_hash_opt {
+            //try to unwrap tx_hash
             None => {
                 ic.set_context(DataContext::new("Transactions".to_string(), cont_row_ctx));
                 ic.report("tx_hash is None", FixedBytes::<32>::new([0; 32]))
             }
-            Some(hash) => match hash.try_into() {//try cast to FixedBytes<32>
+            Some(hash) => match hash.try_into() {
+                //try cast to FixedBytes<32>
                 Ok(hash) => {
-                    ic.set_context(DataContext::new("Transactions".to_string(), format!("Tx_hash {}", hash)));
+                    ic.set_context(DataContext::new(
+                        "Transactions".to_string(),
+                        format!("Tx_hash {}", hash),
+                    ));
                     hash
                 }
                 Err(_) => {
@@ -640,59 +745,125 @@ pub fn validate_root_hashes(
 
         // cast values to expected types
         let block_num = tx_block_nums_opt.unwrap(); // Block number can't be None because we are using it as key in the root_by_block_num_mapping mapping
-        let gas_limit = u64::try_from(tx_gas_limit_opt.unwrap_or_else(|| ic.report("gas_limit is None", i256::ZERO)).as_i128()).unwrap();
-        let gas_price = u128::try_from(tx_gas_price_opt.unwrap_or_else(|| ic.report("gas_price is None", i256::ZERO)).as_i128()).unwrap();
+        let gas_limit = u64::try_from(
+            tx_gas_limit_opt
+                .unwrap_or_else(|| ic.report("gas_limit is None", i256::ZERO))
+                .as_i128(),
+        )
+        .unwrap();
+        let gas_price = u128::try_from(
+            tx_gas_price_opt
+                .unwrap_or_else(|| ic.report("gas_price is None", i256::ZERO))
+                .as_i128(),
+        )
+        .unwrap();
         let input = tx_input_opt.unwrap_or_else(|| ic.report("input is None", &[0; 0]));
         let input = Bytes::copy_from_slice(input);
-        let nonce = u64::try_from(tx_nonce_opt.unwrap_or_else(|| ic.report("nonce is None", i256::ZERO)).as_i128()).unwrap();
-        let to:Option<Address> = tx_to_opt.and_then(|a| a.try_into().ok().or_else(|| ic.report("to is invalid", None)));
+        let nonce = u64::try_from(
+            tx_nonce_opt
+                .unwrap_or_else(|| ic.report("nonce is None", i256::ZERO))
+                .as_i128(),
+        )
+        .unwrap();
+        let to: Option<Address> = tx_to_opt.and_then(|a| {
+            a.try_into()
+                .ok()
+                .or_else(|| ic.report("to is invalid", None))
+        });
         let tx_idx = tx_tx_idx_opt.unwrap_or_else(|| ic.report("tx_idx is None", 0));
-        let value = U256::try_from(tx_value_opt.unwrap_or_else(|| ic.report("value is None", i256::ZERO)).as_i128()).unwrap();
-        let chain_id = tx_chain_id_opt.and_then(|id| u64::try_from(id.as_i128()).ok().or_else(|| ic.report("chain_id is invalid", None)));
+        let value = U256::try_from(
+            tx_value_opt
+                .unwrap_or_else(|| ic.report("value is None", i256::ZERO))
+                .as_i128(),
+        )
+        .unwrap();
+        let chain_id = tx_chain_id_opt.and_then(|id| {
+            u64::try_from(id.as_i128())
+                .ok()
+                .or_else(|| ic.report("chain_id is invalid", None))
+        });
         // EIP-155: The recovery identifier boollean is v - 27 for legacy transactions and v = chainId * 2 + 35 for EIP-155 transactions.
-        let r_id: u8 = (chain_id.unwrap_or(1) * 2 + 35).try_into().expect("invalid chain_id, produced signiture v is out of range");
+        let r_id: u8 = (chain_id.unwrap_or(1) * 2 + 35)
+            .try_into()
+            .expect("invalid chain_id, produced signiture v is out of range");
         let v = tx_v_opt.unwrap_or_else(|| ic.report("v is None", 0));
         let v = if v == 0 || v == 27 || v == r_id {
             false
-        } else if v == 1 || v == 28 || v == r_id + 1{
+        } else if v == 1 || v == 28 || v == r_id + 1 {
             true
         } else {
             return Err(anyhow!("invalid v"));
         };
-        let r: Uint<256, 4> = U256::try_from_be_slice(tx_r_opt.unwrap_or_else(|| ic.report("r is None", &[0; 32]))).expect("invalid r");
-        let s: Uint<256, 4> = U256::try_from_be_slice(tx_s_opt.unwrap_or_else(|| ic.report("s is None", &[0; 32]))).expect("invalid s");
-        let max_priority_fee_per_gas: Option<u128> = tx_max_priority_fee_per_gas_opt.and_then(|value| value.as_i128().try_into().ok().or_else(|| ic.report("max_priority_fee_per_gas is invalid", None)));
-        let max_fee_per_gas: Option<u128> = tx_max_fee_per_gas_opt.and_then(|value| value.as_i128().try_into().ok().or_else(|| ic.report("max_fee_per_gas is invalid", None)));
-        let cumulative_gas_used = u64::try_from(tx_cumulative_gas_used_opt.unwrap_or_else(|| ic.report("cumulative_gas_used is None", i256::ZERO)).as_i128()).unwrap();
-        let contract_address: Option<Address> = tx_contract_address_opt.and_then(|a| a.try_into().ok().or_else(|| ic.report("contract_address is invalid", None)));
-        let logs_bloom = tx_logs_bloom_opt.unwrap_or_else(|| ic.report("logs_bloom is None", &[0; 256]));
+        let r: Uint<256, 4> =
+            U256::try_from_be_slice(tx_r_opt.unwrap_or_else(|| ic.report("r is None", &[0; 32])))
+                .expect("invalid r");
+        let s: Uint<256, 4> =
+            U256::try_from_be_slice(tx_s_opt.unwrap_or_else(|| ic.report("s is None", &[0; 32])))
+                .expect("invalid s");
+        let max_priority_fee_per_gas: Option<u128> =
+            tx_max_priority_fee_per_gas_opt.and_then(|value| {
+                value
+                    .as_i128()
+                    .try_into()
+                    .ok()
+                    .or_else(|| ic.report("max_priority_fee_per_gas is invalid", None))
+            });
+        let max_fee_per_gas: Option<u128> = tx_max_fee_per_gas_opt.and_then(|value| {
+            value
+                .as_i128()
+                .try_into()
+                .ok()
+                .or_else(|| ic.report("max_fee_per_gas is invalid", None))
+        });
+        let cumulative_gas_used = u64::try_from(
+            tx_cumulative_gas_used_opt
+                .unwrap_or_else(|| ic.report("cumulative_gas_used is None", i256::ZERO))
+                .as_i128(),
+        )
+        .unwrap();
+        let contract_address: Option<Address> = tx_contract_address_opt.and_then(|a| {
+            a.try_into()
+                .ok()
+                .or_else(|| ic.report("contract_address is invalid", None))
+        });
+        let logs_bloom =
+            tx_logs_bloom_opt.unwrap_or_else(|| ic.report("logs_bloom is None", &[0; 256]));
         let status = tx_status_opt.unwrap_or_else(|| ic.report("status is None", 0));
         let expected_sighash = tx_sighash_opt;
         let access_list: Option<AccessList> = tx_access_list_opt.map(|array| {
             let access_list_items = array.as_struct_opt().expect("access list is not a struct");
-            convert_arrow_array_into_access_list(&access_list_items).expect("access list is invalid")
+            convert_arrow_array_into_access_list(&access_list_items)
+                .expect("access list is invalid")
         });
-        let max_fee_per_blob_gas: Option<u128> = tx_max_fee_per_blob_gas_opt.and_then(|value| value.as_i128().try_into().ok().or_else(|| ic.report("max_fee_per_blob_gas is invalid", None)));
-        let blob_versioned_hashes: Option<Vec<FixedBytes<32>>> = tx_blob_versioned_hashes_opt.map(|array| {
-            let binary_array = array.as_any().downcast_ref::<BinaryArray>().expect("blob_versioned_hashes must be a BinaryArray");
-            convert_binary_array_32_to_fixed_hashes(binary_array)
+        let max_fee_per_blob_gas: Option<u128> = tx_max_fee_per_blob_gas_opt.and_then(|value| {
+            value
+                .as_i128()
+                .try_into()
+                .ok()
+                .or_else(|| ic.report("max_fee_per_blob_gas is invalid", None))
         });
-        let tx_type = tx_type_opt.unwrap_or(
-            if access_list.is_some() {
-                if max_priority_fee_per_gas.is_some() {
-                    if max_fee_per_blob_gas.is_some() {
-                        3
-                    } else {
-                        2
-                    }
+        let blob_versioned_hashes: Option<Vec<FixedBytes<32>>> =
+            tx_blob_versioned_hashes_opt.map(|array| {
+                let binary_array = array
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
+                    .expect("blob_versioned_hashes must be a BinaryArray");
+                convert_binary_array_32_to_fixed_hashes(binary_array)
+            });
+        let tx_type = tx_type_opt.unwrap_or(if access_list.is_some() {
+            if max_priority_fee_per_gas.is_some() {
+                if max_fee_per_blob_gas.is_some() {
+                    3
                 } else {
-                    1
+                    2
                 }
             } else {
-                0
+                1
             }
-        );
-        
+        } else {
+            0
+        });
+
         // if the block num has changed, store the previous tx receipts and tx envelopes in the mapping, clear the receipts vec and update the current block num
         if block_num != current_block_num {
             if !block_tx_receipts.is_empty() {
@@ -709,11 +880,23 @@ pub fn validate_root_hashes(
         // validate sighash
         match expected_sighash {
             Some(expected_sighash) => {
-                let sighash: [u8; 4] = input[..4].try_into().unwrap_or_else(|_| {ic.report("input must be at least 4 bytes long for a tx with a sighash", [0; 4])});
+                let sighash: [u8; 4] = input[..4].try_into().unwrap_or_else(|_| {
+                    ic.report(
+                        "input must be at least 4 bytes long for a tx with a sighash",
+                        [0; 4],
+                    )
+                });
                 if sighash != expected_sighash {
-                    ic.report(format!("sighash mismatch. Expected:\n{:?},\nFound:\n{:?}", expected_sighash, sighash).as_str(), ());
+                    ic.report(
+                        format!(
+                            "sighash mismatch. Expected:\n{:?},\nFound:\n{:?}",
+                            expected_sighash, sighash
+                        )
+                        .as_str(),
+                        (),
+                    );
                 }
-            },
+            }
             None => {
                 if input.len() > 4 {
                     ic.report("sighash is None, with a non-zero input", ());
@@ -723,15 +906,20 @@ pub fn validate_root_hashes(
 
         // create alloy's tx_kind object
         let tx_kind = match contract_address {
-            None => TxKind::Call(to.unwrap_or_else(|| ic.report("to is None, while contract_address is also None", Address::ZERO))),
-            Some(_) => TxKind::Create
+            None => TxKind::Call(to.unwrap_or_else(|| {
+                ic.report(
+                    "to is None, while contract_address is also None",
+                    Address::ZERO,
+                )
+            })),
+            Some(_) => TxKind::Create,
         };
         let primitive_sig = PrimitiveSignature::new(r, s, v);
 
         // create alloy's tx_envelope object (to accept all tx types)
         let tx_envelope = match tx_type {
             0 => {
-                let tx= TxLegacy{
+                let tx = TxLegacy {
                     chain_id,
                     nonce,
                     gas_price,
@@ -742,53 +930,97 @@ pub fn validate_root_hashes(
                 };
                 let signed_tx = tx.into_signed(primitive_sig);
                 TxEnvelope::Legacy(signed_tx)
-            },
+            }
             1 => {
-                let tx= TxEip2930{
-                    chain_id: chain_id.unwrap_or_else(|| ic.report("chain_id is None, for a Eip2930 transaction", 0)),
+                let tx = TxEip2930 {
+                    chain_id: chain_id.unwrap_or_else(|| {
+                        ic.report("chain_id is None, for a Eip2930 transaction", 0)
+                    }),
                     nonce,
                     gas_price,
                     gas_limit,
                     to: tx_kind,
                     value,
-                    access_list: access_list.unwrap_or_else(|| ic.report("access list is None, for a Eip2930 transaction", AccessList::default())),
+                    access_list: access_list.unwrap_or_else(|| {
+                        ic.report(
+                            "access list is None, for a Eip2930 transaction",
+                            AccessList::default(),
+                        )
+                    }),
                     input,
                 };
                 let signed_tx = tx.into_signed(primitive_sig);
                 TxEnvelope::Eip2930(signed_tx)
-            },
+            }
             2 => {
-                let tx= TxEip1559{
-                    chain_id: chain_id.unwrap_or_else(|| ic.report("chain_id is None, for a Eip1559 transaction", 0)),
+                let tx = TxEip1559 {
+                    chain_id: chain_id.unwrap_or_else(|| {
+                        ic.report("chain_id is None, for a Eip1559 transaction", 0)
+                    }),
                     nonce,
                     gas_limit,
-                    max_fee_per_gas: max_fee_per_gas.unwrap_or_else(|| ic.report("max fee per gas is None, for a Eip1559 transaction", 0)),
-                    max_priority_fee_per_gas: max_priority_fee_per_gas.unwrap_or_else(|| ic.report("max priority fee per gas is None, for a Eip1559 transaction", 0)),
+                    max_fee_per_gas: max_fee_per_gas.unwrap_or_else(|| {
+                        ic.report("max fee per gas is None, for a Eip1559 transaction", 0)
+                    }),
+                    max_priority_fee_per_gas: max_priority_fee_per_gas.unwrap_or_else(|| {
+                        ic.report(
+                            "max priority fee per gas is None, for a Eip1559 transaction",
+                            0,
+                        )
+                    }),
                     to: tx_kind,
                     value,
-                    access_list: access_list.unwrap_or_else(|| ic.report("access list is None, for a Eip1559 transaction", AccessList::default())),
+                    access_list: access_list.unwrap_or_else(|| {
+                        ic.report(
+                            "access list is None, for a Eip1559 transaction",
+                            AccessList::default(),
+                        )
+                    }),
                     input,
                 };
                 let signed_tx = tx.into_signed(primitive_sig);
                 TxEnvelope::Eip1559(signed_tx)
-            },
+            }
             3 => {
-                let tx= TxEip4844Variant::TxEip4844(TxEip4844{
-                    chain_id: chain_id.unwrap_or_else(|| ic.report("chain_id is None, for a Eip4844 transaction", 0)),
+                let tx = TxEip4844Variant::TxEip4844(TxEip4844 {
+                    chain_id: chain_id.unwrap_or_else(|| {
+                        ic.report("chain_id is None, for a Eip4844 transaction", 0)
+                    }),
                     nonce,
                     gas_limit,
-                    max_fee_per_gas: max_fee_per_gas.unwrap_or_else(|| ic.report("max fee per gas is None, for a Eip4844 transaction", 0)),
-                    max_priority_fee_per_gas: max_priority_fee_per_gas.unwrap_or_else(|| ic.report("max priority fee per gas is None, for a Eip4844 transaction", 0)),
-                    to: to.unwrap_or_else(|| ic.report("to is None, for a Eip4844 transaction", Address::ZERO)),
+                    max_fee_per_gas: max_fee_per_gas.unwrap_or_else(|| {
+                        ic.report("max fee per gas is None, for a Eip4844 transaction", 0)
+                    }),
+                    max_priority_fee_per_gas: max_priority_fee_per_gas.unwrap_or_else(|| {
+                        ic.report(
+                            "max priority fee per gas is None, for a Eip4844 transaction",
+                            0,
+                        )
+                    }),
+                    to: to.unwrap_or_else(|| {
+                        ic.report("to is None, for a Eip4844 transaction", Address::ZERO)
+                    }),
                     value,
-                    access_list: access_list.unwrap_or_else(|| ic.report("access list is None, for a Eip4844 transaction", AccessList::default())),
-                    blob_versioned_hashes: blob_versioned_hashes.unwrap_or_else(|| ic.report("blob versioned hashes is None, for a Eip4844 transaction", Vec::<FixedBytes<32>>::new())),
-                    max_fee_per_blob_gas: max_fee_per_blob_gas.unwrap_or_else(|| ic.report("max fee per blob gas is None, for a Eip4844 transaction", 0)),
+                    access_list: access_list.unwrap_or_else(|| {
+                        ic.report(
+                            "access list is None, for a Eip4844 transaction",
+                            AccessList::default(),
+                        )
+                    }),
+                    blob_versioned_hashes: blob_versioned_hashes.unwrap_or_else(|| {
+                        ic.report(
+                            "blob versioned hashes is None, for a Eip4844 transaction",
+                            Vec::<FixedBytes<32>>::new(),
+                        )
+                    }),
+                    max_fee_per_blob_gas: max_fee_per_blob_gas.unwrap_or_else(|| {
+                        ic.report("max fee per blob gas is None, for a Eip4844 transaction", 0)
+                    }),
                     input,
                 });
                 let signed_tx = tx.into_signed(primitive_sig);
                 TxEnvelope::Eip4844(signed_tx)
-            },
+            }
             // 4 => TypedTransaction::Eip7702(TxEip7702{
             //     chain_id,
             //     nonce,
@@ -807,16 +1039,28 @@ pub fn validate_root_hashes(
         //validate tx hash
         let calculated_tx_hash = tx_envelope.tx_hash();
         if calculated_tx_hash != &expected_hash {
-            ic.report(format!("Calculated tx hash mismatch. Expected: {:?}, Found: {:?}", expected_hash, calculated_tx_hash).as_str(), ());
+            ic.report(
+                format!(
+                    "Calculated tx hash mismatch. Expected: {:?}, Found: {:?}",
+                    expected_hash, calculated_tx_hash
+                )
+                .as_str(),
+                (),
+            );
         }
         block_tx_envelopes.push(tx_envelope);
 
         // get the logs for the tx, if the tx failed or doesn't have logs, use an empty vec
         let (eip658value, tx_logs) = match status {
             0 => (Eip658Value::Eip658(false), &Vec::<Log>::new()),
-            1 => (Eip658Value::Eip658(true), logs_by_block_num_and_tx_idx.get(&(block_num, tx_idx)).unwrap_or(&empty_logs)),
+            1 => (
+                Eip658Value::Eip658(true),
+                logs_by_block_num_and_tx_idx
+                    .get(&(block_num, tx_idx))
+                    .unwrap_or(&empty_logs),
+            ),
             _ => return Err(anyhow!("Invalid tx status: {}", status)), // Other chains may have different status values
-        };  
+        };
 
         // create a receipt object
         let receipt = Receipt {
@@ -828,10 +1072,21 @@ pub fn validate_root_hashes(
         // calculate the receipt bloom with the receipt object
         let receiptwithbloom = receipt.with_bloom();
         // create an expected bloom object from the logs_bloom column value
-        let expected_bloom = Bloom::new(logs_bloom.try_into().unwrap_or_else(|_| ic.report("logs bloom must be 256 bytes", [0; 256])));
+        let expected_bloom = Bloom::new(
+            logs_bloom
+                .try_into()
+                .unwrap_or_else(|_| ic.report("logs bloom must be 256 bytes", [0; 256])),
+        );
         // validate logs bloom
         if receiptwithbloom.logs_bloom != expected_bloom {
-            ic.report(format!("Calculated logs bloom mismatch.\nExpected {:?},\nFound: {:?}", expected_bloom, receiptwithbloom.logs_bloom).as_str(), ());
+            ic.report(
+                format!(
+                    "Calculated logs bloom mismatch.\nExpected {:?},\nFound: {:?}",
+                    expected_bloom, receiptwithbloom.logs_bloom
+                )
+                .as_str(),
+                (),
+            );
         }
         // create a receipt envelope object from the receipt_with_bloom object
         let receipt_envelope = match tx_type {
@@ -844,7 +1099,7 @@ pub fn validate_root_hashes(
         };
         // add the receipt envelope to the block tx receipts vec
         block_tx_receipts.push(receipt_envelope);
-    };
+    }
 
     // calculate the transactions root for the last block
     let transactions_root = calculate_transaction_root(&block_tx_envelopes);
@@ -854,39 +1109,89 @@ pub fn validate_root_hashes(
     receipts_root_by_block_num_mapping.insert(current_block_num, receipt_root);
     ic.set_context(DataContext::default());
 
-
     // COMPARE TRANSACTION AND RECEIPTS ROOT WITH EXPECTED VALUES
 
     // extract the block numbers, receipts roots and transactions roots from the blocks table
     let block_array = extract_block_cols_as_arrays(blocks)?;
 
     // create a map of block numbers to receipts roots
-    let mut expected_transactions_and_receipts_root_by_block_num_mapping = BTreeMap::<u64, (FixedBytes<32>, FixedBytes<32>)>::new();
+    let mut expected_transactions_and_receipts_root_by_block_num_mapping =
+        BTreeMap::<u64, (FixedBytes<32>, FixedBytes<32>)>::new();
 
     // iterate over the block numbers and receipts roots
-    for ((block_num_opt, block_receipts_root_opt), block_transactions_root_opt) in block_array.number.iter().zip(block_array.receipts_root.iter()).zip(block_array.transactions_root.iter()) {
+    for ((block_num_opt, block_receipts_root_opt), block_transactions_root_opt) in block_array
+        .number
+        .iter()
+        .zip(block_array.receipts_root.iter())
+        .zip(block_array.transactions_root.iter())
+    {
         // cast the values to the expected types
         let block_num = block_num_opt.unwrap();
-        ic.set_context(DataContext::new("Blocks".to_string(), format!("Block_num {}", block_num)));
-        let receipts_root = block_receipts_root_opt.unwrap_or_else(|| ic.report("receipts root is None", &[0; 32])).try_into().unwrap_or_else(|_| ic.report("receipts root is invalid", FixedBytes::ZERO));
-        let transactions_root = block_transactions_root_opt.unwrap_or_else(|| ic.report("transactions root is None", &[0; 32])).try_into().unwrap_or_else(|_| ic.report("transactions root is invalid", FixedBytes::ZERO));
+        ic.set_context(DataContext::new(
+            "Blocks".to_string(),
+            format!("Block_num {}", block_num),
+        ));
+        let receipts_root = block_receipts_root_opt
+            .unwrap_or_else(|| ic.report("receipts root is None", &[0; 32]))
+            .try_into()
+            .unwrap_or_else(|_| ic.report("receipts root is invalid", FixedBytes::ZERO));
+        let transactions_root = block_transactions_root_opt
+            .unwrap_or_else(|| ic.report("transactions root is None", &[0; 32]))
+            .try_into()
+            .unwrap_or_else(|_| ic.report("transactions root is invalid", FixedBytes::ZERO));
         // insert the values into the maps
-        expected_transactions_and_receipts_root_by_block_num_mapping.insert(block_num, (receipts_root, transactions_root));
+        expected_transactions_and_receipts_root_by_block_num_mapping
+            .insert(block_num, (receipts_root, transactions_root));
     }
-    
-    for (block_num, (expected_receipts_root, expected_transactions_root)) in expected_transactions_and_receipts_root_by_block_num_mapping.iter() {
+
+    for (block_num, (expected_receipts_root, expected_transactions_root)) in
+        expected_transactions_and_receipts_root_by_block_num_mapping.iter()
+    {
         // null root is the root of an empty block
-        let null_root = <FixedBytes::<32> as alloy_primitives::hex::FromHex>::from_hex("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap();
-        if expected_receipts_root == expected_transactions_root && expected_receipts_root == &null_root { 
+        let null_root = <FixedBytes<32> as alloy_primitives::hex::FromHex>::from_hex(
+            "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        )
+        .unwrap();
+        if expected_receipts_root == expected_transactions_root
+            && expected_receipts_root == &null_root
+        {
             continue;
         }
-        let calculated_receipts_root = receipts_root_by_block_num_mapping.get(block_num).unwrap_or_else(|| ic.report("There is no calculated receipts root for this block", &FixedBytes::ZERO));
-        let calculated_transactions_root = transactions_root_by_block_num_mapping.get(block_num).unwrap_or_else(|| ic.report("There is no calculated transactions root for this block", &FixedBytes::ZERO));
+        let calculated_receipts_root = receipts_root_by_block_num_mapping
+            .get(block_num)
+            .unwrap_or_else(|| {
+                ic.report(
+                    "There is no calculated receipts root for this block",
+                    &FixedBytes::ZERO,
+                )
+            });
+        let calculated_transactions_root = transactions_root_by_block_num_mapping
+            .get(block_num)
+            .unwrap_or_else(|| {
+                ic.report(
+                    "There is no calculated transactions root for this block",
+                    &FixedBytes::ZERO,
+                )
+            });
         if expected_receipts_root != calculated_receipts_root {
-            ic.report(format!("Receipts root mismatch. Expected: {:?}, Found: {:?}", expected_receipts_root, calculated_receipts_root).as_str(), ());
+            ic.report(
+                format!(
+                    "Receipts root mismatch. Expected: {:?}, Found: {:?}",
+                    expected_receipts_root, calculated_receipts_root
+                )
+                .as_str(),
+                (),
+            );
         };
         if expected_transactions_root != calculated_transactions_root {
-            ic.report(format!("Transactions root mismatch. Expected: {:?}, Found: {:?}", expected_transactions_root, calculated_transactions_root).as_str(), ());
+            ic.report(
+                format!(
+                    "Transactions root mismatch. Expected: {:?}, Found: {:?}",
+                    expected_transactions_root, calculated_transactions_root
+                )
+                .as_str(),
+                (),
+            );
         }
     }
 
@@ -900,7 +1205,7 @@ fn extract_log_cols_as_arrays(logs: &RecordBatch) -> Result<LogArray> {
         .as_any()
         .downcast_ref::<UInt64Array>()
         .context("get log block num col as u64")?;
-    
+
     let log_log_idx = logs
         .column_by_name("log_index")
         .context("get log log_index column")?
@@ -914,7 +1219,7 @@ fn extract_log_cols_as_arrays(logs: &RecordBatch) -> Result<LogArray> {
         .as_any()
         .downcast_ref::<UInt64Array>()
         .context("get tx index col as u64")?;
-    
+
     let log_address = logs
         .column_by_name("address")
         .context("get address column")?
@@ -949,7 +1254,7 @@ fn extract_log_cols_as_arrays(logs: &RecordBatch) -> Result<LogArray> {
         .as_any()
         .downcast_ref::<BinaryArray>()
         .context("get topic3 as binary")?;
-    
+
     let log_data = logs
         .column_by_name("data")
         .context("get data column")?
@@ -1014,7 +1319,7 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         .context("get tx nonce column")?
         .as_any()
         .downcast_ref::<Decimal256Array>()
-        .context("get tx nonce col as binary")?;    
+        .context("get tx nonce col as binary")?;
 
     let tx_to = transactions
         .column_by_name("to")
@@ -1022,7 +1327,7 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         .as_any()
         .downcast_ref::<BinaryArray>()
         .context("get tx to col as binary")?;
-        
+
     let tx_tx_idx = transactions
         .column_by_name("transaction_index")
         .context("get tx index column")?
@@ -1134,7 +1439,7 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         .as_any()
         .downcast_ref::<Decimal256Array>()
         .context("get tx max fee per blob gas col as decimal256")?;
-    
+
     let tx_blob_versioned_hashes = transactions
         .column_by_name("blob_versioned_hashes")
         .context("get tx blob versioned hashes column")?
@@ -1168,12 +1473,11 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         max_fee_per_blob_gas: tx_max_fee_per_blob_gas,
         blob_versioned_hashes: tx_blob_versioned_hashes,
     };
-    
+
     Ok(tx_array)
 }
 
 fn extract_block_cols_as_arrays(blocks: &RecordBatch) -> Result<BlockArray> {
-
     let block_numbers = blocks
         .column_by_name("number")
         .context("get block number column")?
@@ -1206,7 +1510,7 @@ fn extract_block_cols_as_arrays(blocks: &RecordBatch) -> Result<BlockArray> {
 
 fn convert_arrow_array_into_access_list(array: &StructArray) -> Result<AccessList> {
     let mut items = Vec::with_capacity(array.len());
-    
+
     // Extract the child arrays
     let address_array = array
         .column_by_name("address")
@@ -1214,34 +1518,33 @@ fn convert_arrow_array_into_access_list(array: &StructArray) -> Result<AccessLis
         .as_any()
         .downcast_ref::<BinaryArray>()
         .context("'address' field is not a BinaryArray")?;
-    
+
     let storage_keys_array = array
         .column_by_name("storage_keys")
         .context("Missing 'storage_keys' field")?
         .as_any()
         .downcast_ref::<ListArray>()
         .context("'storage_keys' field is not a ListArray")?;
-    
+
     let storage_keys_values = storage_keys_array
         .values()
         .as_any()
         .downcast_ref::<BinaryArray>()
         .context("Storage keys values are not a BinaryArray")?;
 
-    let storage_keys_offsets = storage_keys_array
-        .offsets();
-    
+    let storage_keys_offsets = storage_keys_array.offsets();
+
     // Convert each row to an AccessListItem
     for i in 0..array.len() {
         if array.is_null(i) {
             continue;
         }
-        
+
         // Skip if either is null - they must be both valid or both null
         if address_array.is_null(i) || storage_keys_array.is_null(i) {
             continue;
         }
-        
+
         // Get address - convert binary to Address (20 bytes)
         let bytes = address_array.value(i);
         if bytes.len() != 20 {
@@ -1250,36 +1553,37 @@ fn convert_arrow_array_into_access_list(array: &StructArray) -> Result<AccessLis
         let mut addr = [0u8; 20];
         addr.copy_from_slice(bytes);
         let address = Address::new(addr);
-        
+
         // Get storage keys - convert each binary to B256 (32 bytes)
         let mut storage_keys = Vec::new();
         let start_offset = *storage_keys_offsets.get(i).expect("start offset is null") as usize;
         let end_offset = *storage_keys_offsets.get(i + 1).expect("end offset is null") as usize;
-        
+
         for j in start_offset..end_offset {
             let bytes = storage_keys_values.value(j);
-            
+
             // Make sure we have the correct length for B256
             if bytes.len() != 32 {
                 return Err(anyhow::anyhow!("Invalid B256 length: {}", bytes.len()));
             }
-            
+
             let mut b256 = [0u8; 32];
             b256.copy_from_slice(bytes);
             storage_keys.push(B256::new(b256));
         }
-        
+
         items.push(AccessListItem {
             address,
             storage_keys,
         });
     }
-    
+
     Ok(AccessList(items))
 }
 
 fn convert_binary_array_32_to_fixed_hashes(binary_array: &BinaryArray) -> Vec<FixedBytes<32>> {
-    binary_array.iter()
+    binary_array
+        .iter()
         .map(|bytes| {
             let bytes = bytes.expect("blob versioned hash cannot be null");
             let mut hash = [0u8; 32];

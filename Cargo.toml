@@ -12,10 +12,10 @@ members = [
 ]
 
 [workspace.dependencies]
-arrow = "54.2.1"
-alloy-dyn-abi = "0.8.21"
-alloy-json-abi = "0.8.21"
-alloy-primitives = "0.8.21"
+arrow = "54"
+alloy-dyn-abi = "0.8"
+alloy-json-abi = "0.8"
+alloy-primitives = "0.8"
 alloy-consensus = "0.11.1"
 alloy-eips = "0.11.1"
 ruint = "1"

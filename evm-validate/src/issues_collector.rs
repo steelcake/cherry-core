@@ -1,10 +1,10 @@
+use chrono::Local;
+use serde_json;
+use std::collections::HashMap;
 use std::fmt::{self, Display};
 use std::fs::File;
 use std::io::Write;
-use chrono::Local;
-use std::collections::HashMap;
 use std::path::Path;
-use serde_json;
 
 #[derive(Debug, Clone)]
 pub struct IssueCollectorConfig {
@@ -44,7 +44,7 @@ pub struct IssueCollector {
 #[derive(Debug, Clone)]
 pub struct Issue {
     context: DataContext,
-    issue: String
+    issue: String,
 }
 
 /// Context of the data that is being processed.
@@ -63,13 +63,19 @@ impl Display for DataContext {
 
 impl Default for DataContext {
     fn default() -> Self {
-        Self { table: "Undefined".to_string(), row: "Undefined".to_string() }
+        Self {
+            table: "Undefined".to_string(),
+            row: "Undefined".to_string(),
+        }
     }
 }
 
 impl DataContext {
     pub fn new(table: String, row: String) -> Self {
-        Self { table: table, row: row }
+        Self {
+            table: table,
+            row: row,
+        }
     }
 }
 
@@ -101,8 +107,11 @@ impl IssueCollector {
             std::process::exit(1);
         }
 
-        self.issues.push(Issue { context: ctx, issue: issue.to_string()});
-        
+        self.issues.push(Issue {
+            context: ctx,
+            issue: issue.to_string(),
+        });
+
         default
     }
 
@@ -115,8 +124,11 @@ impl IssueCollector {
             std::process::exit(1);
         }
 
-        self.issues.push(Issue { context: context, issue: issue.to_string() });
-        
+        self.issues.push(Issue {
+            context: context,
+            issue: issue.to_string(),
+        });
+
         default
     }
 
@@ -141,43 +153,49 @@ impl IssueCollector {
 
     fn write_text_report(&self, path: &str) -> std::io::Result<()> {
         let mut file = File::create(path)?;
-        
+
         writeln!(file, "Data Validation Issues Report - {}", Local::now())?;
         writeln!(file, "=============================================")?;
-        
+
         for (i, issue) in self.issues.iter().enumerate() {
-            writeln!(file, "#{}: Context: {} Issue: {}", i + 1, issue.context, issue.issue)?;
+            writeln!(
+                file,
+                "#{}: Context: {} Issue: {}",
+                i + 1,
+                issue.context,
+                issue.issue
+            )?;
         }
-        
+
         writeln!(file, "\nTotal issues: {}", self.issues.len())?;
-        
+
         Ok(())
     }
-    
+
     fn write_json_report(&self, path: &str) -> std::io::Result<()> {
         let report_time = Local::now().to_string();
         let mut issues = Vec::new();
-        
+
         for issue in &self.issues {
             let mut entry = HashMap::new();
             entry.insert("context", issue.context.to_string());
-            entry.insert("issue", issue.issue.clone());            
+            entry.insert("issue", issue.issue.clone());
             issues.push(entry);
         }
-        
+
         let report = HashMap::from([
             ("timestamp", report_time),
             ("total_issues", self.issues.len().to_string()),
         ]);
-        
+
         let mut file = File::create(path)?;
         let json = serde_json::json!({
             "report_info": report,
             "issues": issues
         });
-        
+
         file.write_all(serde_json::to_string_pretty(&json)?.as_bytes())?;
-        
+
         Ok(())
     }
 }

@@ -160,7 +160,7 @@ async fn validate_eth() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-// #[ignore]
+#[ignore]
 async fn validate_evm_hypersync() {
     let query = cherry_ingest::evm::Query {
         from_block: 22040082,
@@ -180,7 +180,10 @@ async fn validate_evm_hypersync() {
     };
 
     let mut stream = cherry_ingest::start_stream(cherry_ingest::ProviderConfig {
-        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync, cherry_ingest::Query::Evm(query))
+        ..cherry_ingest::ProviderConfig::new(
+            cherry_ingest::ProviderKind::Hypersync,
+            cherry_ingest::Query::Evm(query),
+        )
     })
     .await
     .unwrap();
@@ -202,7 +205,8 @@ async fn validate_evm_hypersync() {
             report_format: cherry_evm_validate::ReportFormat::Text,
             current_context: cherry_evm_validate::DataContext::default(),
         };
-        let mut issues_collector = cherry_evm_validate::IssueCollector::new(issues_collector_config);
+        let mut issues_collector =
+            cherry_evm_validate::IssueCollector::new(issues_collector_config);
         validate_root_hashes(&blocks, &logs, &transactions, &mut issues_collector).unwrap();
     }
 }
