@@ -116,7 +116,7 @@ async fn validate_eth() {
 
     let query = serde_json::from_value(serde_json::json!({
         "from_block": 18123123,
-        "to_block": 18123129,
+        "to_block": 18123143,
         "blocks": [{}],
         "join_mode": "JoinAll",
         "field_selection": {
