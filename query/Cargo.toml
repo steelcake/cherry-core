@@ -1,0 +1,9 @@
+[package]
+name = "cherry-query"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arrow = { workspace = true }
+anyhow = { workspace = true }
+rayon = { workspace = true }

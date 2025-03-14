@@ -9,6 +9,7 @@ members = [
   "python",
   "ingest",
   "svm-schema",
+  "query",
 ]
 
 [workspace.dependencies]
@@ -30,3 +31,4 @@ serde = "1"
 serde_json = "1"
 polars-arrow = "0.42"
 bs58 = "0.5"
+rayon = "1"
