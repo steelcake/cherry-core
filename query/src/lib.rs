@@ -7,8 +7,10 @@ use arrow::array::{
 use arrow::compute;
 use arrow::datatypes::{ByteArrayType, DataType, ToByteSlice};
 use arrow::record_batch::RecordBatch;
+use arrow::row::{RowConverter, SortField};
 use hashbrown::HashTable;
 use rayon::prelude::*;
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use xxhash_rust::xxh3::xxh3_64;
@@ -22,7 +24,7 @@ pub struct Query {
 }
 
 pub struct TableSelection {
-    pub filters: BTreeMap<FieldName, Vec<Filter>>,
+    pub filters: BTreeMap<FieldName, Filter>,
     pub include: Vec<Include>,
 }
 
@@ -50,7 +52,25 @@ impl Filter {
         match self {
             Self::Contains(ct) => ct.contains(arr),
             Self::Bool(b) => {
-                todo!()
+                let arr = arr
+                    .as_any()
+                    .downcast_ref::<BooleanArray>()
+                    .context("cast array to boolean array")?;
+
+                let mut filter = if *b {
+                    arr.clone()
+                } else {
+                    compute::not(&arr).context("negate array")?
+                };
+
+                if let Some(nulls) = filter.nulls() {
+                    if nulls.null_count() > 0 {
+                        let nulls = BooleanArray::from(nulls.inner().clone());
+                        filter = compute::and(&filter, &nulls).unwrap();
+                    }
+                }
+
+                Ok(filter)
             }
         }
     }
@@ -230,7 +250,7 @@ impl Contains {
         if let Some(nulls) = arr.nulls() {
             if nulls.null_count() > 0 {
                 let nulls = BooleanArray::from(nulls.inner().clone());
-                filter = compute::kernels::boolean::and(&filter, &nulls).unwrap();
+                filter = compute::and(&filter, &nulls).unwrap();
             }
         }
 
@@ -329,8 +349,9 @@ pub fn run_query(
                 .par_iter()
                 .enumerate()
                 .map(|(i, selection)| {
-                    run_table_selection(data, table_name, selection)
-                        .with_context(|| format!("run table selection {} for {}", i, table_name))
+                    run_table_selection(data, table_name, selection).with_context(|| {
+                        format!("run table selection no:{} for table {}", i, table_name)
+                    })
                 })
                 .collect::<Result<Vec<_>>>()
         })
@@ -351,7 +372,7 @@ pub fn run_query(
 
                     match combined_filter.as_ref() {
                         Some(e) => {
-                            let f = compute::kernels::boolean::or(e, &filter)
+                            let f = compute::or(e, &filter)
                                 .with_context(|| format!("combine filters for {}", table_name));
                             let f = match f {
                                 Ok(v) => v,
@@ -371,9 +392,8 @@ pub fn run_query(
                 None => return None,
             };
 
-            let table_data =
-                compute::kernels::filter::filter_record_batch(table_data, &combined_filter)
-                    .context("filter record batch");
+            let table_data = compute::filter_record_batch(table_data, &combined_filter)
+                .context("filter record batch");
             let table_data = match table_data {
                 Ok(v) => v,
                 Err(err) => return Some(Err(err)),
@@ -419,5 +439,118 @@ fn run_table_selection(
     table_name: &str,
     selection: &TableSelection,
 ) -> Result<BTreeMap<TableName, BooleanArray>> {
-    todo!()
+    let mut out = BTreeMap::new();
+
+    let table_data = data.get(table_name).context("get table data")?;
+    let mut combined_filter = None;
+    for (field_name, filter) in selection.filters.iter() {
+        let col = table_data
+            .column_by_name(field_name)
+            .with_context(|| format!("get field {}", field_name))?;
+
+        let f = filter
+            .check(&col)
+            .with_context(|| format!("check filter for column {}", field_name))?;
+
+        match combined_filter {
+            Some(cf) => {
+                combined_filter = Some(
+                    compute::and(&cf, &f)
+                        .with_context(|| format!("combine filter for column {}", field_name))?,
+                );
+            }
+            None => {
+                combined_filter = Some(f);
+            }
+        }
+    }
+
+    if let Some(f) = combined_filter {
+        out.insert(table_name.to_owned(), f);
+    }
+
+    for (i, inc) in selection.include.iter().enumerate() {
+        if inc.other_table_field_names.len() != inc.field_names.len() {
+            return Err(anyhow!(
+                "field names are different for self table and other table while processing include no: {}. {} {}",
+                i,
+                inc.field_names.len(),
+                inc.other_table_field_names.len(),
+            ));
+        }
+
+        let other_table_data = data.get(&inc.other_table_name).with_context(|| {
+            format!(
+                "get data for table {} as other table data",
+                inc.other_table_name
+            )
+        })?;
+
+        let self_arr = columns_to_binary_array(&table_data, &inc.field_names)
+            .context("get row format binary arr for self")?;
+        let other_arr = columns_to_binary_array(&other_table_data, &inc.other_table_field_names)
+            .with_context(|| {
+                format!(
+                    "get row format binary arr for other table {}",
+                    inc.other_table_name
+                )
+            })?;
+
+        let contains = Contains::new(Arc::new(self_arr)).context("create contains filter")?;
+
+        let f = contains
+            .contains(&other_arr)
+            .with_context(|| format!("run contains for other table {}", inc.other_table_name))?;
+
+        match out.entry(inc.other_table_name.clone()) {
+            Entry::Vacant(entry) => {
+                entry.insert(f);
+            }
+            Entry::Occupied(mut entry) => {
+                let new = compute::or(entry.get(), &f).with_context(|| {
+                    format!("or include filters for table {}", inc.other_table_name)
+                })?;
+                entry.insert(new);
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+fn columns_to_binary_array(
+    table_data: &RecordBatch,
+    column_names: &[String],
+) -> Result<BinaryArray> {
+    let fields = column_names
+        .iter()
+        .map(|field_name| {
+            let f = table_data
+                .schema_ref()
+                .field_with_name(field_name)
+                .with_context(|| format!("get field {} from schema", field_name))?;
+            Ok(SortField::new(f.data_type().clone()))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let conv = RowConverter::new(fields).context("create row converter")?;
+
+    let columns = column_names
+        .iter()
+        .map(|field_name| {
+            let c = table_data
+                .column_by_name(field_name)
+                .with_context(|| format!("get data for column {}", field_name))?;
+            let c = Arc::clone(c);
+            Ok(c)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let rows = conv
+        .convert_columns(&columns)
+        .context("convert columns to row format")?;
+    let out = rows
+        .try_into_binary()
+        .context("convert row format to binary array")?;
+
+    Ok(out)
 }
