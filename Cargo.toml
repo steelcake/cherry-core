@@ -32,3 +32,6 @@ serde_json = "1"
 polars-arrow = "0.42"
 bs58 = "0.5"
 rayon = "1"
+hashbrown = "0.15"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+

@@ -7,3 +7,5 @@ edition = "2021"
 arrow = { workspace = true }
 anyhow = { workspace = true }
 rayon = { workspace = true }
+hashbrown = { workspace = true }
+xxhash-rust = { workspace = true }
