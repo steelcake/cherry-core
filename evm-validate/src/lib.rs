@@ -481,6 +481,7 @@ fn validate_transaction_hashes(
     Ok(())
 }
 
+#[rustfmt::skip]
 pub fn validate_root_hashes(
     blocks: &RecordBatch,
     logs: &RecordBatch,
@@ -641,77 +642,31 @@ pub fn validate_root_hashes(
         .zip(tx_array.blob_versioned_hashes.iter());
 
     // iterate over transactions rows
-    for (
-        (
-            (
-                (
-                    (
-                        (
-                            (
-                                (
-                                    (
-                                        (
-                                            (
-                                                (
-                                                    (
-                                                        (
-                                                            (
-                                                                (
-                                                                    (
-                                                                        (
-                                                                            (
-                                                                                (
-                                                                                    (
-                                                                                        (
-                                                                                            (
-                                                                                                tx_block_nums_opt,
-                                                                                                tx_gas_limit_opt,
-                                                                                            ),
-                                                                                            tx_gas_price_opt,
-                                                                                        ),
-                                                                                        tx_hash_opt,
-                                                                                    ),
-                                                                                    tx_input_opt,
-                                                                                ),
-                                                                                tx_nonce_opt,
-                                                                            ),
-                                                                            tx_to_opt,
-                                                                        ),
-                                                                        tx_tx_idx_opt,
-                                                                    ),
-                                                                    tx_value_opt,
-                                                                ),
-                                                                tx_v_opt,
-                                                            ),
-                                                            tx_r_opt,
-                                                        ),
-                                                        tx_s_opt,
-                                                    ),
-                                                    tx_max_priority_fee_per_gas_opt,
-                                                ),
-                                                tx_max_fee_per_gas_opt,
-                                            ),
-                                            tx_chain_id_opt,
-                                        ),
-                                        tx_cumulative_gas_used_opt,
-                                    ),
-                                    tx_contract_address_opt,
-                                ),
-                                tx_logs_bloom_opt,
-                            ),
-                            tx_type_opt,
-                        ),
-                        tx_status_opt,
-                    ),
-                    tx_sighash_opt,
-                ),
-                tx_access_list_opt,
-            ),
-            tx_max_fee_per_blob_gas_opt,
-        ),
-        tx_blob_versioned_hashes_opt,
-    ) in tx_iterators
-    {
+    for (((((((((((((((((((((((
+        tx_block_nums_opt
+        , tx_gas_limit_opt)
+        , tx_gas_price_opt)
+        , tx_hash_opt)
+        , tx_input_opt)
+        , tx_nonce_opt)
+        , tx_to_opt)
+        , tx_tx_idx_opt)
+        , tx_value_opt)
+        , tx_v_opt)
+        , tx_r_opt)
+        , tx_s_opt)
+        , tx_max_priority_fee_per_gas_opt)
+        , tx_max_fee_per_gas_opt)
+        , tx_chain_id_opt)
+        , tx_cumulative_gas_used_opt)
+        , tx_contract_address_opt)
+        , tx_logs_bloom_opt)
+        , tx_type_opt) 
+        , tx_status_opt)
+        , tx_sighash_opt)
+        , tx_access_list_opt)
+        , tx_max_fee_per_blob_gas_opt)
+        , tx_blob_versioned_hashes_opt) in tx_iterators {
         // create contingent row context
         let cont_row_ctx = match (tx_block_nums_opt, tx_tx_idx_opt) {
             (Some(block_num), Some(tx_idx)) => {
@@ -832,7 +787,7 @@ pub fn validate_root_hashes(
         let expected_sighash = tx_sighash_opt;
         let access_list: Option<AccessList> = tx_access_list_opt.map(|array| {
             let access_list_items = array.as_struct_opt().expect("access list is not a struct");
-            convert_arrow_array_into_access_list(&access_list_items)
+            convert_arrow_array_into_access_list(access_list_items)
                 .expect("access list is invalid")
         });
         let max_fee_per_blob_gas: Option<u128> = tx_max_fee_per_blob_gas_opt.and_then(|value| {
@@ -1065,7 +1020,7 @@ pub fn validate_root_hashes(
         // create a receipt object
         let receipt = Receipt {
             status: eip658value,
-            cumulative_gas_used: cumulative_gas_used,
+            cumulative_gas_used,
             logs: tx_logs.to_vec(),
         };
 
@@ -1466,7 +1421,7 @@ fn extract_transaction_cols_as_arrays(transactions: &RecordBatch) -> Result<Tran
         cumulative_gas_used: tx_cumulative_gas_used,
         contract_address: tx_contract_address,
         logs_bloom: tx_logs_bloom,
-        tx_type: tx_type,
+        tx_type,
         status: tx_status,
         sighash: tx_sighash,
         access_list: tx_access_list,

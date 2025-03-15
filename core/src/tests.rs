@@ -195,7 +195,7 @@ async fn validate_evm_hypersync() {
         let logs = v.get("logs").unwrap();
         let traces = v.get("traces").unwrap();
 
-        validate_block_data(&blocks, &transactions, &logs, &traces).unwrap();
+        validate_block_data(blocks, transactions, logs, traces).unwrap();
 
         let issues_collector_config = cherry_evm_validate::IssueCollectorConfig {
             console_output: false,
@@ -207,7 +207,7 @@ async fn validate_evm_hypersync() {
         };
         let mut issues_collector =
             cherry_evm_validate::IssueCollector::new(issues_collector_config);
-        validate_root_hashes(&blocks, &logs, &transactions, &mut issues_collector).unwrap();
+        validate_root_hashes(blocks, logs, transactions, &mut issues_collector).unwrap();
     }
 }
 

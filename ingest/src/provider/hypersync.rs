@@ -1,15 +1,15 @@
 use super::common::{field_selection_to_set, prune_fields};
 use crate::{evm, DataStream, ProviderConfig, Query};
 use anyhow::{anyhow, Context, Result};
+use arrow::array::ListBuilder;
 use arrow::array::{builder, new_null_array, Array, BinaryArray, BinaryBuilder, RecordBatch};
 use arrow::datatypes::DataType;
-use hypersync_client::net_types as hypersync_nt;
+use cherry_evm_schema::AccessListBuilder;
 use hypersync_client::format::AccessList;
+use hypersync_client::net_types as hypersync_nt;
 use std::sync::Arc;
 use std::{collections::BTreeMap, num::NonZeroU64, time::Duration};
 use tokio::sync::mpsc;
-use cherry_evm_schema::AccessListBuilder;
-use arrow::array::ListBuilder;
 
 pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
     Ok(hypersync_nt::Query {
@@ -340,29 +340,32 @@ fn map_hypersync_binary_array_to_access_list_elem(
     let arr = map_hypersync_array(batch, name, num_rows, &DataType::Binary)?;
     let arr = arr.as_any().downcast_ref::<BinaryArray>().unwrap();
     let mut access_list_builder = AccessListBuilder::default();
-    
+
     // Process each element in the array
     for opt_value in arr.iter() {
         match opt_value {
             None => access_list_builder.0.append_null(),
             Some(bytes) => {
-                let access_list_wrapper = bincode::deserialize::<Vec<AccessList>>(bytes).context("deserialize access list failed")?;
+                let access_list_wrapper = bincode::deserialize::<Vec<AccessList>>(bytes)
+                    .context("deserialize access list failed")?;
                 let access_list_items_builder = access_list_builder.0.values();
                 for item in access_list_wrapper {
                     access_list_items_builder
                         .field_builder::<builder::BinaryBuilder>(0)
                         .unwrap()
                         .append_option(item.address);
-                    
+
                     {
                         let b = access_list_items_builder
                             .field_builder::<builder::ListBuilder<builder::BinaryBuilder>>(1)
                             .unwrap();
-    
+
                         let v = item.storage_keys;
                         let mut keys = vec![];
                         if let Some(v) = v {
-                            for x in v {keys.push(Some(x.to_vec()));}
+                            for x in v {
+                                keys.push(Some(x.to_vec()));
+                            }
                             b.append_value(keys);
                         } else {
                             b.append_null();
@@ -410,7 +413,7 @@ fn map_hypersync_binary_array_to_list_hashes(
         }
     }
     Ok(Arc::new(hashes_list_builder.finish()))
-}   
+}
 
 fn map_blocks(blocks: &[hypersync_client::ArrowBatch]) -> Result<RecordBatch> {
     let mut batches = Vec::with_capacity(blocks.len());
@@ -500,7 +503,11 @@ fn map_transactions(transactions: &[hypersync_client::ArrowBatch]) -> Result<Rec
                 map_hypersync_binary_array_to_u8(&batch, "v", num_rows)?,
                 map_hypersync_array(&batch, "r", num_rows, &DataType::Binary)?,
                 map_hypersync_array(&batch, "s", num_rows, &DataType::Binary)?,
-                map_hypersync_binary_array_to_decimal256(&batch, "max_priority_fee_per_gas", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(
+                    &batch,
+                    "max_priority_fee_per_gas",
+                    num_rows,
+                )?,
                 map_hypersync_binary_array_to_decimal256(&batch, "max_fee_per_gas", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "chain_id", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "cumulative_gas_used", num_rows)?,
@@ -520,14 +527,26 @@ fn map_transactions(transactions: &[hypersync_client::ArrowBatch]) -> Result<Rec
                 map_hypersync_binary_array_to_decimal256(&batch, "l1_fee_scalar", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "gas_used_for_l1", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "max_fee_per_blob_gas", num_rows)?,
-                map_hypersync_binary_array_to_list_hashes(&batch, "blob_versioned_hashes", num_rows)?,
+                map_hypersync_binary_array_to_list_hashes(
+                    &batch,
+                    "blob_versioned_hashes",
+                    num_rows,
+                )?,
                 map_hypersync_binary_array_to_decimal256(&batch, "deposit_nonce", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "blob_gas_price", num_rows)?,
-                map_hypersync_binary_array_to_decimal256(&batch, "deposit_receipt_version", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(
+                    &batch,
+                    "deposit_receipt_version",
+                    num_rows,
+                )?,
                 map_hypersync_binary_array_to_decimal256(&batch, "blob_gas_used", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "l1_base_fee_scalar", num_rows)?,
                 map_hypersync_binary_array_to_decimal256(&batch, "l1_blob_base_fee", num_rows)?,
-                map_hypersync_binary_array_to_decimal256(&batch, "l1_blob_base_fee_scalar", num_rows)?,
+                map_hypersync_binary_array_to_decimal256(
+                    &batch,
+                    "l1_blob_base_fee_scalar",
+                    num_rows,
+                )?,
                 arrow::compute::cast_with_options(
                     &map_hypersync_binary_array_to_decimal256(&batch, "l1_block_number", num_rows)?,
                     &DataType::UInt64,

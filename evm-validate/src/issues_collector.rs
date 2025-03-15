@@ -1,5 +1,4 @@
 use chrono::Local;
-use serde_json;
 use std::collections::HashMap;
 use std::fmt::{self, Display};
 use std::fs::File;
@@ -72,10 +71,7 @@ impl Default for DataContext {
 
 impl DataContext {
     pub fn new(table: String, row: String) -> Self {
-        Self {
-            table: table,
-            row: row,
-        }
+        Self { table, row }
     }
 }
 
@@ -125,7 +121,7 @@ impl IssueCollector {
         }
 
         self.issues.push(Issue {
-            context: context,
+            context,
             issue: issue.to_string(),
         });
 
