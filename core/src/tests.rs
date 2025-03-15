@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use cherry_evm_decode::{decode_events, signature_to_topic0};
-use cherry_evm_validate::validate_block_data;
+use cherry_evm_validate::{validate_block_data, validate_root_hashes};
 use cherry_ingest::evm::{Address, Topic};
 use futures_lite::StreamExt;
 use hypersync_client::{self, ClientConfig, StreamConfig};
@@ -156,6 +156,58 @@ async fn validate_eth() {
 
     for (((blocks, transactions), logs), traces) in blocks.zip(transactions).zip(logs).zip(traces) {
         validate_block_data(&blocks, &transactions, &logs, &traces).unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn validate_evm_hypersync() {
+    let query = cherry_ingest::evm::Query {
+        from_block: 22040082,
+        to_block: Some(22040195),
+
+        fields: cherry_ingest::evm::Fields::all(),
+        include_all_blocks: true,
+        transactions: vec![cherry_ingest::evm::TransactionRequest {
+            ..Default::default()
+        }],
+        logs: vec![cherry_ingest::evm::LogRequest {
+            ..Default::default()
+        }],
+        traces: vec![cherry_ingest::evm::TraceRequest {
+            ..Default::default()
+        }],
+    };
+
+    let mut stream = cherry_ingest::start_stream(cherry_ingest::ProviderConfig {
+        ..cherry_ingest::ProviderConfig::new(
+            cherry_ingest::ProviderKind::Hypersync,
+            cherry_ingest::Query::Evm(query),
+        )
+    })
+    .await
+    .unwrap();
+
+    while let Some(v) = stream.next().await {
+        let v = v.unwrap();
+        let blocks = v.get("blocks").unwrap();
+        let transactions = v.get("transactions").unwrap();
+        let logs = v.get("logs").unwrap();
+        let traces = v.get("traces").unwrap();
+
+        validate_block_data(&blocks, &transactions, &logs, &traces).unwrap();
+
+        let issues_collector_config = cherry_evm_validate::IssueCollectorConfig {
+            console_output: false,
+            emit_report: true,
+            report_path: "reports/data_validation_issues.txt".to_string(),
+            stop_on_issue: false,
+            report_format: cherry_evm_validate::ReportFormat::Text,
+            current_context: cherry_evm_validate::DataContext::default(),
+        };
+        let mut issues_collector =
+            cherry_evm_validate::IssueCollector::new(issues_collector_config);
+        validate_root_hashes(&blocks, &logs, &transactions, &mut issues_collector).unwrap();
     }
 }
 

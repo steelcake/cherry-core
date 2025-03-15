@@ -12,4 +12,10 @@ license = "MIT OR Apache-2.0"
 arrow = { workspace = true }
 anyhow = { workspace = true }
 faster-hex = { workspace = true }
-
+alloy-primitives = { workspace = true }
+alloy-consensus = { workspace = true }
+alloy-eips = { workspace = true }
+serde = { workspace = true }
+bincode = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }

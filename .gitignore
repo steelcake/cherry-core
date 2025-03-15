@@ -17,4 +17,10 @@
 
 # data folder for test output
 data
+core/reports
 
+# jupyter notebooks
+*.ipynb
+
+# uv.lock
+uv.lock
