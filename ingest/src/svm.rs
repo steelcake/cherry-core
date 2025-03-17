@@ -117,18 +117,20 @@ pub struct InstructionRequest {
     pub a8: Vec<Address>,
     pub a9: Vec<Address>,
     pub is_committed: bool,
-    pub transaction: bool,
-    pub transaction_token_balances: bool,
-    pub logs: bool,
-    pub inner_instructions: bool,
+    pub include_transactions: bool,
+    pub include_transaction_token_balances: bool,
+    pub include_logs: bool,
+    pub include_inner_instructions: bool,
+    pub include_blocks: bool,
 }
 
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TransactionRequest {
     pub fee_payer: Vec<Address>,
-    pub instructions: bool,
-    pub logs: bool,
+    pub include_instructions: bool,
+    pub include_logs: bool,
+    pub include_blocks: bool,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -136,8 +138,9 @@ pub struct TransactionRequest {
 pub struct LogRequest {
     pub program_id: Vec<Address>,
     pub kind: Vec<LogKind>,
-    pub transaction: bool,
-    pub instruction: bool,
+    pub include_transaction: bool,
+    pub include_instruction: bool,
+    pub include_blocks: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -181,8 +184,9 @@ impl<'py> pyo3::FromPyObject<'py> for LogKind {
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct BalanceRequest {
     pub account: Vec<Address>,
-    pub transaction: bool,
-    pub transaction_instructions: bool,
+    pub include_transaction: bool,
+    pub include_transaction_instructions: bool,
+    pub include_blocks: bool,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -195,8 +199,9 @@ pub struct TokenBalanceRequest {
     pub post_mint: Vec<Address>,
     pub pre_owner: Vec<Address>,
     pub post_owner: Vec<Address>,
-    pub transaction: bool,
-    pub transaction_instructions: bool,
+    pub include_transaction: bool,
+    pub include_transaction_instructions: bool,
+    pub include_blocks: bool,
 }
 
 #[derive(Default, Debug, Clone)]

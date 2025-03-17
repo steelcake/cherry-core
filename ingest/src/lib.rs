@@ -46,7 +46,7 @@ pub struct ProviderConfig {
     pub retry_backoff_ms: Option<u64>,
     pub retry_base_ms: Option<u64>,
     pub retry_ceiling_ms: Option<u64>,
-    pub http_req_timeout_millis: Option<u64>,
+    pub req_timeout_millis: Option<u64>,
     pub stop_on_head: bool,
     pub head_poll_interval_millis: Option<u64>,
     pub buffer_size: Option<usize>,
@@ -63,7 +63,7 @@ impl ProviderConfig {
             retry_backoff_ms: None,
             retry_base_ms: None,
             retry_ceiling_ms: None,
-            http_req_timeout_millis: None,
+            req_timeout_millis: None,
             stop_on_head: false,
             head_poll_interval_millis: None,
             buffer_size: None,
@@ -75,6 +75,7 @@ impl ProviderConfig {
 pub enum ProviderKind {
     Sqd,
     Hypersync,
+    YellowstoneGrpc,
 }
 
 #[cfg(feature = "pyo3")]
@@ -87,6 +88,7 @@ impl<'py> pyo3::FromPyObject<'py> for ProviderKind {
         match out {
             "sqd" => Ok(Self::Sqd),
             "hypersync" => Ok(Self::Hypersync),
+            "yellowstone_grpc" => Ok(Self::YellowstoneGrpc),
             _ => Err(anyhow!("unknown provider kind: {}", out).into()),
         }
     }
@@ -98,5 +100,8 @@ pub async fn start_stream(provider_config: ProviderConfig) -> Result<DataStream>
     match provider_config.kind {
         ProviderKind::Sqd => provider::sqd::start_stream(provider_config),
         ProviderKind::Hypersync => provider::hypersync::start_stream(provider_config).await,
+        ProviderKind::YellowstoneGrpc => {
+            provider::yellowstone_grpc::start_stream(provider_config).await
+        }
     }
 }
