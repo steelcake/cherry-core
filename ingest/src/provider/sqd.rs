@@ -217,8 +217,8 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     .iter()
                     .map(|v| base58_encode(v.0.as_slice()))
                     .collect(),
-                transaction: lg.include_transaction,
-                instruction: lg.include_instruction,
+                transaction: lg.include_transactions,
+                instruction: lg.include_instructions,
             })
             .collect(),
         balances: query
@@ -230,7 +230,7 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     .iter()
                     .map(|v| base58_encode(v.0.as_slice()))
                     .collect(),
-                transaction: bl.include_transaction,
+                transaction: bl.include_transactions,
                 transaction_instructions: bl.include_transaction_instructions,
             })
             .collect(),
@@ -273,7 +273,7 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     .iter()
                     .map(|v| base58_encode(v.0.as_slice()))
                     .collect(),
-                transaction: tb.include_transaction,
+                transaction: tb.include_transactions,
                 transaction_instructions: tb.include_transaction_instructions,
             })
             .collect(),

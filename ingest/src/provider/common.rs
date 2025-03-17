@@ -553,23 +553,251 @@ fn svm_instruction_selection_to_generic(selection: &svm::InstructionRequest) -> 
 }
 
 fn svm_transaction_selection_to_generic(selection: &svm::TransactionRequest) -> TableSelection {
-    todo!()
+    let fee_payer = Arc::new(BinaryArray::from_iter_values(
+        selection.fee_payer.iter().map(|x| x.0.as_slice()),
+    ));
+
+    let filters: [(&str, Arc<dyn Array>); 1] = [("fee_payer", fee_payer)];
+
+    let filters: BTreeMap<String, Filter> = filters
+        .into_iter()
+        .filter_map(|(name, arr)| {
+            if arr.is_empty() {
+                None
+            } else {
+                Some((name.to_owned(), Filter::contains(arr).unwrap()))
+            }
+        })
+        .collect();
+
+    let mut include = Vec::with_capacity(3);
+
+    if selection.include_logs {
+        include.push(Include {
+            other_table_name: "logs".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+        })
+    }
+
+    if selection.include_instructions {
+        include.push(Include {
+            other_table_name: "instructions".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+        })
+    }
+
+    if selection.include_blocks {
+        include.push(Include {
+            other_table_name: "blocks".to_owned(),
+            field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned()],
+        })
+    }
+
+    TableSelection { filters, include }
 }
 
 fn svm_log_selection_to_generic(selection: &svm::LogRequest) -> TableSelection {
-    todo!()
+    let program_id = Arc::new(BinaryArray::from_iter_values(
+        selection.program_id.iter().map(|x| x.0.as_slice()),
+    ));
+    let kind = Arc::new(StringArray::from_iter_values(
+        selection.kind.iter().map(|x| x.as_str()),
+    ));
+
+    let filters: [(&str, Arc<dyn Array>); 2] = [("program_id", program_id), ("kind", kind)];
+
+    let filters: BTreeMap<String, Filter> = filters
+        .into_iter()
+        .filter_map(|(name, arr)| {
+            if arr.is_empty() {
+                None
+            } else {
+                Some((name.to_owned(), Filter::contains(arr).unwrap()))
+            }
+        })
+        .collect();
+
+    let mut include = Vec::with_capacity(3);
+
+    if selection.include_transactions {
+        include.push(Include {
+            other_table_name: "transactions".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+        })
+    }
+
+    if selection.include_instructions {
+        include.push(Include {
+            other_table_name: "instructions".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+        })
+    }
+
+    if selection.include_blocks {
+        include.push(Include {
+            other_table_name: "blocks".to_owned(),
+            field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned()],
+        })
+    }
+
+    TableSelection { filters, include }
 }
 
 fn svm_balance_selection_to_generic(selection: &svm::BalanceRequest) -> TableSelection {
-    todo!()
+    let account = Arc::new(BinaryArray::from_iter_values(
+        selection.account.iter().map(|x| x.0.as_slice()),
+    ));
+
+    let filters: [(&str, Arc<dyn Array>); 1] = [("account", account)];
+
+    let filters: BTreeMap<String, Filter> = filters
+        .into_iter()
+        .filter_map(|(name, arr)| {
+            if arr.is_empty() {
+                None
+            } else {
+                Some((name.to_owned(), Filter::contains(arr).unwrap()))
+            }
+        })
+        .collect();
+
+    let mut include = Vec::with_capacity(3);
+
+    if selection.include_transactions {
+        include.push(Include {
+            other_table_name: "transactions".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+        })
+    }
+
+    if selection.include_transaction_instructions {
+        include.push(Include {
+            other_table_name: "instructions".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+        })
+    }
+
+    if selection.include_blocks {
+        include.push(Include {
+            other_table_name: "blocks".to_owned(),
+            field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned()],
+        })
+    }
+
+    TableSelection { filters, include }
 }
 
 fn svm_token_balance_selection_to_generic(selection: &svm::TokenBalanceRequest) -> TableSelection {
-    todo!()
+    let account = Arc::new(BinaryArray::from_iter_values(
+        selection.account.iter().map(|x| x.0.as_slice()),
+    ));
+    let pre_program_id = Arc::new(BinaryArray::from_iter_values(
+        selection.pre_program_id.iter().map(|x| x.0.as_slice()),
+    ));
+    let post_program_id = Arc::new(BinaryArray::from_iter_values(
+        selection.post_program_id.iter().map(|x| x.0.as_slice()),
+    ));
+    let pre_mint = Arc::new(BinaryArray::from_iter_values(
+        selection.pre_mint.iter().map(|x| x.0.as_slice()),
+    ));
+    let post_mint = Arc::new(BinaryArray::from_iter_values(
+        selection.post_mint.iter().map(|x| x.0.as_slice()),
+    ));
+    let pre_owner = Arc::new(BinaryArray::from_iter_values(
+        selection.pre_owner.iter().map(|x| x.0.as_slice()),
+    ));
+    let post_owner = Arc::new(BinaryArray::from_iter_values(
+        selection.post_owner.iter().map(|x| x.0.as_slice()),
+    ));
+
+    let filters: [(&str, Arc<dyn Array>); 7] = [
+        ("account", account),
+        ("pre_program_id", pre_program_id),
+        ("post_program_id", post_program_id),
+        ("pre_mint", pre_mint),
+        ("post_mint", post_mint),
+        ("pre_owner", pre_owner),
+        ("post_owner", post_owner),
+    ];
+
+    let filters: BTreeMap<String, Filter> = filters
+        .into_iter()
+        .filter_map(|(name, arr)| {
+            if arr.is_empty() {
+                None
+            } else {
+                Some((name.to_owned(), Filter::contains(arr).unwrap()))
+            }
+        })
+        .collect();
+
+    let mut include = Vec::with_capacity(3);
+
+    if selection.include_transactions {
+        include.push(Include {
+            other_table_name: "transactions".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+        })
+    }
+
+    if selection.include_transaction_instructions {
+        include.push(Include {
+            other_table_name: "instructions".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+        })
+    }
+
+    if selection.include_blocks {
+        include.push(Include {
+            other_table_name: "blocks".to_owned(),
+            field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned()],
+        })
+    }
+
+    TableSelection { filters, include }
 }
 
 fn svm_reward_selection_to_generic(selection: &svm::RewardRequest) -> TableSelection {
-    todo!()
+    let pubkey = Arc::new(BinaryArray::from_iter_values(
+        selection.pubkey.iter().map(|x| x.0.as_slice()),
+    ));
+
+    let filters: [(&str, Arc<dyn Array>); 1] = [("pubkey", pubkey)];
+
+    let filters: BTreeMap<String, Filter> = filters
+        .into_iter()
+        .filter_map(|(name, arr)| {
+            if arr.is_empty() {
+                None
+            } else {
+                Some((name.to_owned(), Filter::contains(arr).unwrap()))
+            }
+        })
+        .collect();
+
+    let mut include = Vec::with_capacity(1);
+
+    if selection.include_blocks {
+        include.push(Include {
+            other_table_name: "blocks".to_owned(),
+            field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned()],
+        })
+    }
+
+    TableSelection { filters, include }
 }
 
 pub fn field_selection_to_set<S: Serialize>(field_selection: &S) -> BTreeSet<String> {

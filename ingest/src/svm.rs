@@ -138,8 +138,8 @@ pub struct TransactionRequest {
 pub struct LogRequest {
     pub program_id: Vec<Address>,
     pub kind: Vec<LogKind>,
-    pub include_transaction: bool,
-    pub include_instruction: bool,
+    pub include_transactions: bool,
+    pub include_instructions: bool,
     pub include_blocks: bool,
 }
 
@@ -184,7 +184,7 @@ impl<'py> pyo3::FromPyObject<'py> for LogKind {
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct BalanceRequest {
     pub account: Vec<Address>,
-    pub include_transaction: bool,
+    pub include_transactions: bool,
     pub include_transaction_instructions: bool,
     pub include_blocks: bool,
 }
@@ -199,7 +199,7 @@ pub struct TokenBalanceRequest {
     pub post_mint: Vec<Address>,
     pub pre_owner: Vec<Address>,
     pub post_owner: Vec<Address>,
-    pub include_transaction: bool,
+    pub include_transactions: bool,
     pub include_transaction_instructions: bool,
     pub include_blocks: bool,
 }
@@ -208,6 +208,7 @@ pub struct TokenBalanceRequest {
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct RewardRequest {
     pub pubkey: Vec<Address>,
+    pub include_blocks: bool,
 }
 
 #[derive(Serialize, Default, Debug, Clone, Copy)]
