@@ -1,10 +1,12 @@
-use super::common::prune_fields;
 use crate::{evm, svm, DataStream, ProviderConfig, Query};
 use anyhow::{Context, Result};
+use cherry_query::run_query;
 use futures_lite::StreamExt;
 use std::collections::BTreeMap;
 
 use std::sync::Arc;
+
+use super::common::{evm_query_to_generic, svm_query_to_generic};
 
 fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query> {
     let base58_encode = |addr: &[u8]| {
@@ -57,7 +59,8 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     .num_readonly_unsigned_accounts,
                 num_required_signatures: query.fields.transaction.num_required_signatures,
                 recent_blockhash: query.fields.transaction.recent_blockhash,
-                signatures: query.fields.transaction.signatures,
+                signatures: query.fields.transaction.signatures
+                    || query.fields.transaction.signature,
                 err: query.fields.transaction.err,
                 fee: query.fields.transaction.fee,
                 compute_units_consumed: query.fields.transaction.compute_units_consumed,
@@ -117,6 +120,8 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     || query.fields.token_balance.block_hash
                     || query.fields.reward.block_hash,
                 timestamp: query.fields.block.timestamp,
+                parent_hash: query.fields.block.parent_hash,
+                parent_number: query.fields.block.parent_slot,
             },
         },
         instructions: query
@@ -183,11 +188,11 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                 d3: inst.d3.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
                 d4: inst.d4.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
                 d8: inst.d8.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
-                inner_instructions: inst.inner_instructions,
                 is_committed: inst.is_committed,
-                logs: inst.logs,
-                transaction: inst.transaction,
-                transaction_token_balances: inst.transaction_token_balances,
+                inner_instructions: inst.include_inner_instructions,
+                logs: inst.include_logs,
+                transaction: inst.include_transactions,
+                transaction_token_balances: inst.include_transaction_token_balances,
             })
             .collect(),
         transactions: query
@@ -199,8 +204,8 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     .iter()
                     .map(|v| base58_encode(v.0.as_slice()))
                     .collect(),
-                instructions: tx.instructions,
-                logs: tx.logs,
+                instructions: tx.include_instructions,
+                logs: tx.include_logs,
             })
             .collect(),
         logs: query
@@ -213,8 +218,8 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     .iter()
                     .map(|v| base58_encode(v.0.as_slice()))
                     .collect(),
-                transaction: lg.transaction,
-                instruction: lg.instruction,
+                transaction: lg.include_transactions,
+                instruction: lg.include_instructions,
             })
             .collect(),
         balances: query
@@ -226,8 +231,8 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     .iter()
                     .map(|v| base58_encode(v.0.as_slice()))
                     .collect(),
-                transaction: bl.transaction,
-                transaction_instructions: bl.transaction_instructions,
+                transaction: bl.include_transactions,
+                transaction_instructions: bl.include_transaction_instructions,
             })
             .collect(),
         token_balances: query
@@ -269,8 +274,8 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     .iter()
                     .map(|v| base58_encode(v.0.as_slice()))
                     .collect(),
-                transaction: tb.transaction,
-                transaction_instructions: tb.transaction_instructions,
+                transaction: tb.include_transactions,
+                transaction_instructions: tb.include_transaction_instructions,
             })
             .collect(),
         rewards: query
@@ -524,7 +529,7 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
     if let Some(v) = cfg.retry_ceiling_ms {
         client_config.retry_ceiling_ms = v;
     }
-    if let Some(v) = cfg.http_req_timeout_millis {
+    if let Some(v) = cfg.req_timeout_millis {
         client_config.http_req_timeout_millis = v;
     }
 
@@ -544,13 +549,14 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
     match cfg.query {
         Query::Svm(query) => {
             let sqd_query = svm_query_to_sqd(&query).context("convert to sqd query")?;
+            let generic_query = svm_query_to_generic(&query);
 
             let receiver = client.svm_arrow_finalized_stream(sqd_query, stream_config);
 
             let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
 
             let stream = stream.map(move |v| {
-                v.map(|v| {
+                v.and_then(|v| {
                     let mut data = BTreeMap::new();
 
                     data.insert("blocks".to_owned(), v.blocks);
@@ -561,9 +567,10 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
                     data.insert("transactions".to_owned(), v.transactions);
                     data.insert("instructions".to_owned(), v.instructions);
 
-                    prune_fields(&mut data, &query.fields);
+                    let data = cherry_query::run_query(&data, &generic_query)
+                        .context("run generic query")?;
 
-                    data
+                    Ok(data)
                 })
             });
 
@@ -571,13 +578,14 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
         }
         Query::Evm(query) => {
             let sqd_query = evm_query_to_sqd(&query).context("convert to sqd query")?;
+            let generic_query = evm_query_to_generic(&query);
 
             let receiver = client.evm_arrow_finalized_stream(sqd_query, stream_config);
 
             let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
 
             let stream = stream.map(move |v| {
-                v.map(|v| {
+                v.and_then(|v| {
                     let mut data = BTreeMap::new();
 
                     data.insert("blocks".to_owned(), v.blocks);
@@ -585,9 +593,9 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
                     data.insert("logs".to_owned(), v.logs);
                     data.insert("traces".to_owned(), v.traces);
 
-                    prune_fields(&mut data, &query.fields);
+                    let data = run_query(&data, &generic_query).context("run generic query")?;
 
-                    data
+                    Ok(data)
                 })
             });
 

@@ -1,17 +1,63 @@
-use super::common::{field_selection_to_set, prune_fields};
+use super::common::{evm_query_to_generic, field_selection_to_set};
 use crate::{evm, DataStream, ProviderConfig, Query};
 use anyhow::{anyhow, Context, Result};
 use arrow::array::ListBuilder;
 use arrow::array::{builder, new_null_array, Array, BinaryArray, BinaryBuilder, RecordBatch};
 use arrow::datatypes::DataType;
 use cherry_evm_schema::AccessListBuilder;
+use cherry_query::run_query;
+use cherry_query::Query as GenericQuery;
 use hypersync_client::format::AccessList;
-use hypersync_client::net_types as hypersync_nt;
+use hypersync_client::net_types::{self as hypersync_nt, JoinMode};
 use std::sync::Arc;
 use std::{collections::BTreeMap, num::NonZeroU64, time::Duration};
 use tokio::sync::mpsc;
 
 pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
+    let mut need_join_default = false;
+    let mut need_join_all = false;
+
+    for lg in query.logs.iter() {
+        if lg.include_transactions || lg.include_blocks || lg.include_transaction_traces {
+            need_join_default = true;
+        }
+
+        if lg.include_transaction_logs {
+            need_join_all = true;
+        }
+    }
+
+    for tx in query.transactions.iter() {
+        if tx.include_traces || tx.include_blocks {
+            need_join_default = true;
+        }
+
+        if tx.include_logs {
+            need_join_all = true;
+        }
+    }
+
+    for trc in query.traces.iter() {
+        if trc.include_blocks {
+            need_join_default = true;
+        }
+
+        if trc.include_transaction_logs
+            || trc.include_transactions
+            || trc.include_transaction_traces
+        {
+            need_join_all = true;
+        }
+    }
+
+    let join_mode = if need_join_all {
+        JoinMode::JoinAll
+    } else if need_join_default {
+        JoinMode::Default
+    } else {
+        JoinMode::JoinNothing
+    };
+
     Ok(hypersync_nt::Query {
         from_block: query.from_block,
         to_block: query.to_block.map(|x| x+1),
@@ -54,7 +100,7 @@ pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
             sighash: trc.sighash.iter().map(|x| x.0.into()).collect(),
             ..Default::default()
         })).collect::<Result<_>>()?,
-        join_mode: hypersync_nt::JoinMode::Default,
+        join_mode,
         field_selection: hypersync_nt::FieldSelection {
             block: field_selection_to_set(&query.fields.block),
             transaction: field_selection_to_set(&query.fields.transaction),
@@ -70,6 +116,7 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
         Query::Svm(_) => Err(anyhow!("svm is not supported by hypersync")),
         Query::Evm(query) => {
             let evm_query = query_to_hypersync(&query).context("convert to hypersync query")?;
+            let generic_query = evm_query_to_generic(&query);
 
             let client_config = hypersync_client::ClientConfig {
                 url: match cfg.url {
@@ -77,7 +124,7 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
                     None => None,
                 },
                 bearer_token: cfg.bearer_token,
-                http_req_timeout_millis: match cfg.http_req_timeout_millis {
+                http_req_timeout_millis: match cfg.req_timeout_millis {
                     Some(x) => Some(
                         NonZeroU64::new(x).context("check http_req_timeout_millis isn't zero")?,
                     ),
@@ -113,7 +160,7 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
             tokio::spawn(async move {
                 while let Some(res) = receiver.recv().await {
                     let res = res.and_then(|r| {
-                        map_response(&r.data, &query.fields)
+                        map_response(&r.data, &generic_query)
                             .context("map data")
                             .map(|x| (r, x))
                     });
@@ -149,10 +196,10 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
                     &client,
                     original_to_block,
                     &mut evm_query,
-                    &query.fields,
                     &tx,
                     rollback_offset,
                     head_poll_interval,
+                    &generic_query,
                 )
                 .await;
 
@@ -172,10 +219,10 @@ async fn chain_head_stream(
     client: &hypersync_client::Client,
     original_to_block: Option<u64>,
     evm_query: &mut hypersync_client::net_types::Query,
-    fields: &evm::Fields,
     tx: &mpsc::Sender<Result<BTreeMap<String, RecordBatch>>>,
     rollback_offset: u64,
     head_poll_interval: Duration,
+    generic_query: &GenericQuery,
 ) -> Result<()> {
     let mut height = client.get_height().await.context("get height")?;
 
@@ -194,7 +241,7 @@ async fn chain_head_stream(
 
         let res = client.get_arrow(evm_query).await.context("run query")?;
 
-        let data = map_response(&res.data, fields).context("map data")?;
+        let data = map_response(&res.data, generic_query).context("map data")?;
 
         if tx.send(Ok(data)).await.is_err() {
             log::trace!("quitting chain head stream since the receiver is dropped");
@@ -226,7 +273,7 @@ fn make_rollback_offset(_chain_id: u64) -> u64 {
 
 fn map_response(
     resp: &hypersync_client::ArrowResponseData,
-    fields: &evm::Fields,
+    generic_query: &GenericQuery,
 ) -> Result<BTreeMap<String, RecordBatch>> {
     let mut data = BTreeMap::new();
 
@@ -244,7 +291,7 @@ fn map_response(
         map_traces(&resp.traces).context("map traces")?,
     );
 
-    prune_fields(&mut data, fields);
+    let data = run_query(&data, generic_query).context("run generic query")?;
 
     Ok(data)
 }

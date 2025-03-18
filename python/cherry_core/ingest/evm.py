@@ -13,6 +13,7 @@ class TransactionRequest:
     hash: list[str] = field(default_factory=list)
     include_logs: bool = False
     include_traces: bool = False
+    include_blocks: bool = False
 
 
 @dataclass
@@ -26,6 +27,7 @@ class LogRequest:
     include_transactions: bool = False
     include_transaction_logs: bool = False
     include_transaction_traces: bool = False
+    include_blocks: bool = False
 
 
 @dataclass
@@ -41,6 +43,7 @@ class TraceRequest:
     include_transactions: bool = False
     include_transaction_logs: bool = False
     include_transaction_traces: bool = False
+    include_blocks: bool = False
 
 
 @dataclass

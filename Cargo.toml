@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.dependencies]
-arrow = "54"
+arrow = "54.2.1"
 alloy-dyn-abi = "0.8"
 alloy-json-abi = "0.8"
 alloy-primitives = "0.8"
@@ -27,7 +27,7 @@ futures-lite = "2"
 tokio = { version = "1", default-features = false }
 tokio-stream = "0.1"
 pyo3 = "0.23"
-sqd-portal-client = "0.0.13"
+sqd-portal-client = "0.0.16"
 hypersync-client = "0.17"
 serde = "1"
 serde_json = "1"

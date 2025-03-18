@@ -37,6 +37,7 @@ class TransactionFields:
     block_slot: bool = False
     block_hash: bool = False
     transaction_index: bool = False
+    signature: bool = False
     version: bool = False
     account_keys: bool = False
     address_table_lookups: bool = False
@@ -145,17 +146,19 @@ class InstructionRequest:
     a8: list[str] = field(default_factory=list)
     a9: list[str] = field(default_factory=list)
     is_committed: bool = False
-    transaction: bool = False
-    transaction_token_balances: bool = False
-    logs: bool = False
-    inner_instructions: bool = False
+    include_transactions: bool = False
+    include_transaction_token_balances: bool = False
+    include_logs: bool = False
+    include_transaction_instructions: bool = False
+    include_blocks: bool = True
 
 
 @dataclass
 class TransactionRequest:
     fee_payer: list[str] = field(default_factory=list)
-    instructions: bool = False
-    logs: bool = False
+    include_instructions: bool = False
+    include_logs: bool = False
+    include_blocks: bool = False
 
 
 class LogKind(str, Enum):
@@ -170,15 +173,17 @@ class LogRequest:
     kind: list[LogKind] = field(
         default_factory=list
     )  # Assuming LogKind is represented as a string
-    transaction: bool = False
-    instruction: bool = False
+    include_transactions: bool = False
+    include_instructions: bool = False
+    include_blocks: bool = False
 
 
 @dataclass
 class BalanceRequest:
     account: list[str] = field(default_factory=list)
-    transaction: bool = False
-    transaction_instructions: bool = False
+    include_transactions: bool = False
+    include_transaction_instructions: bool = False
+    include_blocks: bool = False
 
 
 @dataclass
@@ -190,13 +195,15 @@ class TokenBalanceRequest:
     post_mint: list[str] = field(default_factory=list)
     pre_owner: list[str] = field(default_factory=list)
     post_owner: list[str] = field(default_factory=list)
-    transaction: bool = False
-    transaction_instructions: bool = False
+    include_transactions: bool = False
+    include_transaction_instructions: bool = False
+    include_blocks: bool = False
 
 
 @dataclass
 class RewardRequest:
     pubkey: list[str] = field(default_factory=list)
+    include_blocks: bool = False
 
 
 @dataclass

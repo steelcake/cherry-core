@@ -4,6 +4,7 @@ use arrow::array::{
     Int16Array, Int32Array, Int64Array, Int8Array, PrimitiveArray, StringArray, UInt16Array,
     UInt32Array, UInt64Array, UInt8Array,
 };
+use arrow::buffer::BooleanBuffer;
 use arrow::compute;
 use arrow::datatypes::{ByteArrayType, DataType, ToByteSlice};
 use arrow::record_batch::RecordBatch;
@@ -463,10 +464,12 @@ fn run_table_selection(
 
     let combined_filter = match combined_filter {
         Some(cf) => cf,
-        None => return Ok(BTreeMap::new()),
+        None => BooleanArray::new(BooleanBuffer::new_set(table_data.num_rows()), None),
     };
 
     out.insert(table_name.to_owned(), combined_filter.clone());
+
+    let mut filtered_cache = BTreeMap::new();
 
     for (i, inc) in selection.include.iter().enumerate() {
         if inc.other_table_field_names.len() != inc.field_names.len() {
@@ -487,8 +490,17 @@ fn run_table_selection(
 
         let self_arr = columns_to_binary_array(table_data, &inc.field_names)
             .context("get row format binary arr for self")?;
-        let self_arr = compute::filter(&self_arr, &combined_filter)
-            .context("apply combined filter to self arr")?;
+
+        let self_arr = match filtered_cache.entry(inc.field_names.clone()) {
+            Entry::Vacant(entry) => {
+                let self_arr = compute::filter(&self_arr, &combined_filter)
+                    .context("apply combined filter to self arr")?;
+                entry.insert(self_arr.clone());
+                self_arr
+            }
+            Entry::Occupied(entry) => Arc::clone(entry.get()),
+        };
+
         let other_arr = columns_to_binary_array(other_table_data, &inc.other_table_field_names)
             .with_context(|| {
                 format!(

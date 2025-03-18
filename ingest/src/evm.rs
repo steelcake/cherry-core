@@ -13,8 +13,6 @@ pub struct Query {
     pub fields: Fields,
 }
 
-impl Query {}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Hash(pub [u8; 32]);
 
@@ -89,6 +87,7 @@ pub struct TransactionRequest {
     pub hash: Vec<Hash>,
     pub include_logs: bool,
     pub include_traces: bool,
+    pub include_blocks: bool,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -103,6 +102,7 @@ pub struct LogRequest {
     pub include_transactions: bool,
     pub include_transaction_logs: bool,
     pub include_transaction_traces: bool,
+    pub include_blocks: bool,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -119,6 +119,7 @@ pub struct TraceRequest {
     pub include_transactions: bool,
     pub include_transaction_logs: bool,
     pub include_transaction_traces: bool,
+    pub include_blocks: bool,
 }
 
 #[derive(Serialize, Default, Debug, Clone, Copy)]

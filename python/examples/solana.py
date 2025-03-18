@@ -10,6 +10,8 @@ async def run(provider: ingest.ProviderConfig):
         if res is None:
             break
 
+        print(res)
+
         print(res["blocks"].column("slot"))
         print(res["blocks"].column("hash"))
 
@@ -17,8 +19,8 @@ async def run(provider: ingest.ProviderConfig):
 query = ingest.Query(
     kind=ingest.QueryKind.SVM,
     params=ingest.svm.Query(
-        from_block=300123123,
-        to_block=300123143,
+        from_block=317617480,
+        to_block=317617500,
         include_all_blocks=True,
         fields=ingest.svm.Fields(
             block=ingest.svm.BlockFields(
@@ -35,7 +37,7 @@ asyncio.run(
         ingest.ProviderConfig(
             kind=ingest.ProviderKind.SQD,
             query=query,
-            url="https://portal.sqd.dev/datasets/solana-mainnet",
+            url="https://portal.sqd.dev/datasets/solana-beta",
         )
     )
 )
