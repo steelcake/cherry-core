@@ -121,7 +121,7 @@ async fn run_stream(
             None => continue,
         };
 
-        let res = match process_update(&update, &generic_query) {
+        let res = match process_update(update, &generic_query) {
             Ok(r) => r,
             Err(e) => {
                 log::error!("failed to process update coming from grpc. Error is: {:?}. Sending to receiver...", e);
@@ -144,14 +144,16 @@ async fn run_stream(
 }
 
 fn process_update(
-    update: &UpdateOneof,
+    update: UpdateOneof,
     generic_query: &GenericQuery,
 ) -> Result<BTreeMap<String, RecordBatch>> {
-    let data = match update {
+    let mut data = match update {
         UpdateOneof::Block(block) => block,
         _ => return Err(anyhow!("unexpected update from rpc: {:?}", update)),
     };
-    let data = parse_data(data).context("parse data")?;
+    data.transactions.sort_by_key(|tx| tx.index);
+
+    let data = parse_data(&data).context("parse data")?;
     let data = run_query(&data, generic_query).context("run local query")?;
     Ok(data)
 }
