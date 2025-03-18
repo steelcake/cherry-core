@@ -9,6 +9,7 @@ from .. import cc
 class ProviderKind(str, Enum):
     SQD = "sqd"
     HYPERSYNC = "hypersync"
+    YELLOWSTONE_GRPC = "yellowstone_grpc"
 
 
 class QueryKind(str, Enum):
@@ -32,7 +33,7 @@ class ProviderConfig:
     retry_backoff_ms: Optional[int] = None
     retry_base_ms: Optional[int] = None
     retry_ceiling_ms: Optional[int] = None
-    http_req_timeout_millis: Optional[int] = None
+    req_timeout_millis: Optional[int] = None
     stop_on_head: bool = False
     head_poll_interval_millis: Optional[int] = None
     buffer_size: Optional[int] = None
