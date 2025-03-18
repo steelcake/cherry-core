@@ -1,6 +1,6 @@
 [package]
 name = "cherry-evm-validate"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "EVM data validation in Arrow format"
 homepage = "https://github.com/steelcake/cherry-core"
