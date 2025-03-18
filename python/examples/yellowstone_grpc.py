@@ -1,0 +1,69 @@
+from cherry_core import ingest, base58_encode
+import asyncio
+import polars 
+from typing import cast
+import pyarrow as pa
+
+async def run(provider: ingest.ProviderConfig):
+    stream = ingest.start_stream(provider)
+
+    while True:
+        res = await stream.next()
+        if res is None:
+            break
+
+        transactions = cast(polars.DataFrame, polars.from_arrow(res["transactions"]))
+        token_balances = cast(polars.DataFrame, polars.from_arrow(res["token_balances"]))
+
+        token_balances = token_balances.join(transactions, ["block_slot", "transaction_index"])
+
+        for batch in token_balances.to_arrow().to_batches():
+            new_batch = batch
+            for i, col in enumerate(new_batch.columns):
+                if pa.types.is_large_binary(col.type):
+                    new_batch = new_batch.set_column(
+                        i, new_batch.column_names[i], col.cast(target_type=pa.binary())
+                    )
+
+            new_batch = base58_encode(new_batch)
+
+            print(new_batch)
+
+query = ingest.Query(
+    kind=ingest.QueryKind.SVM,
+    params=ingest.svm.Query(
+        from_block=317617480,
+        token_balances=[ingest.svm.TokenBalanceRequest(
+            include_transactions=True,
+        )],
+        fields=ingest.svm.Fields(
+            token_balance=ingest.svm.TokenBalanceFields(
+                block_slot=True,
+                transaction_index=True,
+                post_owner=True,
+                pre_owner=True,
+                post_amount=True,
+                pre_amount=True,
+                post_mint=True,
+                account=True,
+            ),
+            transaction=ingest.svm.TransactionFields(
+                block_slot=True,
+                transaction_index=True,
+                signature=True,
+            ),
+        ),
+    ),
+)
+
+asyncio.run(
+    run(
+        ingest.ProviderConfig(
+            kind=ingest.ProviderKind.YELLOWSTONE_GRPC,
+            query=query,
+            url="https://grpc.fra.shyft.to",
+            bearer_token="67fb1b1a-bc9b-4c0c-9012-7b338a02e516",
+       )
+    )
+)
+

@@ -11,6 +11,7 @@ use std::str::FromStr;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::sync::mpsc;
 use yellowstone_grpc_client::{ClientTlsConfig, GeyserGrpcClient};
+use yellowstone_grpc_proto::prelude::TokenBalance;
 use yellowstone_grpc_proto::{
     geyser::{
         subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest,
@@ -207,96 +208,132 @@ fn parse_transactions(
             continue;
         }
 
-        // let inner = match tx.transaction.as_ref() {
-        //     Some(inner) => inner,
-        //     None => continue,
-        // };
+        let inner = match tx.transaction.as_ref() {
+            Some(inner) => inner,
+            None => continue,
+        };
+
+        let msg = match inner.message.as_ref() {
+            Some(msg) => msg,
+            None => continue,
+        };
 
         let meta = match tx.meta.as_ref() {
             Some(m) => m,
             None => continue,
         };
 
-        if meta.pre_token_balances.len() != meta.post_token_balances.len() {
-            return Err(anyhow!(
-                "pre token balances length doesn't match with post token balances length"
-            ));
-        }
+        let accounts = msg
+            .account_keys
+            .iter()
+            .chain(meta.loaded_writable_addresses.iter())
+            .chain(meta.loaded_readonly_addresses.iter())
+            .collect::<Vec<_>>();
 
         let tx_index = u32::try_from(tx.index).context("tx index to u32")?;
 
-        for (pre, post) in meta
-            .pre_token_balances
-            .iter()
-            .zip(meta.post_token_balances.iter())
-        {
-            if pre.account_index != post.account_index {
-                return Err(anyhow!("pre and post account indices don't match"));
-            }
+        let mut token_balances_map =
+            BTreeMap::<u32, (Option<TokenBalance>, Option<TokenBalance>)>::new();
 
-            let acc_index =
-                usize::try_from(pre.account_index).context("convert account index to usize")?;
-            let acc = data.accounts.get(acc_index).context("get account")?;
+        for pre in meta.pre_token_balances.iter() {
+            match token_balances_map.entry(pre.account_index) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert((Some(pre.clone()), None));
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().0 = Some(pre.clone());
+                }
+            }
+        }
+        for post in meta.post_token_balances.iter() {
+            match token_balances_map.entry(post.account_index) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert((None, Some(post.clone())));
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().1 = Some(post.clone());
+                }
+            }
+        }
+
+        for (&acc_index, (pre, post)) in token_balances_map.iter() {
+            let acc_index = usize::try_from(acc_index).context("convert account index to usize")?;
+            let acc = accounts.get(acc_index).context("get account")?;
 
             token_balances.block_slot.append_value(block_info.slot);
             token_balances
                 .block_hash
                 .append_value(block_info.hash.as_slice());
             token_balances.transaction_index.append_value(tx_index);
-            token_balances.account.append_value(acc.pubkey.as_slice());
-            token_balances
-                .pre_mint
-                .append_value(decode_base58(pre.mint.as_str()).context("parse pre mint")?);
-            token_balances
-                .post_mint
-                .append_value(decode_base58(post.mint.as_str()).context("parse post mint")?);
-            token_balances.pre_program_id.append_value(
-                decode_base58(pre.program_id.as_str()).context("parse pre program id")?,
-            );
-            token_balances.post_program_id.append_value(
-                decode_base58(post.program_id.as_str()).context("parse post program id")?,
-            );
-            token_balances
-                .pre_owner
-                .append_value(decode_base58(pre.owner.as_str()).context("parse pre owner")?);
-            token_balances
-                .post_owner
-                .append_value(decode_base58(post.owner.as_str()).context("parse post owner")?);
+            token_balances.account.append_value(acc.as_slice());
 
-            if let Some(ui_amount) = pre.ui_token_amount.as_ref() {
-                token_balances.pre_decimals.append_value(
-                    ui_amount
-                        .decimals
-                        .try_into()
-                        .context("convert pre_decimals")?,
+            if let Some(pre) = pre.as_ref() {
+                token_balances
+                    .pre_mint
+                    .append_value(decode_base58(pre.mint.as_str()).context("parse pre mint")?);
+                token_balances.pre_program_id.append_value(
+                    decode_base58(pre.program_id.as_str()).context("parse pre program id")?,
                 );
-                token_balances.pre_amount.append_value(
-                    u64::from_str(ui_amount.amount.as_str()).context("parse pre amount")?,
-                );
+                token_balances
+                    .pre_owner
+                    .append_value(decode_base58(pre.owner.as_str()).context("parse pre owner")?);
+                if let Some(ui_amount) = pre.ui_token_amount.as_ref() {
+                    token_balances.pre_decimals.append_value(
+                        ui_amount
+                            .decimals
+                            .try_into()
+                            .context("convert pre_decimals")?,
+                    );
+                    token_balances.pre_amount.append_value(
+                        u64::from_str(ui_amount.amount.as_str()).context("parse pre amount")?,
+                    );
+                } else {
+                    token_balances.pre_decimals.append_null();
+                    token_balances.pre_amount.append_null();
+                }
             } else {
+                token_balances.pre_mint.append_null();
+                token_balances.pre_program_id.append_null();
+                token_balances.pre_owner.append_null();
                 token_balances.pre_decimals.append_null();
                 token_balances.pre_amount.append_null();
             }
 
-            if let Some(ui_amount) = post.ui_token_amount.as_ref() {
-                token_balances.post_decimals.append_value(
-                    ui_amount
-                        .decimals
-                        .try_into()
-                        .context("convert post decimals")?,
+            if let Some(post) = post.as_ref() {
+                token_balances
+                    .post_mint
+                    .append_value(decode_base58(post.mint.as_str()).context("parse post mint")?);
+                token_balances.post_program_id.append_value(
+                    decode_base58(post.program_id.as_str()).context("parse post program id")?,
                 );
-                token_balances.post_amount.append_value(
-                    u64::from_str(ui_amount.amount.as_str()).context("parse post amount")?,
-                );
+                token_balances
+                    .post_owner
+                    .append_value(decode_base58(post.owner.as_str()).context("parse post owner")?);
+
+                if let Some(ui_amount) = post.ui_token_amount.as_ref() {
+                    token_balances.post_decimals.append_value(
+                        ui_amount
+                            .decimals
+                            .try_into()
+                            .context("convert post decimals")?,
+                    );
+                    token_balances.post_amount.append_value(
+                        u64::from_str(ui_amount.amount.as_str()).context("parse post amount")?,
+                    );
+                } else {
+                    token_balances.post_decimals.append_null();
+                    token_balances.post_amount.append_null();
+                }
             } else {
+                token_balances.post_mint.append_null();
+                token_balances.post_program_id.append_null();
+                token_balances.post_owner.append_null();
                 token_balances.post_decimals.append_null();
                 token_balances.post_amount.append_null();
             }
         }
 
-        if meta.pre_balances.len() != meta.post_balances.len()
-            || meta.pre_balances.len() != data.accounts.len()
-        {
+        if meta.pre_balances.len() != meta.post_balances.len() {
             return Err(anyhow!("length mismatch when parsing balances"));
         }
 
@@ -304,12 +341,12 @@ fn parse_transactions(
             .pre_balances
             .iter()
             .zip(meta.post_balances.iter())
-            .zip(data.accounts.iter())
+            .zip(accounts.iter())
         {
             balances.block_slot.append_value(block_info.slot);
             balances.block_hash.append_value(block_info.hash.as_slice());
             balances.transaction_index.append_value(tx_index);
-            balances.account.append_value(acc.pubkey.as_slice());
+            balances.account.append_value(acc.as_slice());
             balances.pre.append_value(*pre);
             balances.post.append_value(*post);
         }
