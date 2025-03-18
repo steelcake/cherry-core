@@ -33,7 +33,7 @@ cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
 cherry-evm-schema = { path = "../evm-schema", version = "0.0.4" }
 cherry-cast = { path = "../cast", version = "0.0.7" }
 cherry-query = { path = "../query", version = "0.0.1" }
-cherry-svm-schema = { path = "../svm-schema", version = "0.0.4" }
+cherry-svm-schema = { path = "../svm-schema", version = "0.0.5" }
 
 [features]
 pyo3 = ["dep:pyo3"]

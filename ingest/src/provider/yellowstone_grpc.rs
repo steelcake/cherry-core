@@ -1,4 +1,4 @@
-use crate::{svm, DataStream, ProviderConfig, Query};
+use crate::{DataStream, ProviderConfig, Query};
 use anyhow::{anyhow, Context, Result};
 use arrow::array::RecordBatch;
 use cherry_query::{run_query, Query as GenericQuery};
@@ -7,6 +7,7 @@ use cherry_svm_schema::{
     TokenBalancesBuilder, TransactionsBuilder,
 };
 use futures_lite::StreamExt;
+use std::str::FromStr;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::sync::mpsc;
 use yellowstone_grpc_client::{ClientTlsConfig, GeyserGrpcClient};
@@ -149,8 +150,8 @@ fn process_update(
         UpdateOneof::Block(block) => block,
         _ => return Err(anyhow!("unexpected update from rpc: {:?}", update)),
     };
-    let data = parse_data(&data).context("parse data")?;
-    let data = run_query(&data, &generic_query).context("run local query")?;
+    let data = parse_data(data).context("parse data")?;
+    let data = run_query(&data, generic_query).context("run local query")?;
     Ok(data)
 }
 
@@ -169,6 +170,17 @@ fn parse_data(data: &SubscribeUpdateBlock) -> Result<BTreeMap<String, RecordBatc
         parse_rewards(&mut rewards, &block_info, &rewards_data.rewards).context("parse rewards")?;
     }
 
+    parse_transactions(
+        &mut token_balances,
+        &mut balances,
+        &mut logs,
+        &mut transactions,
+        &mut instructions,
+        &block_info,
+        data,
+    )
+    .context("parse tx data")?;
+
     let mut data = BTreeMap::new();
     data.insert("blocks".to_owned(), blocks.finish());
     data.insert("rewards".to_owned(), rewards.finish());
@@ -179,6 +191,155 @@ fn parse_data(data: &SubscribeUpdateBlock) -> Result<BTreeMap<String, RecordBatc
     data.insert("instructions".to_owned(), instructions.finish());
 
     Ok(data)
+}
+
+fn parse_transactions(
+    token_balances: &mut TokenBalancesBuilder,
+    balances: &mut BalancesBuilder,
+    _logs: &mut LogsBuilder,
+    transactions: &mut TransactionsBuilder,
+    _instructions: &mut InstructionsBuilder,
+    block_info: &BlockInfo,
+    data: &SubscribeUpdateBlock,
+) -> Result<()> {
+    for tx in data.transactions.iter() {
+        if tx.is_vote {
+            continue;
+        }
+
+        // let inner = match tx.transaction.as_ref() {
+        //     Some(inner) => inner,
+        //     None => continue,
+        // };
+
+        let meta = match tx.meta.as_ref() {
+            Some(m) => m,
+            None => continue,
+        };
+
+        if meta.pre_token_balances.len() != meta.post_token_balances.len() {
+            return Err(anyhow!(
+                "pre token balances length doesn't match with post token balances length"
+            ));
+        }
+
+        let tx_index = u32::try_from(tx.index).context("tx index to u32")?;
+
+        for (pre, post) in meta
+            .pre_token_balances
+            .iter()
+            .zip(meta.post_token_balances.iter())
+        {
+            if pre.account_index != post.account_index {
+                return Err(anyhow!("pre and post account indices don't match"));
+            }
+
+            let acc_index =
+                usize::try_from(pre.account_index).context("convert account index to usize")?;
+            let acc = data.accounts.get(acc_index).context("get account")?;
+
+            token_balances.block_slot.append_value(block_info.slot);
+            token_balances
+                .block_hash
+                .append_value(block_info.hash.as_slice());
+            token_balances.transaction_index.append_value(tx_index);
+            token_balances.account.append_value(acc.pubkey.as_slice());
+            token_balances
+                .pre_mint
+                .append_value(decode_base58(pre.mint.as_str()).context("parse pre mint")?);
+            token_balances
+                .post_mint
+                .append_value(decode_base58(post.mint.as_str()).context("parse post mint")?);
+            token_balances.pre_program_id.append_value(
+                decode_base58(pre.program_id.as_str()).context("parse pre program id")?,
+            );
+            token_balances.post_program_id.append_value(
+                decode_base58(post.program_id.as_str()).context("parse post program id")?,
+            );
+            token_balances
+                .pre_owner
+                .append_value(decode_base58(pre.owner.as_str()).context("parse pre owner")?);
+            token_balances
+                .post_owner
+                .append_value(decode_base58(post.owner.as_str()).context("parse post owner")?);
+
+            if let Some(ui_amount) = pre.ui_token_amount.as_ref() {
+                token_balances.pre_decimals.append_value(
+                    ui_amount
+                        .decimals
+                        .try_into()
+                        .context("convert pre_decimals")?,
+                );
+                token_balances.pre_amount.append_value(
+                    u64::from_str(ui_amount.amount.as_str()).context("parse pre amount")?,
+                );
+            } else {
+                token_balances.pre_decimals.append_null();
+                token_balances.pre_amount.append_null();
+            }
+
+            if let Some(ui_amount) = post.ui_token_amount.as_ref() {
+                token_balances.post_decimals.append_value(
+                    ui_amount
+                        .decimals
+                        .try_into()
+                        .context("convert post decimals")?,
+                );
+                token_balances.post_amount.append_value(
+                    u64::from_str(ui_amount.amount.as_str()).context("parse post amount")?,
+                );
+            } else {
+                token_balances.post_decimals.append_null();
+                token_balances.post_amount.append_null();
+            }
+        }
+
+        if meta.pre_balances.len() != meta.post_balances.len()
+            || meta.pre_balances.len() != data.accounts.len()
+        {
+            return Err(anyhow!("length mismatch when parsing balances"));
+        }
+
+        for ((pre, post), acc) in meta
+            .pre_balances
+            .iter()
+            .zip(meta.post_balances.iter())
+            .zip(data.accounts.iter())
+        {
+            balances.block_slot.append_value(block_info.slot);
+            balances.block_hash.append_value(block_info.hash.as_slice());
+            balances.transaction_index.append_value(tx_index);
+            balances.account.append_value(acc.pubkey.as_slice());
+            balances.pre.append_value(*pre);
+            balances.post.append_value(*post);
+        }
+
+        transactions.block_slot.append_value(block_info.slot);
+        transactions
+            .block_hash
+            .append_value(block_info.hash.as_slice());
+        transactions.transaction_index.append_value(tx_index);
+        transactions.signature.append_value(tx.signature.as_slice());
+        transactions.version.append_null();
+        transactions.account_keys.append_null();
+        transactions.address_table_lookups.0.append_null();
+        transactions.num_readonly_signed_accounts.append_null();
+        transactions.num_readonly_unsigned_accounts.append_null();
+        transactions.num_required_signatures.append_null();
+        transactions.recent_blockhash.append_null();
+        transactions.signatures.append_null();
+        transactions.err.append_null();
+        transactions.fee.append_value(meta.fee);
+        transactions
+            .compute_units_consumed
+            .append_option(meta.compute_units_consumed);
+        transactions.loaded_readonly_addresses.append_null();
+        transactions.loaded_writable_addresses.append_null();
+        transactions.fee_payer.append_null();
+        transactions.has_dropped_log_messages.append_null();
+    }
+
+    Ok(())
 }
 
 fn parse_block(blocks: &mut BlocksBuilder, data: &SubscribeUpdateBlock) -> Result<BlockInfo> {

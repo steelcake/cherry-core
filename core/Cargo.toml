@@ -13,7 +13,7 @@ cherry-evm-validate = { path = "../evm-validate", version = "0.0.1" }
 cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
 cherry-cast = { path = "../cast", version = "0.0.7" }
 cherry-evm-schema = { path = "../evm-schema", version = "0.0.4" }
-cherry-svm-schema = { path = "../svm-schema", version = "0.0.4" }
+cherry-svm-schema = { path = "../svm-schema", version = "0.0.5" }
 cherry-ingest = { path = "../ingest", version ="0.0.13" }
 cherry-query = { path = "../query", version = "0.0.1" }
 

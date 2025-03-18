@@ -79,6 +79,7 @@ pub fn transactions_schema() -> Schema {
         Field::new("block_slot", DataType::UInt64, true),
         Field::new("block_hash", DataType::Binary, true),
         Field::new("transaction_index", DataType::UInt32, true),
+        Field::new("signature", DataType::Binary, true),
         Field::new("version", DataType::Int8, true),
         Field::new(
             "account_keys",
@@ -339,6 +340,7 @@ pub struct TransactionsBuilder {
     pub block_slot: builder::UInt64Builder,
     pub block_hash: builder::BinaryBuilder,
     pub transaction_index: builder::UInt32Builder,
+    pub signature: builder::BinaryBuilder,
     pub version: builder::Int8Builder,
     pub account_keys: builder::ListBuilder<builder::BinaryBuilder>,
     pub address_table_lookups: AddressTableLookupsBuilder,
@@ -382,6 +384,7 @@ impl TransactionsBuilder {
                 Arc::new(self.block_slot.finish()),
                 Arc::new(self.block_hash.finish()),
                 Arc::new(self.transaction_index.finish()),
+                Arc::new(self.signature.finish()),
                 Arc::new(self.version.finish()),
                 Arc::new(self.account_keys.finish()),
                 Arc::new(self.address_table_lookups.0.finish()),
