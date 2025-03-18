@@ -27,6 +27,7 @@ alloy-eips = { workspace = true }
 alloy-primitives = { workspace = true, features = ["serde"] }
 bs58 = { workspace = true }
 yellowstone-grpc-client = "6"
+yellowstone-grpc-proto = "6"
 
 cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
 cherry-evm-schema = { path = "../evm-schema", version = "0.0.4" }
