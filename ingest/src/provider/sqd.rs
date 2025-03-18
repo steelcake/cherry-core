@@ -59,7 +59,8 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     .num_readonly_unsigned_accounts,
                 num_required_signatures: query.fields.transaction.num_required_signatures,
                 recent_blockhash: query.fields.transaction.recent_blockhash,
-                signatures: query.fields.transaction.signatures,
+                signatures: query.fields.transaction.signatures
+                    || query.fields.transaction.signature,
                 err: query.fields.transaction.err,
                 fee: query.fields.transaction.fee,
                 compute_units_consumed: query.fields.transaction.compute_units_consumed,
