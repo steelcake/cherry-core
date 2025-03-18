@@ -37,6 +37,7 @@ query = ingest.Query(
                 address=[contract_address],
                 event_signatures=[signature],
                 # topic0=[topic0], same effect as above
+                include_blocks=True,
             )
         ],
         fields=ingest.evm.Fields(

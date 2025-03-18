@@ -36,7 +36,13 @@ pub fn evm_query_to_generic(query: &evm::Query) -> GenericQuery {
     );
 
     if query.include_all_blocks {
-        selection.insert("blocks".to_owned(), Vec::new());
+        selection.insert(
+            "blocks".to_owned(),
+            vec![TableSelection {
+                filters: BTreeMap::new(),
+                include: Vec::new(),
+            }],
+        );
     }
 
     GenericQuery {
@@ -147,7 +153,7 @@ fn evm_tx_selection_to_generic(selection: &evm::TransactionRequest) -> TableSele
         include.push(Include {
             other_table_name: "blocks".to_owned(),
             field_names: vec!["block_number".to_owned()],
-            other_table_field_names: vec!["block_number".to_owned()],
+            other_table_field_names: vec!["number".to_owned()],
         });
     }
 
@@ -235,7 +241,7 @@ fn evm_trace_selection_to_generic(selection: &evm::TraceRequest) -> TableSelecti
         include.push(Include {
             other_table_name: "blocks".to_owned(),
             field_names: vec!["block_number".to_owned()],
-            other_table_field_names: vec!["block_number".to_owned()],
+            other_table_field_names: vec!["number".to_owned()],
         });
     }
 
@@ -317,7 +323,7 @@ fn evm_log_selection_to_generic(selection: &evm::LogRequest) -> TableSelection {
         include.push(Include {
             other_table_name: "blocks".to_owned(),
             field_names: vec!["block_number".to_owned()],
-            other_table_field_names: vec!["block_number".to_owned()],
+            other_table_field_names: vec!["number".to_owned()],
         });
     }
 
@@ -377,7 +383,13 @@ pub fn svm_query_to_generic(query: &svm::Query) -> GenericQuery {
     );
 
     if query.include_all_blocks {
-        selection.insert("blocks".to_owned(), Vec::new());
+        selection.insert(
+            "blocks".to_owned(),
+            vec![TableSelection {
+                filters: BTreeMap::new(),
+                include: Vec::new(),
+            }],
+        );
     }
 
     GenericQuery {
@@ -427,7 +439,7 @@ pub fn svm_query_to_generic(query: &svm::Query) -> GenericQuery {
         ]
         .into_iter()
         .collect(),
-        selection: [].into_iter().collect(),
+        selection,
     }
 }
 
@@ -537,7 +549,7 @@ fn svm_instruction_selection_to_generic(selection: &svm::InstructionRequest) -> 
         include.push(Include {
             other_table_name: "blocks".to_owned(),
             field_names: vec!["block_slot".to_owned()],
-            other_table_field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["slot".to_owned()],
         });
     }
 
@@ -592,7 +604,7 @@ fn svm_transaction_selection_to_generic(selection: &svm::TransactionRequest) -> 
         include.push(Include {
             other_table_name: "blocks".to_owned(),
             field_names: vec!["block_slot".to_owned()],
-            other_table_field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["slot".to_owned()],
         })
     }
 
@@ -642,7 +654,7 @@ fn svm_log_selection_to_generic(selection: &svm::LogRequest) -> TableSelection {
         include.push(Include {
             other_table_name: "blocks".to_owned(),
             field_names: vec!["block_slot".to_owned()],
-            other_table_field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["slot".to_owned()],
         })
     }
 
@@ -689,7 +701,7 @@ fn svm_balance_selection_to_generic(selection: &svm::BalanceRequest) -> TableSel
         include.push(Include {
             other_table_name: "blocks".to_owned(),
             field_names: vec!["block_slot".to_owned()],
-            other_table_field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["slot".to_owned()],
         })
     }
 
@@ -762,7 +774,7 @@ fn svm_token_balance_selection_to_generic(selection: &svm::TokenBalanceRequest) 
         include.push(Include {
             other_table_name: "blocks".to_owned(),
             field_names: vec!["block_slot".to_owned()],
-            other_table_field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["slot".to_owned()],
         })
     }
 
@@ -793,7 +805,7 @@ fn svm_reward_selection_to_generic(selection: &svm::RewardRequest) -> TableSelec
         include.push(Include {
             other_table_name: "blocks".to_owned(),
             field_names: vec!["block_slot".to_owned()],
-            other_table_field_names: vec!["block_slot".to_owned()],
+            other_table_field_names: vec!["slot".to_owned()],
         })
     }
 
