@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "svm-decode",
   "evm-decode",
   "cast",
   "evm-validate",

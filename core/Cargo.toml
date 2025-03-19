@@ -25,6 +25,7 @@ arrow = { workspace = true, features = ["ffi"]}
 serde_json = "1"
 futures-lite = "2"
 faster-hex = { workspace = true }
+parquet = "54"
 
 [features]
 pyo3 = ["cherry-ingest/pyo3"]
