@@ -15,4 +15,4 @@ anchor-lang = "0.31.0"
 anyhow = { workspace = true }
 hex = "0.4.3"
 bs58 = "0.5.1"
-spl-token = "7.0.0"
+spl-token-2022 = "7.0.0"

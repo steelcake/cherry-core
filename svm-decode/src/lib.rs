@@ -9,7 +9,7 @@ use anyhow::{anyhow, Context, Result};
 use hex;
 mod jup_program;
 use jup_program::*;
-use spl_token::instruction::TokenInstruction;
+use spl_token_2022::instruction::TokenInstruction;
 pub enum InstructionDecodeType {
     BaseHex,
     Base64,
@@ -101,8 +101,6 @@ pub fn decode_instructions(batch: &RecordBatch) -> Result<(), Box<dyn std::error
         };
         instructions.push(instruction);
     }
-    
-    println!("{}", instructions.iter().map(|ix| ix.to_string()).collect::<Vec<String>>().join("\n"));
 
     let program_instructions = parse_program_instruction(instructions);
     
@@ -115,24 +113,25 @@ pub fn parse_program_instruction(
     let mut decoded_instructions = Vec::new();
 
     for (i, ix) in instructions.iter().enumerate() {
-                let output = format!("instruction #{}", i + 1);
+                let output = format!("\ninstruction #{}", i + 1);
                 println!("{}", output);
+                println!("{}", ix);
                 match handle_program_instruction(
                     ix.program_id.clone(),
                     &ix.data,
                     ix.accounts.clone(),
                 ) {
                     Ok(chain_instruction) => {
+                        println!("decoded_instruction: {:?}", chain_instruction);
                         decoded_instructions.push(chain_instruction);
                     }
                     Err(e) => {
                         eprintln!("Error decoding instruction: {}", e);
                         continue;
                     }
-                }
+                };
     }
 
-    println!("{:?}", decoded_instructions);
     Ok(decoded_instructions)
 }
 
@@ -145,12 +144,14 @@ pub fn handle_program_instruction(
     match program_id.to_string().as_str() {
         "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4" => {
             let jup_ix = JupInstruction::try_unpack(&mut &instr_data[..]).unwrap();
-            println!("jup_ix: {:?}", jup_ix);
             Ok(ProgramInstructions::JupInstruction(jup_ix))
         }
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" => {
-            let token_ix = spl_token::instruction::TokenInstruction::unpack(&mut &instr_data[..]).unwrap();
-            println!("token_ix: {:?}", token_ix);
+            let token_ix = spl_token_2022::instruction::TokenInstruction::unpack(&mut &instr_data[..]).unwrap();
+            Ok(ProgramInstructions::TokenInstruction(token_ix))
+        }
+        "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb" => {
+            let token_ix = spl_token_2022::instruction::TokenInstruction::unpack(&mut &instr_data[..]).unwrap();
             Ok(ProgramInstructions::TokenInstruction(token_ix))
         }
         _ => Err(anyhow::anyhow!("Unknown program id: {:?}", program_id)),
@@ -174,8 +175,6 @@ mod tests {
         let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("../core/reports/instruction.parquet").unwrap()).unwrap();
         let mut reader = builder.build().unwrap();
         let instructions = reader.next().unwrap().unwrap();
-        // Print the schema of the instructions
-        // println!("Schema: {:?}", instructions.schema());
 
         // Filter instructions by program id
         let jup_program_id = Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4").to_bytes();
@@ -211,7 +210,6 @@ mod tests {
         writer.close().unwrap();
 
         let result = decode_instructions(&filtered_instructions);
-        println!("result: {:?}", result);
 
     }
 
@@ -219,12 +217,11 @@ mod tests {
     // #[ignore]
     fn decode_instruction_test() {
         // read the filtered_instructions.parquet file
-        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("filtered_instructions3.parquet").unwrap()).unwrap();
+        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("filtered_instructions.parquet").unwrap()).unwrap();
         let mut reader = builder.build().unwrap();
         let instructions = reader.next().unwrap().unwrap();
 
         // decode the instruction
         let result = decode_instructions(&instructions);
-        println!("result: {:?}", result);
     }
 }
