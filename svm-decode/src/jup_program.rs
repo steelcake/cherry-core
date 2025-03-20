@@ -28,8 +28,8 @@ pub const FEE_EVENT_DISCM: [u8; 8] = [73, 79, 78, 127, 184, 213, 13, 220];
 // pub const SWAP_EVENT_DISCM: [u8; 8] = [64, 198, 205, 232, 38, 8, 113, 226];
 pub const SWAP_EVENT_DISCM: [u8; 8] = [228, 69, 165, 46, 81, 203, 154, 29];
 
-#[derive(Debug, AnchorDeserialize)]
-pub enum ProgramInstructions {
+#[derive(Debug, AnchorDeserialize, Clone)]
+pub enum JupInstruction {
     // Instructions
     Claim {
         id: u8,
@@ -205,7 +205,7 @@ pub struct SharedAccountsRouteWithTokenLedger {
 }
 
 // Type definitions
-#[derive(Debug, AnchorDeserialize)]
+#[derive(Debug, AnchorDeserialize, Clone)]
 pub enum AccountsType {
     TransferHookA,
     TransferHookB,
@@ -225,18 +225,18 @@ pub struct FeeEvent {
     pub amount: u64,
 }
 
-#[derive(Debug, AnchorDeserialize)]
+#[derive(Debug, AnchorDeserialize, Clone)]
 pub struct RemainingAccountsInfo {
     pub slices: Vec<RemainingAccountsSlice>,
 }
 
-#[derive(Debug, AnchorDeserialize)]
+#[derive(Debug, AnchorDeserialize, Clone)]
 pub struct RemainingAccountsSlice {
     pub accounts_type: AccountsType,
     pub length: u8,
 }
 
-#[derive(Debug, AnchorDeserialize)]
+#[derive(Debug, AnchorDeserialize, Clone)]
 pub struct RoutePlanStep {
     pub swap: Swap,
     pub percent: u8,
@@ -244,13 +244,13 @@ pub struct RoutePlanStep {
     pub output_index: u8,
 }
 
-#[derive(Debug, AnchorDeserialize)]
+#[derive(Debug, AnchorDeserialize, Clone)]
 pub enum Side {
     Bid,
     Ask,
 }
 
-#[derive(Debug, AnchorDeserialize)]
+#[derive(Debug, AnchorDeserialize, Clone)]
 pub enum Swap {
     Saber,
     SaberAddDecimalsDeposit,
