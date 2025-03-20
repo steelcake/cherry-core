@@ -1,5 +1,5 @@
-use anchor_lang::AnchorDeserialize;
-use anchor_lang::prelude::*;
+use anchor_lang::{AnchorDeserialize, prelude::{Pubkey, borsh}};
+use anyhow::{anyhow, Context, Result};
 
 // Program ID
 pub const PROGRAM_ID: &str = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
@@ -113,15 +113,62 @@ pub enum JupInstruction {
     },
 }
 
+impl JupInstruction {
+    pub fn try_unpack(data: &mut &[u8]) -> Result<JupInstruction> {
+        let handlers: Vec<Box<dyn InstructionHandlerTrait>> = vec![
+            Box::new(InstructionHandler::<Claim>::new(CLAIM_IX_DISCM)),
+            Box::new(InstructionHandler::<ClaimToken>::new(CLAIM_TOKEN_IX_DISCM)),
+            Box::new(InstructionHandler::<CloseToken>::new(CLOSE_TOKEN_IX_DISCM)),
+            Box::new(InstructionHandler::<CreateOpenOrders>::new(CREATE_OPEN_ORDERS_IX_DISCM)),
+            Box::new(InstructionHandler::<CreateProgramOpenOrders>::new(CREATE_PROGRAM_OPEN_ORDERS_IX_DISCM)),
+            Box::new(InstructionHandler::<CreateTokenLedger>::new(CREATE_TOKEN_LEDGER_IX_DISCM)),
+            Box::new(InstructionHandler::<CreateTokenAccount>::new(CREATE_TOKEN_ACCOUNT_IX_DISCM)),
+            Box::new(InstructionHandler::<ExactOutRoute>::new(EXACT_OUT_ROUTE_IX_DISCM)),
+            Box::new(InstructionHandler::<Route>::new(ROUTE_IX_DISCM)),
+            Box::new(InstructionHandler::<RouteWithTokenLedger>::new(ROUTE_WITH_TOKEN_LEDGER_IX_DISCM)),
+            Box::new(InstructionHandler::<SetTokenLedger>::new(SET_TOKEN_LEDGER_IX_DISCM)),
+            Box::new(InstructionHandler::<SharedAccountsExactOutRoute>::new(SHARED_ACCOUNTS_EXACT_OUT_ROUTE_IX_DISCM)),
+            Box::new(InstructionHandler::<SharedAccountsRoute>::new(SHARED_ACCOUNTS_ROUTE_IX_DISCM)),
+            Box::new(InstructionHandler::<SharedAccountsRouteWithTokenLedger>::new(SHARED_ACCOUNTS_ROUTE_WITH_TOKEN_LEDGER_IX_DISCM)),
+            Box::new(InstructionHandler::<FeeEvent>::new(FEE_EVENT_DISCM)),
+            Box::new(InstructionHandler::<SwapEvent>::new(SWAP_EVENT_DISCM)),
+            Box::new(InstructionHandler::<TokenLedger>::new(TOKEN_LEDGER_ACCOUNT_DISCM)),
+        ];
+
+        for handler in handlers {
+            if let Ok(result) = handler.decode(data) {
+                return Ok(result);
+            }
+        }
+        Err(anyhow::anyhow!("No handler found for discriminator"))
+    }
+}
+
+trait IntoJupInstruction {
+    fn into_jup_instruction(self) -> JupInstruction;
+}
+
 // Instruction argument structs
 #[derive(Debug, AnchorDeserialize)]
 pub struct Claim {
     pub id: u8,
 }
 
+impl IntoJupInstruction for Claim {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::Claim { id: self.id }
+    }
+}
+
 #[derive(Debug, AnchorDeserialize)]
 pub struct ClaimToken {
     pub id: u8,
+}
+
+impl IntoJupInstruction for ClaimToken {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::ClaimToken { id: self.id }
+    }
 }
 
 #[derive(Debug, AnchorDeserialize)]
@@ -130,20 +177,50 @@ pub struct CloseToken {
     pub burn_all: bool,
 }
 
+impl IntoJupInstruction for CloseToken {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::CloseToken { id: self.id, burn_all: self.burn_all }
+    }
+}
+
 #[derive(Debug, AnchorDeserialize)]
 pub struct CreateOpenOrders;
+
+impl IntoJupInstruction for CreateOpenOrders {
+    fn into_jup_instruction(self)    -> JupInstruction {
+        JupInstruction::CreateOpenOrders
+    }
+}
 
 #[derive(Debug, AnchorDeserialize)]
 pub struct CreateProgramOpenOrders {
     pub id: u8,
 }
 
+impl IntoJupInstruction for CreateProgramOpenOrders {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::CreateProgramOpenOrders { id: self.id }
+    }
+}
+
 #[derive(Debug, AnchorDeserialize)]
 pub struct CreateTokenLedger;
+
+impl IntoJupInstruction for CreateTokenLedger {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::CreateTokenLedger
+    }
+}
 
 #[derive(Debug, AnchorDeserialize)]
 pub struct CreateTokenAccount {
     pub bump: u8,
+}
+
+impl IntoJupInstruction for CreateTokenAccount {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::CreateTokenAccount { bump: self.bump }
+    }
 }
 
 #[derive(Debug, AnchorDeserialize)]
@@ -155,6 +232,12 @@ pub struct ExactOutRoute {
     pub platform_fee_bps: u16,
 }
 
+impl IntoJupInstruction for ExactOutRoute {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::ExactOutRoute { route_plan: self.route_plan, out_amount: self.out_amount, quoted_in_amount: self.quoted_in_amount, slippage_bps: self.slippage_bps, platform_fee_bps: self.platform_fee_bps }
+    }
+}
+
 #[derive(Debug, AnchorDeserialize)]
 pub struct Route {
     pub route_plan: Vec<RoutePlanStep>,
@@ -162,6 +245,12 @@ pub struct Route {
     pub quoted_out_amount: u64,
     pub slippage_bps: u16,
     pub platform_fee_bps: u8,
+}
+
+impl IntoJupInstruction for Route {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::Route { route_plan: self.route_plan, in_amount: self.in_amount, quoted_out_amount: self.quoted_out_amount, slippage_bps: self.slippage_bps, platform_fee_bps: self.platform_fee_bps }
+    }
 }
 
 #[derive(Debug, AnchorDeserialize)]
@@ -172,8 +261,20 @@ pub struct RouteWithTokenLedger {
     pub platform_fee_bps: u8,
 }
 
+impl IntoJupInstruction for RouteWithTokenLedger {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::RouteWithTokenLedger { route_plan: self.route_plan, quoted_out_amount: self.quoted_out_amount, slippage_bps: self.slippage_bps, platform_fee_bps: self.platform_fee_bps }
+    }
+}
+
 #[derive(Debug, AnchorDeserialize)]
 pub struct SetTokenLedger;
+
+impl IntoJupInstruction for SetTokenLedger {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::SetTokenLedger
+    }
+}
 
 #[derive(Debug, AnchorDeserialize)]
 pub struct SharedAccountsExactOutRoute {
@@ -183,6 +284,12 @@ pub struct SharedAccountsExactOutRoute {
     pub quoted_in_amount: u64,
     pub slippage_bps: u16,
     pub platform_fee_bps: u8,
+}
+
+impl IntoJupInstruction for SharedAccountsExactOutRoute {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::SharedAccountsExactOutRoute { id: self.id, route_plan: self.route_plan, out_amount: self.out_amount, quoted_in_amount: self.quoted_in_amount, slippage_bps: self.slippage_bps, platform_fee_bps: self.platform_fee_bps }
+    }
 }
 
 #[derive(Debug, AnchorDeserialize)]
@@ -195,6 +302,12 @@ pub struct SharedAccountsRoute {
     pub platform_fee_bps: u8,
 }
 
+impl IntoJupInstruction for SharedAccountsRoute {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::SharedAccountsRoute { id: self.id, route_plan: self.route_plan, in_amount: self.in_amount, quoted_out_amount: self.quoted_out_amount, slippage_bps: self.slippage_bps, platform_fee_bps: self.platform_fee_bps }
+    }
+}
+
 #[derive(Debug, AnchorDeserialize)]
 pub struct SharedAccountsRouteWithTokenLedger {
     pub id: u8,
@@ -202,6 +315,41 @@ pub struct SharedAccountsRouteWithTokenLedger {
     pub quoted_out_amount: u64,
     pub slippage_bps: u16,
     pub platform_fee_bps: u8,
+}
+
+impl IntoJupInstruction for SharedAccountsRouteWithTokenLedger {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::SharedAccountsRouteWithTokenLedger { id: self.id, route_plan: self.route_plan, quoted_out_amount: self.quoted_out_amount, slippage_bps: self.slippage_bps, platform_fee_bps: self.platform_fee_bps }
+    }
+}
+
+// Event definitions
+#[derive(Debug, AnchorDeserialize)]
+pub struct SwapEvent {
+    pub amm: Pubkey,
+    pub input_mint: Pubkey,
+    pub input_amount: u64,
+    pub output_mint: Pubkey,
+    pub output_amount: u64,
+}
+
+impl IntoJupInstruction for SwapEvent {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::SwapEvent { amm: self.amm, input_mint: self.input_mint, input_amount: self.input_amount, output_mint: self.output_mint, output_amount: self.output_amount }
+    }
+}
+
+// Account definitions
+#[derive(Debug, AnchorDeserialize)]
+pub struct TokenLedger {
+    pub token_account: Pubkey,
+    pub amount: u64,
+}
+
+impl IntoJupInstruction for TokenLedger {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::TokenLedger { token_account: self.token_account, amount: self.amount }
+    }
 }
 
 // Type definitions
@@ -223,6 +371,16 @@ pub struct FeeEvent {
     pub account: Pubkey,
     pub mint: Pubkey,
     pub amount: u64,
+}
+
+impl IntoJupInstruction for FeeEvent {
+    fn into_jup_instruction(self) -> JupInstruction {
+        JupInstruction::FeeEvent {
+            account: self.account,
+            mint: self.mint,
+            amount: self.amount,
+        }
+    }
 }
 
 #[derive(Debug, AnchorDeserialize, Clone)]
@@ -329,17 +487,47 @@ pub enum Swap {
     Gamma,
 }
 
-#[derive(Debug, AnchorDeserialize)]
-pub struct SwapEvent {
-    pub amm: Pubkey,
-    pub input_mint: Pubkey,
-    pub input_amount: u64,
-    pub output_mint: Pubkey,
-    pub output_amount: u64,
+struct InstructionHandler<T> {
+    discriminator: [u8; 8],
+    phantom: std::marker::PhantomData<T>,
 }
 
-#[derive(Debug, AnchorDeserialize)]
-pub struct TokenLedger {
-    pub token_account: Pubkey,
-    pub amount: u64,
+trait InstructionHandlerTrait {
+    fn matches_discriminator(&self, disc: &[u8; 8]) -> bool;
+    fn decode(&self, data: &mut &[u8]) -> Result<JupInstruction>;
+}
+
+impl<T> InstructionHandler<T> 
+where 
+    T: anchor_lang::AnchorDeserialize + IntoJupInstruction + 'static
+{
+    fn new(discriminator: [u8; 8]) -> Self {
+        Self {
+            discriminator,
+            phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> InstructionHandlerTrait for InstructionHandler<T> 
+where 
+    T: anchor_lang::AnchorDeserialize + IntoJupInstruction + 'static
+{
+    fn matches_discriminator(&self, disc: &[u8; 8]) -> bool {
+        disc == &self.discriminator
+    }
+
+    fn decode(&self, data: &mut &[u8]) -> Result<JupInstruction> {
+        let mut disc = [0u8; 8];
+        disc.copy_from_slice(&data[..8]);
+        if self.matches_discriminator(&disc) {
+            let ix_data = &mut &data[8..];
+            match crate::decode_instruction::<T>(ix_data) {
+                Ok(ix) => Ok(ix.into_jup_instruction()),
+                Err(e) => Err(anyhow::anyhow!("Failed to decode instruction: {}", e)),
+            }
+        } else {
+            Err(anyhow::anyhow!("No handler found for discriminator"))
+        }
+    }
 }
