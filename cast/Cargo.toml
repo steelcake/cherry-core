@@ -1,6 +1,6 @@
 [package]
 name = "cherry-cast"
-version = "0.0.7"
+version = "0.1.0"
 edition = "2021"
 description = "Library for casting arrow colums with support for specific blockchain types"
 homepage = "https://github.com/steelcake/cherry-core"

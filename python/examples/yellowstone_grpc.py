@@ -4,7 +4,9 @@ import polars
 from typing import cast
 import pyarrow as pa
 import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
 async def run(provider: ingest.ProviderConfig):
     stream = ingest.start_stream(provider)
@@ -60,6 +62,7 @@ query = ingest.Query(
                 block_slot=True,
                 transaction_index=True,
                 signature=True,
+                err=True,
             ),
         ),
     ),

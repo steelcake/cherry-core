@@ -367,7 +367,12 @@ fn parse_transactions(
         transactions.num_required_signatures.append_null();
         transactions.recent_blockhash.append_null();
         transactions.signatures.append_null();
-        transactions.err.append_null();
+        transactions.err.append_option(
+            meta.err
+                .as_ref()
+                .map(|e| parse_transaction_err(e.err.as_slice()).context("parse tx err"))
+                .transpose()?,
+        );
         transactions.fee.append_value(meta.fee);
         transactions
             .compute_units_consumed
@@ -379,6 +384,14 @@ fn parse_transactions(
     }
 
     Ok(())
+}
+
+fn parse_transaction_err(err: &[u8]) -> Result<String> {
+    let err = bincode::deserialize::<solana_transaction_error::TransactionError>(err)
+        .context("bincode serialize err")?;
+    let err = serde_json::to_string(&err).context("json serialize")?;
+
+    Ok(err)
 }
 
 fn parse_block(blocks: &mut BlocksBuilder, data: &SubscribeUpdateBlock) -> Result<BlockInfo> {

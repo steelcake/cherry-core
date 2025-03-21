@@ -1,6 +1,6 @@
 [package]
 name = "cherry-ingest"
-version = "0.0.13"
+version = "0.1.0"
 edition = "2021"
 description = "Library for ingesting evm data using common a query/response format"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -28,12 +28,13 @@ alloy-primitives = { workspace = true, features = ["serde"] }
 bs58 = { workspace = true }
 yellowstone-grpc-client = "6"
 yellowstone-grpc-proto = "6"
+solana-transaction-error = "2"
 
-cherry-evm-decode = { path = "../evm-decode", version = "0.0.2" }
-cherry-evm-schema = { path = "../evm-schema", version = "0.0.4" }
-cherry-cast = { path = "../cast", version = "0.0.7" }
-cherry-query = { path = "../query", version = "0.0.1" }
-cherry-svm-schema = { path = "../svm-schema", version = "0.0.5" }
+cherry-evm-decode = { path = "../evm-decode", version = "0.1.0" }
+cherry-evm-schema = { path = "../evm-schema", version = "0.1.0" }
+cherry-cast = { path = "../cast", version = "0.1.0" }
+cherry-query = { path = "../query", version = "0.1.0" }
+cherry-svm-schema = { path = "../svm-schema", version = "0.1.0" }
 
 [features]
 pyo3 = ["dep:pyo3"]
