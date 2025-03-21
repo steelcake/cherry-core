@@ -1,5 +1,5 @@
 use anchor_lang::{AnchorDeserialize, prelude::{Pubkey, borsh}};
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 
 // Program ID
 pub const PROGRAM_ID: &str = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
@@ -25,8 +25,11 @@ pub const TOKEN_LEDGER_ACCOUNT_DISCM: [u8; 8] = [156, 247, 9, 188, 54, 108, 85, 
 
 // Event discriminators
 pub const FEE_EVENT_DISCM: [u8; 8] = [73, 79, 78, 127, 184, 213, 13, 220];
-// pub const SWAP_EVENT_DISCM: [u8; 8] = [64, 198, 205, 232, 38, 8, 113, 226];
-pub const SWAP_EVENT_DISCM: [u8; 8] = [228, 69, 165, 46, 81, 203, 154, 29];
+pub const SWAP_EVENT_DISCM: [u8; 8] = [64, 198, 205, 232, 38, 8, 113, 226];
+
+// CPI Log Discriminator, it's not in IDL, but it's absulutely required to decode the instruction
+// https://stackoverflow.com/questions/79400728/how-to-correctly-decode-a-jupiter-swap-event-on-solana
+pub const CPI_LOG_DISCRIMINATOR: [u8; 8] = [228, 69, 165, 46, 81, 203, 154, 29];
 
 #[derive(Debug, AnchorDeserialize, Clone)]
 pub enum JupInstruction {
@@ -114,34 +117,86 @@ pub enum JupInstruction {
 }
 
 impl JupInstruction {
-    pub fn try_unpack(data: &mut &[u8]) -> Result<JupInstruction> {
-        let handlers: Vec<Box<dyn InstructionHandlerTrait>> = vec![
-            Box::new(InstructionHandler::<Claim>::new(CLAIM_IX_DISCM)),
-            Box::new(InstructionHandler::<ClaimToken>::new(CLAIM_TOKEN_IX_DISCM)),
-            Box::new(InstructionHandler::<CloseToken>::new(CLOSE_TOKEN_IX_DISCM)),
-            Box::new(InstructionHandler::<CreateOpenOrders>::new(CREATE_OPEN_ORDERS_IX_DISCM)),
-            Box::new(InstructionHandler::<CreateProgramOpenOrders>::new(CREATE_PROGRAM_OPEN_ORDERS_IX_DISCM)),
-            Box::new(InstructionHandler::<CreateTokenLedger>::new(CREATE_TOKEN_LEDGER_IX_DISCM)),
-            Box::new(InstructionHandler::<CreateTokenAccount>::new(CREATE_TOKEN_ACCOUNT_IX_DISCM)),
-            Box::new(InstructionHandler::<ExactOutRoute>::new(EXACT_OUT_ROUTE_IX_DISCM)),
-            Box::new(InstructionHandler::<Route>::new(ROUTE_IX_DISCM)),
-            Box::new(InstructionHandler::<RouteWithTokenLedger>::new(ROUTE_WITH_TOKEN_LEDGER_IX_DISCM)),
-            Box::new(InstructionHandler::<SetTokenLedger>::new(SET_TOKEN_LEDGER_IX_DISCM)),
-            Box::new(InstructionHandler::<SharedAccountsExactOutRoute>::new(SHARED_ACCOUNTS_EXACT_OUT_ROUTE_IX_DISCM)),
-            Box::new(InstructionHandler::<SharedAccountsRoute>::new(SHARED_ACCOUNTS_ROUTE_IX_DISCM)),
-            Box::new(InstructionHandler::<SharedAccountsRouteWithTokenLedger>::new(SHARED_ACCOUNTS_ROUTE_WITH_TOKEN_LEDGER_IX_DISCM)),
-            Box::new(InstructionHandler::<FeeEvent>::new(FEE_EVENT_DISCM)),
-            Box::new(InstructionHandler::<SwapEvent>::new(SWAP_EVENT_DISCM)),
-            Box::new(InstructionHandler::<TokenLedger>::new(TOKEN_LEDGER_ACCOUNT_DISCM)),
-        ];
+    pub fn unpack(data: &mut &[u8]) -> Result<JupInstruction> {
+        let mut disc = [0u8; 8];
+        disc.copy_from_slice(&data[..8]);
+        let ix_data = &mut &data[8..];
+        println!("Discriminator: {:?}", disc);
+        match_discriminator(disc, ix_data)
+    }    
+}
 
-        for handler in handlers {
-            if let Ok(result) = handler.decode(data) {
-                return Ok(result);
-            }
+
+fn match_discriminator(disc: [u8; 8], ix_data: &mut &[u8]) -> Result<JupInstruction> {
+    match disc {
+        CLAIM_IX_DISCM => decode_instruction::<Claim>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into Claim: {}", e)),
+        CLAIM_TOKEN_IX_DISCM => decode_instruction::<ClaimToken>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into ClaimToken: {}", e)),
+        CLOSE_TOKEN_IX_DISCM => decode_instruction::<CloseToken>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into CloseToken: {}", e)),
+        CREATE_OPEN_ORDERS_IX_DISCM => decode_instruction::<CreateOpenOrders>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into CreateOpenOrders: {}", e)),
+        CREATE_PROGRAM_OPEN_ORDERS_IX_DISCM => decode_instruction::<CreateProgramOpenOrders>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into CreateProgramOpenOrders: {}", e)),
+        CREATE_TOKEN_LEDGER_IX_DISCM => decode_instruction::<CreateTokenLedger>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into CreateTokenLedger: {}", e)),
+        CREATE_TOKEN_ACCOUNT_IX_DISCM => decode_instruction::<CreateTokenAccount>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into CreateTokenAccount: {}", e)),
+        EXACT_OUT_ROUTE_IX_DISCM => decode_instruction::<ExactOutRoute>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into ExactOutRoute: {}", e)),
+        ROUTE_IX_DISCM => decode_instruction::<Route>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into Route: {}", e)),
+        ROUTE_WITH_TOKEN_LEDGER_IX_DISCM => decode_instruction::<RouteWithTokenLedger>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into RouteWithTokenLedger: {}", e)),
+        SET_TOKEN_LEDGER_IX_DISCM => decode_instruction::<SetTokenLedger>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into SetTokenLedger: {}", e)),
+        SHARED_ACCOUNTS_EXACT_OUT_ROUTE_IX_DISCM => decode_instruction::<SharedAccountsExactOutRoute>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into SharedAccountsExactOutRoute: {}", e)),
+        SHARED_ACCOUNTS_ROUTE_IX_DISCM => decode_instruction::<SharedAccountsRoute>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into SharedAccountsRoute: {}", e)),
+        SHARED_ACCOUNTS_ROUTE_WITH_TOKEN_LEDGER_IX_DISCM => decode_instruction::<SharedAccountsRouteWithTokenLedger>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into SharedAccountsRouteWithTokenLedger: {}", e)),
+        FEE_EVENT_DISCM => decode_instruction::<FeeEvent>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into FeeEvent: {}", e)),
+        SWAP_EVENT_DISCM => decode_instruction::<SwapEvent>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into SwapEvent: {}", e)),
+        TOKEN_LEDGER_ACCOUNT_DISCM => decode_instruction::<TokenLedger>(ix_data)
+            .map(|ix| ix.into_jup_instruction())
+            .map_err(|e| anyhow::anyhow!("Failed to decode instruction into TokenLedger: {}", e)),
+        CPI_LOG_DISCRIMINATOR => {
+            let mut sec_disc = [0u8; 8];
+            sec_disc.copy_from_slice(&ix_data[..8]);
+            let ix_data = &mut &ix_data[8..];
+            println!("Second Discriminator: {:?}", sec_disc);
+            match_discriminator(sec_disc, ix_data)
         }
-        Err(anyhow::anyhow!("No handler found for discriminator"))
+        _ => Err(anyhow::anyhow!("No handler found for discriminator")),
     }
+}
+
+fn decode_instruction<T: anchor_lang::AnchorDeserialize>(
+    slice: &mut &[u8],
+) -> Result<T, anchor_lang::error::ErrorCode> {
+    let instruction: T = anchor_lang::AnchorDeserialize::deserialize(slice)
+        .map_err(|_| anchor_lang::error::ErrorCode::InstructionDidNotDeserialize)?;
+    Ok(instruction)
 }
 
 trait IntoJupInstruction {
@@ -485,49 +540,4 @@ pub enum Swap {
     PumpdotfunAmmBuy,
     PumpdotfunAmmSell,
     Gamma,
-}
-
-struct InstructionHandler<T> {
-    discriminator: [u8; 8],
-    phantom: std::marker::PhantomData<T>,
-}
-
-trait InstructionHandlerTrait {
-    fn matches_discriminator(&self, disc: &[u8; 8]) -> bool;
-    fn decode(&self, data: &mut &[u8]) -> Result<JupInstruction>;
-}
-
-impl<T> InstructionHandler<T> 
-where 
-    T: anchor_lang::AnchorDeserialize + IntoJupInstruction + 'static
-{
-    fn new(discriminator: [u8; 8]) -> Self {
-        Self {
-            discriminator,
-            phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<T> InstructionHandlerTrait for InstructionHandler<T> 
-where 
-    T: anchor_lang::AnchorDeserialize + IntoJupInstruction + 'static
-{
-    fn matches_discriminator(&self, disc: &[u8; 8]) -> bool {
-        disc == &self.discriminator
-    }
-
-    fn decode(&self, data: &mut &[u8]) -> Result<JupInstruction> {
-        let mut disc = [0u8; 8];
-        disc.copy_from_slice(&data[..8]);
-        if self.matches_discriminator(&disc) {
-            let ix_data = &mut &data[8..];
-            match crate::decode_instruction::<T>(ix_data) {
-                Ok(ix) => Ok(ix.into_jup_instruction()),
-                Err(e) => Err(anyhow::anyhow!("Failed to decode instruction: {}", e)),
-            }
-        } else {
-            Err(anyhow::anyhow!("No handler found for discriminator"))
-        }
-    }
 }

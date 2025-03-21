@@ -2,6 +2,7 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use arrow::compute::filter_record_batch;
 use std::fmt::{self, Display};
 use std::fs::File;
+use std::sync::Arc;
 use arrow::record_batch::RecordBatch;
 use arrow::array::{Array, BinaryArray, ListArray, UInt64Array};
 use anchor_lang::prelude::Pubkey;
@@ -10,17 +11,29 @@ use hex;
 mod jup_program;
 use jup_program::*;
 use spl_token_2022::instruction::TokenInstruction;
-pub enum InstructionDecodeType {
-    BaseHex,
-    Base64,
-    Base58,
-}
+use arrow_schema_derive::ToArrowSchema;
+use arrow::datatypes::{DataType, Field, Schema};
+
 
 #[derive(Debug)]
 pub struct RawInstruction<'a> {
     pub program_id: Pubkey,
     pub accounts: Vec<Pubkey>,
     pub data: &'a [u8],
+}
+
+#[derive(Debug)]
+pub struct DecodedInstruction<'a> {
+    pub program_id: Pubkey,
+    pub accounts: Vec<Pubkey>,
+    pub data: ProgramInstructions<'a>,
+}
+
+#[derive(Debug)]
+pub struct InstructionSignature<'a> {
+    pub program_id: Pubkey,
+    pub name: &'a str,
+    pub discriminator: &'a [u8],
 }
 
 impl Display for RawInstruction<'_> {
@@ -35,21 +48,81 @@ pub enum ProgramInstructions<'a> {
     JupInstruction(JupInstruction),
 }
 
-pub fn decode_instructions(batch: &RecordBatch) -> Result<(), Box<dyn std::error::Error>> {    
+pub trait ToArrowSchema {
+    fn to_arrow_schema() -> Schema;
+}
+
+#[derive(ToArrowSchema)]
+pub struct TransferEvent {
+    pub source: Pubkey,
+    pub destination: Pubkey,
+    pub authority: Pubkey,
+    pub amount: u64,
+}
+
+pub fn decode_instructions(
+    ix_signature: InstructionSignature,
+    data: &RecordBatch,
+    allow_decode_fail: bool,
+) -> Result<RecordBatch> {
+    // let program_id_idx = data.schema().index_of("program_id").unwrap();
+    // let program_id_col = data.column(program_id_idx);
+    // let program_id_col = program_id_col.as_any().downcast_ref::<BinaryArray>().unwrap();
+    
+    // // Create a boolean mask for filtering
+    // let mut mask = Vec::with_capacity(data.num_rows());
+    // for i in 0..data.num_rows() {
+    //     if program_id_col.is_null(i) {
+    //         mask.push(false);
+    //     } else {
+    //         let value = program_id_col.value(i);
+    //         mask.push(value == ix_signature.program_id.to_bytes());
+    //     }
+    // }
+    
+    // // Convert mask to BooleanArray and filter the RecordBatch
+    // let mask_array = arrow::array::BooleanArray::from(mask);
+    // let program_filtered_data = filter_record_batch(&data, &mask_array).unwrap();
+    let schema = TransferEvent::to_arrow_schema();
+    let mut arrays: Vec<Arc<dyn Array + 'static>> = Vec::with_capacity(schema.fields().len());
+    println!("schema: {:?}", schema);
+    let decoded_instructions = decode_batch(&data)?;
+
+    let mut transfer_events = Vec::<Option<TransferEvent>>::new();
+    for instruction in decoded_instructions.iter() {
+        match instruction {
+            Some(DecodedInstruction {
+                program_id: _,
+                accounts: acc,
+                data: ProgramInstructions::TokenInstruction(TokenInstruction::Transfer { amount }),
+            }) => {
+                transfer_events.push(Some(TransferEvent {
+                    source: acc[0],
+                    destination: acc[1],
+                    authority: acc[2],
+                    amount: amount.clone(),
+                }));
+            }
+            _ => transfer_events.push(None),
+        }
+    }
+
+    todo!()
+    // RecordBatch::try_new(Arc::new(schema), arrays).context("construct arrow batch")
+}
+
+pub fn decode_batch(batch: &RecordBatch) -> Result<Vec<Option<DecodedInstruction>>> {    
     let program_id_col = batch.column_by_name("program_id").unwrap();
     let program_id_array = program_id_col.as_any().downcast_ref::<BinaryArray>().unwrap();
     
     let data_col = batch.column_by_name("data").unwrap();
     let data_array = data_col.as_any().downcast_ref::<BinaryArray>().unwrap();
-    
-    let block_slot_col = batch.column_by_name("block_slot").unwrap();
-    let block_slot_array = block_slot_col.as_any().downcast_ref::<UInt64Array>().unwrap();
 
     let rest_of_accounts_col = batch.column_by_name("rest_of_accounts").unwrap();
     let rest_of_accounts_array = rest_of_accounts_col.as_any().downcast_ref::<ListArray>().unwrap();
     
     // Get account arrays for potential use
-    let mut account_arrays: Vec<&BinaryArray> = (0..10).map(|i| {
+    let account_arrays: Vec<&BinaryArray> = (0..10).map(|i| {
         let col_name = format!("a{}", i);
         let col = batch.column_by_name(&col_name).unwrap();
         col.as_any().downcast_ref::<BinaryArray>().unwrap()
@@ -58,12 +131,6 @@ pub fn decode_instructions(batch: &RecordBatch) -> Result<(), Box<dyn std::error
     // Process each row in the batch
     let mut instructions = Vec::new();
     for row_idx in 0..batch.num_rows() {
-        let slot = block_slot_array.value(row_idx);
-        
-        // Check if this instruction matches our program
-        if program_id_array.is_null(row_idx) {
-            continue;
-        }
         
         let instr_program_id: [u8; 32] = program_id_array.value(row_idx).try_into().unwrap();
         let instr_program_id = Pubkey::new_from_array(instr_program_id);
@@ -102,32 +169,30 @@ pub fn decode_instructions(batch: &RecordBatch) -> Result<(), Box<dyn std::error
         instructions.push(instruction);
     }
 
-    let program_instructions = parse_program_instruction(instructions);
-    
-    Ok(())
+    parse_program_instruction(instructions)
 }
 
 pub fn parse_program_instruction(
     instructions: Vec<RawInstruction>,
-) -> Result<Vec<ProgramInstructions>> {
+) -> Result<Vec<Option<DecodedInstruction>>> {
     let mut decoded_instructions = Vec::new();
 
     for (i, ix) in instructions.iter().enumerate() {
                 let output = format!("\ninstruction #{}", i + 1);
                 println!("{}", output);
                 println!("{}", ix);
-                match handle_program_instruction(
+                match unpack_instruction(
                     ix.program_id.clone(),
                     &ix.data,
                     ix.accounts.clone(),
                 ) {
                     Ok(chain_instruction) => {
                         println!("decoded_instruction: {:?}", chain_instruction);
-                        decoded_instructions.push(chain_instruction);
+                        decoded_instructions.push(Some(chain_instruction));
                     }
                     Err(e) => {
                         eprintln!("Error decoding instruction: {}", e);
-                        continue;
+                        decoded_instructions.push(None);
                     }
                 };
     }
@@ -135,35 +200,39 @@ pub fn parse_program_instruction(
     Ok(decoded_instructions)
 }
 
-pub fn handle_program_instruction(
+pub fn unpack_instruction(
     program_id: Pubkey,
     instr_data: &[u8],
     accounts: Vec<Pubkey>,
-) -> Result<ProgramInstructions> {
+) -> Result<DecodedInstruction> {
 
     match program_id.to_string().as_str() {
         "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4" => {
-            let jup_ix = JupInstruction::try_unpack(&mut &instr_data[..]).unwrap();
-            Ok(ProgramInstructions::JupInstruction(jup_ix))
+            let jup_ix = JupInstruction::unpack(&mut &instr_data[..])?;
+            Ok(DecodedInstruction {
+                program_id: program_id,
+                accounts: accounts,
+                data: ProgramInstructions::JupInstruction(jup_ix),
+            })
         }
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" => {
-            let token_ix = spl_token_2022::instruction::TokenInstruction::unpack(&mut &instr_data[..]).unwrap();
-            Ok(ProgramInstructions::TokenInstruction(token_ix))
+            let token_ix = spl_token_2022::instruction::TokenInstruction::unpack(&mut &instr_data[..])?;
+            Ok(DecodedInstruction {
+                program_id: program_id,
+                accounts: accounts,
+                data: ProgramInstructions::TokenInstruction(token_ix),
+            })
         }
         "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb" => {
-            let token_ix = spl_token_2022::instruction::TokenInstruction::unpack(&mut &instr_data[..]).unwrap();
-            Ok(ProgramInstructions::TokenInstruction(token_ix))
+            let token_ix = spl_token_2022::instruction::TokenInstruction::unpack(&mut &instr_data[..])?;
+            Ok(DecodedInstruction {
+                program_id: program_id,
+                accounts: accounts,
+                data: ProgramInstructions::TokenInstruction(token_ix),
+            })
         }
-        _ => Err(anyhow::anyhow!("Unknown program id: {:?}", program_id)),
+        _ => Err(anyhow::anyhow!("Program id not supported: {:?}", program_id)),
     }
-}
-
-fn decode_instruction<T: anchor_lang::AnchorDeserialize>(
-    slice: &mut &[u8],
-) -> Result<T, anchor_lang::error::ErrorCode> {
-    let instruction: T = anchor_lang::AnchorDeserialize::deserialize(slice)
-        .map_err(|_| anchor_lang::error::ErrorCode::InstructionDidNotDeserialize)?;
-    Ok(instruction)
 }
 
 mod tests {
@@ -209,7 +278,7 @@ mod tests {
         writer.write(&filtered_instructions).unwrap();
         writer.close().unwrap();
 
-        let result = decode_instructions(&filtered_instructions);
+        let result = decode_batch(&filtered_instructions);
 
     }
 
@@ -217,11 +286,19 @@ mod tests {
     // #[ignore]
     fn decode_instruction_test() {
         // read the filtered_instructions.parquet file
-        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("filtered_instructions.parquet").unwrap()).unwrap();
+        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("filtered_instructions3.parquet").unwrap()).unwrap();
         let mut reader = builder.build().unwrap();
         let instructions = reader.next().unwrap().unwrap();
 
+        let ix_signature = InstructionSignature {
+            program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
+            name: "SwapEvent",
+            discriminator: &[64, 198, 205, 232, 38, 8, 113, 226],
+        };
+
+        let result = decode_instructions(ix_signature, &instructions, false);
+
         // decode the instruction
-        let result = decode_instructions(&instructions);
+        // let result = decode_batch(&instructions);
     }
 }
