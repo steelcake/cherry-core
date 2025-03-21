@@ -117,8 +117,8 @@ async fn run_stream(
         };
 
         let update = match update.update_oneof {
-            Some(up) => up,
-            None => continue,
+            Some(UpdateOneof::Block(up)) => up,
+            _ => continue,
         };
 
         let res = match process_update(update, &generic_query) {
@@ -144,13 +144,9 @@ async fn run_stream(
 }
 
 fn process_update(
-    update: UpdateOneof,
+    mut data: SubscribeUpdateBlock,
     generic_query: &GenericQuery,
 ) -> Result<BTreeMap<String, RecordBatch>> {
-    let mut data = match update {
-        UpdateOneof::Block(block) => block,
-        _ => return Err(anyhow!("unexpected update from rpc: {:?}", update)),
-    };
     data.transactions.sort_by_key(|tx| tx.index);
 
     let data = parse_data(&data).context("parse data")?;
