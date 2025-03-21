@@ -24,3 +24,5 @@ core/reports
 
 # uv.lock
 uv.lock
+
+.env
