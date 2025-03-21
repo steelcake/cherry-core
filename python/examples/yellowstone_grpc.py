@@ -1,8 +1,10 @@
 from cherry_core import ingest, base58_encode
 import asyncio
-import polars 
+import polars
 from typing import cast
 import pyarrow as pa
+import os
+
 
 async def run(provider: ingest.ProviderConfig):
     stream = ingest.start_stream(provider)
@@ -13,9 +15,13 @@ async def run(provider: ingest.ProviderConfig):
             break
 
         transactions = cast(polars.DataFrame, polars.from_arrow(res["transactions"]))
-        token_balances = cast(polars.DataFrame, polars.from_arrow(res["token_balances"]))
+        token_balances = cast(
+            polars.DataFrame, polars.from_arrow(res["token_balances"])
+        )
 
-        token_balances = token_balances.join(transactions, ["block_slot", "transaction_index"])
+        token_balances = token_balances.join(
+            transactions, ["block_slot", "transaction_index"]
+        )
 
         for batch in token_balances.to_arrow().to_batches():
             new_batch = batch
@@ -29,13 +35,16 @@ async def run(provider: ingest.ProviderConfig):
 
             print(new_batch)
 
+
 query = ingest.Query(
     kind=ingest.QueryKind.SVM,
     params=ingest.svm.Query(
         from_block=317617480,
-        token_balances=[ingest.svm.TokenBalanceRequest(
-            include_transactions=True,
-        )],
+        token_balances=[
+            ingest.svm.TokenBalanceRequest(
+                include_transactions=True,
+            )
+        ],
         fields=ingest.svm.Fields(
             token_balance=ingest.svm.TokenBalanceFields(
                 block_slot=True,
@@ -61,9 +70,8 @@ asyncio.run(
         ingest.ProviderConfig(
             kind=ingest.ProviderKind.YELLOWSTONE_GRPC,
             query=query,
-            url="https://grpc.fra.shyft.to",
-            bearer_token="67fb1b1a-bc9b-4c0c-9012-7b338a02e516",
-       )
+            url=os.environ.get("YELLOWSTONE_GRPC_URL"),
+            bearer_token=os.environ.get("YELLOWSTONE_GRPC_TOKEN"),
+        )
     )
 )
-
