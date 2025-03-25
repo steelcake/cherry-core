@@ -1,0 +1,18 @@
+[package]
+name = "arrow-schema-derive"
+version = "0.0.1"
+edition = "2021"
+description = "Arrow schema derive implementations"
+homepage = "https://github.com/steelcake/cherry-core"
+repository = "https://github.com/steelcake/cherry-core"
+authors = ["Ozgur Akkurt <oezgurmakkurt@gmail.com>, Yule <yule@gmail.com>"]
+license = "MIT OR Apache-2.0"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+arrow = { workspace = true }
+syn = "2"
+quote = "1"
+proc-macro2 = "1"
