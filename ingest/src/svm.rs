@@ -212,6 +212,7 @@ pub struct RewardRequest {
 }
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone, Copy)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct Fields {
     pub instruction: InstructionFields,
@@ -238,6 +239,7 @@ impl Fields {
 }
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct InstructionFields {
     pub block_slot: bool,
@@ -300,6 +302,7 @@ impl InstructionFields {
 }
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TransactionFields {
     pub block_slot: bool,
@@ -350,6 +353,7 @@ impl TransactionFields {
 }
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct LogFields {
     pub block_slot: bool,
@@ -378,6 +382,7 @@ impl LogFields {
 }
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct BalanceFields {
     pub block_slot: bool,
@@ -402,6 +407,7 @@ impl BalanceFields {
 }
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TokenBalanceFields {
     pub block_slot: bool,
@@ -442,6 +448,7 @@ impl TokenBalanceFields {
 }
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct RewardFields {
     pub block_slot: bool,
@@ -468,6 +475,7 @@ impl RewardFields {
 }
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct BlockFields {
     pub slot: bool,

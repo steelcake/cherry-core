@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 async def run(provider: ingest.ProviderConfig):
     stream = ingest.start_stream(provider)
 
