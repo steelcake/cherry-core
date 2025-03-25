@@ -1,6 +1,6 @@
 [package]
 name = "cherry-core-python"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "Core library for cherry blockchain data framework"
 homepage = "https://github.com/steelcake/cherry-core"
