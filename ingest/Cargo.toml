@@ -1,6 +1,6 @@
 [package]
 name = "cherry-ingest"
-version = "0.1.1"
+version = "0.2.1"
 edition = "2021"
 description = "Library for ingesting evm data using common a query/response format"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -29,6 +29,7 @@ bs58 = { workspace = true }
 yellowstone-grpc-client = "6"
 yellowstone-grpc-proto = "6"
 solana-transaction-error = "2"
+rayon = { workspace = true }
 
 cherry-evm-decode = { path = "../evm-decode", version = "0.1.0" }
 cherry-evm-schema = { path = "../evm-schema", version = "0.1.0" }

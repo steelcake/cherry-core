@@ -1,7 +1,6 @@
 use crate::{DataStream, ProviderConfig, Query};
 use anyhow::{anyhow, Context, Result};
 use arrow::array::RecordBatch;
-use cherry_query::{run_query, Query as GenericQuery};
 use cherry_svm_schema::{
     BalancesBuilder, BlocksBuilder, InstructionsBuilder, LogsBuilder, RewardsBuilder,
     TokenBalancesBuilder, TransactionsBuilder,
@@ -19,8 +18,6 @@ use yellowstone_grpc_proto::{
     },
     prelude::Reward,
 };
-
-use super::common::svm_query_to_generic;
 
 pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
     let _url = cfg
@@ -51,7 +48,7 @@ async fn run_stream(
     cfg: ProviderConfig,
     tx: mpsc::Sender<Result<BTreeMap<String, RecordBatch>>>,
 ) -> Result<()> {
-    let query = match cfg.query {
+    let _query = match cfg.query {
         Query::Svm(q) => q,
         Query::Evm(_) => {
             return Err(anyhow!(
@@ -59,8 +56,6 @@ async fn run_stream(
             ))
         }
     };
-
-    let generic_query = svm_query_to_generic(&query);
 
     let mut client = GeyserGrpcClient::build_from_shared(
         cfg.url
@@ -121,7 +116,7 @@ async fn run_stream(
             _ => continue,
         };
 
-        let res = match process_update(update, &generic_query) {
+        let res = match process_update(update) {
             Ok(r) => r,
             Err(e) => {
                 log::error!("failed to process update coming from grpc. Error is: {:?}. Sending to receiver...", e);
@@ -143,14 +138,11 @@ async fn run_stream(
     Ok(())
 }
 
-fn process_update(
-    mut data: SubscribeUpdateBlock,
-    generic_query: &GenericQuery,
-) -> Result<BTreeMap<String, RecordBatch>> {
+fn process_update(mut data: SubscribeUpdateBlock) -> Result<BTreeMap<String, RecordBatch>> {
     data.transactions.sort_by_key(|tx| tx.index);
 
     let data = parse_data(&data).context("parse data")?;
-    let data = run_query(&data, generic_query).context("run local query")?;
+
     Ok(data)
 }
 

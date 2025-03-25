@@ -1,14 +1,17 @@
 #![allow(clippy::should_implement_trait)]
 #![allow(clippy::field_reassign_with_default)]
 
-use std::{collections::BTreeMap, pin::Pin};
+use std::{collections::BTreeMap, pin::Pin, sync::Arc};
 
 use anyhow::{anyhow, Context, Result};
 use arrow::record_batch::RecordBatch;
-use futures_lite::Stream;
+use futures_lite::{Stream, StreamExt};
+use provider::common::{evm_query_to_generic, svm_query_to_generic};
+use serde::de::DeserializeOwned;
 
 pub mod evm;
 mod provider;
+mod rayon_async;
 pub mod svm;
 
 #[derive(Debug, Clone)]
@@ -96,12 +99,73 @@ impl<'py> pyo3::FromPyObject<'py> for ProviderKind {
 
 type DataStream = Pin<Box<dyn Stream<Item = Result<BTreeMap<String, RecordBatch>>> + Send + Sync>>;
 
-pub async fn start_stream(provider_config: ProviderConfig) -> Result<DataStream> {
-    match provider_config.kind {
-        ProviderKind::Sqd => provider::sqd::start_stream(provider_config),
-        ProviderKind::Hypersync => provider::hypersync::start_stream(provider_config).await,
-        ProviderKind::YellowstoneGrpc => {
-            provider::yellowstone_grpc::start_stream(provider_config).await
+fn make_req_fields<T: DeserializeOwned>(query: &cherry_query::Query) -> Result<T> {
+    let mut req_fields_query = query.clone();
+    req_fields_query
+        .add_request_and_include_fields()
+        .context("add req and include fields")?;
+
+    let fields = req_fields_query
+        .fields
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                k.strip_suffix('s').unwrap().to_owned(),
+                v.into_iter()
+                    .map(|v| (v, true))
+                    .collect::<BTreeMap<String, bool>>(),
+            )
+        })
+        .collect::<BTreeMap<String, _>>();
+
+    Ok(serde_json::from_value(serde_json::to_value(&fields).unwrap()).unwrap())
+}
+
+pub async fn start_stream(mut provider_config: ProviderConfig) -> Result<DataStream> {
+    let generic_query = match &mut provider_config.query {
+        Query::Evm(query) => {
+            let generic_query = evm_query_to_generic(query);
+
+            query.fields = make_req_fields(&generic_query).context("make req fields")?;
+
+            generic_query
         }
-    }
+        Query::Svm(query) => {
+            let generic_query = svm_query_to_generic(query);
+
+            query.fields = make_req_fields(&generic_query).context("make req fields")?;
+
+            generic_query
+        }
+    };
+    let generic_query = Arc::new(generic_query);
+
+    let stream = match provider_config.kind {
+        ProviderKind::Sqd => {
+            provider::sqd::start_stream(provider_config).context("start sqd stream")?
+        }
+        ProviderKind::Hypersync => provider::hypersync::start_stream(provider_config)
+            .await
+            .context("start hypersync stream")?,
+        ProviderKind::YellowstoneGrpc => provider::yellowstone_grpc::start_stream(provider_config)
+            .await
+            .context("start yellowstone_grpc stream")?,
+    };
+
+    let stream = stream.then(move |res| {
+        let generic_query = Arc::clone(&generic_query);
+        async {
+            rayon_async::spawn(move || {
+                res.and_then(move |data| {
+                    let data = cherry_query::run_query(&data, &generic_query)
+                        .context("run local query")?;
+                    Ok(data)
+                })
+            })
+            .await
+            .unwrap()
+        }
+    });
+
+    Ok(Box::pin(stream))
 }

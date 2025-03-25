@@ -74,7 +74,7 @@ pub fn evm_query_to_generic(query: &evm::Query) -> GenericQuery {
         ]
         .into_iter()
         .collect(),
-        selection,
+        selection: Arc::new(selection),
     }
 }
 
@@ -439,7 +439,7 @@ pub fn svm_query_to_generic(query: &svm::Query) -> GenericQuery {
         ]
         .into_iter()
         .collect(),
-        selection,
+        selection: Arc::new(selection),
     }
 }
 
