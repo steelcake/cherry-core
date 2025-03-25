@@ -42,7 +42,6 @@ impl<'py> pyo3::FromPyObject<'py> for Query {
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
-    pub query: Query,
     pub url: Option<String>,
     pub bearer_token: Option<String>,
     pub max_num_retries: Option<usize>,
@@ -56,10 +55,9 @@ pub struct ProviderConfig {
 }
 
 impl ProviderConfig {
-    pub fn new(kind: ProviderKind, query: Query) -> Self {
+    pub fn new(kind: ProviderKind) -> Self {
         Self {
             kind,
-            query,
             url: None,
             bearer_token: None,
             max_num_retries: None,
@@ -121,19 +119,19 @@ fn make_req_fields<T: DeserializeOwned>(query: &cherry_query::Query) -> Result<T
     Ok(serde_json::from_value(serde_json::to_value(&fields).unwrap()).unwrap())
 }
 
-pub async fn start_stream(mut provider_config: ProviderConfig) -> Result<DataStream> {
-    let generic_query = match &mut provider_config.query {
-        Query::Evm(query) => {
-            let generic_query = evm_query_to_generic(query);
+pub async fn start_stream(provider_config: ProviderConfig, mut query: Query) -> Result<DataStream> {
+    let generic_query = match &mut query {
+        Query::Evm(evm_query) => {
+            let generic_query = evm_query_to_generic(evm_query);
 
-            query.fields = make_req_fields(&generic_query).context("make req fields")?;
+            evm_query.fields = make_req_fields(&generic_query).context("make req fields")?;
 
             generic_query
         }
-        Query::Svm(query) => {
-            let generic_query = svm_query_to_generic(query);
+        Query::Svm(svm_query) => {
+            let generic_query = svm_query_to_generic(svm_query);
 
-            query.fields = make_req_fields(&generic_query).context("make req fields")?;
+            svm_query.fields = make_req_fields(&generic_query).context("make req fields")?;
 
             generic_query
         }
@@ -142,14 +140,16 @@ pub async fn start_stream(mut provider_config: ProviderConfig) -> Result<DataStr
 
     let stream = match provider_config.kind {
         ProviderKind::Sqd => {
-            provider::sqd::start_stream(provider_config).context("start sqd stream")?
+            provider::sqd::start_stream(provider_config, query).context("start sqd stream")?
         }
-        ProviderKind::Hypersync => provider::hypersync::start_stream(provider_config)
+        ProviderKind::Hypersync => provider::hypersync::start_stream(provider_config, query)
             .await
             .context("start hypersync stream")?,
-        ProviderKind::YellowstoneGrpc => provider::yellowstone_grpc::start_stream(provider_config)
-            .await
-            .context("start yellowstone_grpc stream")?,
+        ProviderKind::YellowstoneGrpc => {
+            provider::yellowstone_grpc::start_stream(provider_config, query)
+                .await
+                .context("start yellowstone_grpc stream")?
+        }
     };
 
     let stream = stream.then(move |res| {

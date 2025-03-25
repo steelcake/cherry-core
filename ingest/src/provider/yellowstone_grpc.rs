@@ -19,13 +19,13 @@ use yellowstone_grpc_proto::{
     prelude::Reward,
 };
 
-pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
+pub async fn start_stream(cfg: ProviderConfig, query: crate::Query) -> Result<DataStream> {
     let _url = cfg
         .url
         .as_ref()
         .context("url is required when using yellowstone grpc.")?;
 
-    if !matches!(cfg.query, Query::Svm(_)) {
+    if !matches!(&query, Query::Svm(_)) {
         return Err(anyhow!(
             "only svm query is supported with yellowstone grpc."
         ));
@@ -34,7 +34,7 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
     let (tx, rx) = mpsc::channel(cfg.buffer_size.unwrap_or(50));
 
     tokio::spawn(async move {
-        if let Err(e) = run_stream(cfg, tx).await {
+        if let Err(e) = run_stream(cfg, query, tx).await {
             log::error!("failed to run stream: {:?}", e);
         }
     });
@@ -46,9 +46,10 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
 
 async fn run_stream(
     cfg: ProviderConfig,
+    query: crate::Query,
     tx: mpsc::Sender<Result<BTreeMap<String, RecordBatch>>>,
 ) -> Result<()> {
-    let _query = match cfg.query {
+    let _query = match query {
         Query::Svm(q) => q,
         Query::Evm(_) => {
             return Err(anyhow!(

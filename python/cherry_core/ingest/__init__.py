@@ -26,7 +26,6 @@ class Query:
 @dataclass
 class ProviderConfig:
     kind: ProviderKind
-    query: Query
     url: Optional[str] = None
     bearer_token: Optional[str] = None
     max_num_retries: Optional[int] = None
@@ -50,6 +49,6 @@ class ResponseStream:
         return await self.inner.next()
 
 
-def start_stream(cfg: ProviderConfig) -> ResponseStream:
-    inner = cc.ingest.start_stream(cfg)
+def start_stream(cfg: ProviderConfig, query: Query) -> ResponseStream:
+    inner = cc.ingest.start_stream(cfg, query)
     return ResponseStream(inner)
