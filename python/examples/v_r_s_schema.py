@@ -3,8 +3,8 @@ import asyncio
 import argparse
 
 
-async def run(provider: ingest.ProviderConfig):
-    stream = ingest.start_stream(provider)
+async def run(provider: ingest.ProviderConfig, query: ingest.Query):
+    stream = ingest.start_stream(provider, query)
 
     while True:
         res = await stream.next()
@@ -41,10 +41,10 @@ async def main(provider_kind: ingest.ProviderKind):
         ingest.ProviderConfig(
             kind=provider_kind,
             url=url,
-            query=query,
             stop_on_head=False,  # default is False as well
             head_poll_interval_millis=1000,  # default is 1000
-        )
+        ),
+        query=query,
     )
 
 

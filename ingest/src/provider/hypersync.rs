@@ -107,8 +107,8 @@ pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
     })
 }
 
-pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
-    match cfg.query {
+pub async fn start_stream(cfg: ProviderConfig, query: crate::Query) -> Result<DataStream> {
+    match query {
         Query::Svm(_) => Err(anyhow!("svm is not supported by hypersync")),
         Query::Evm(query) => {
             let evm_query = query_to_hypersync(&query).context("convert to hypersync query")?;

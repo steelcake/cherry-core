@@ -3,7 +3,7 @@ use std::pin::Pin;
 
 use anyhow::{Context, Result};
 use arrow::{pyarrow::ToPyArrow, record_batch::RecordBatch};
-use baselib::ingest::ProviderConfig;
+use baselib::ingest::{ProviderConfig, Query};
 use futures_lite::{Stream, StreamExt};
 use pyo3::prelude::*;
 
@@ -57,11 +57,15 @@ impl ResponseStream {
 }
 
 #[pyfunction]
-fn start_stream(provider_config: &Bound<'_, PyAny>) -> PyResult<ResponseStream> {
+fn start_stream(
+    provider_config: &Bound<'_, PyAny>,
+    query: &Bound<'_, PyAny>,
+) -> PyResult<ResponseStream> {
     let cfg: ProviderConfig = provider_config.extract().context("parse provider config")?;
+    let query: Query = query.extract().context("parse query")?;
 
     let inner = crate::TOKIO_RUNTIME.block_on(async move {
-        baselib::ingest::start_stream(cfg)
+        baselib::ingest::start_stream(cfg, query)
             .await
             .context("start stream")
     })?;

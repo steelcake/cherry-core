@@ -494,7 +494,7 @@ fn evm_query_to_sqd(query: &evm::Query) -> Result<sqd_portal_client::evm::Query>
     })
 }
 
-pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
+pub fn start_stream(cfg: ProviderConfig, query: crate::Query) -> Result<DataStream> {
     let url = cfg
         .url
         .context("url is required when using sqd")?
@@ -532,7 +532,7 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
 
     let client = sqd_portal_client::Client::new(url, client_config);
     let client = Arc::new(client);
-    match cfg.query {
+    match query {
         Query::Svm(query) => {
             let sqd_query = svm_query_to_sqd(&query).context("convert to sqd query")?;
 

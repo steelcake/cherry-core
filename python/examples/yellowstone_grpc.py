@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-async def run(provider: ingest.ProviderConfig):
-    stream = ingest.start_stream(provider)
+async def run(provider: ingest.ProviderConfig, query: ingest.Query):
+    stream = ingest.start_stream(provider, query)
 
     while True:
         res = await stream.next()
@@ -73,9 +73,9 @@ asyncio.run(
     run(
         ingest.ProviderConfig(
             kind=ingest.ProviderKind.YELLOWSTONE_GRPC,
-            query=query,
             url=os.environ.get("YELLOWSTONE_GRPC_URL"),
             bearer_token=os.environ.get("YELLOWSTONE_GRPC_TOKEN"),
-        )
+        ),
+        query=query,
     )
 )

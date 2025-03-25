@@ -12,8 +12,8 @@ topic0 = cherry_core.evm_signature_to_topic0(signature)
 contract_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
 
-async def run(provider: ingest.ProviderConfig):
-    stream = ingest.start_stream(provider)
+async def run(provider: ingest.ProviderConfig, query: ingest.Query):
+    stream = ingest.start_stream(provider, query)
 
     while True:
         res = await stream.next()
@@ -59,9 +59,9 @@ asyncio.run(
     run(
         ingest.ProviderConfig(
             kind=ingest.ProviderKind.SQD,
-            query=query,
             url="https://portal.sqd.dev/datasets/ethereum-mainnet",
-        )
+        ),
+        query=query,
     )
 )
 
@@ -70,8 +70,8 @@ asyncio.run(
     run(
         ingest.ProviderConfig(
             kind=ingest.ProviderKind.HYPERSYNC,
-            query=query,
             url="https://eth.hypersync.xyz",
-        )
+        ),
+        query=query,
     )
 )

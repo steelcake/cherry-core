@@ -6,9 +6,9 @@ use cherry_ingest::evm::{Address, Topic};
 use futures_lite::StreamExt;
 use hypersync_client::{self, ClientConfig, StreamConfig};
 
-async fn erc20(cfg: cherry_ingest::ProviderConfig) {
+async fn erc20(cfg: cherry_ingest::ProviderConfig, query: cherry_ingest::Query) {
     let signature = "Transfer(address indexed from, address indexed to, uint256 amount)";
-    let mut stream = cherry_ingest::start_stream(cfg).await.unwrap();
+    let mut stream = cherry_ingest::start_stream(cfg, query).await.unwrap();
 
     while let Some(v) = stream.next().await {
         let v = v.unwrap();
@@ -37,10 +37,9 @@ fn erc20_query() -> cherry_ingest::Query {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn erc20_hypersync() {
-    let provider = cherry_ingest::ProviderConfig {
-        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync, erc20_query())
-    };
-    erc20(provider).await;
+    let provider = cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync);
+    let query = erc20_query();
+    erc20(provider, query).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -48,9 +47,9 @@ async fn erc20_hypersync() {
 async fn erc20_sqd() {
     let provider = cherry_ingest::ProviderConfig {
         url: Some("https://portal.sqd.dev/datasets/ethereum-mainnet".to_owned()),
-        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Sqd, erc20_query())
+        ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Sqd)
     };
-    erc20(provider).await;
+    erc20(provider, erc20_query()).await;
 }
 
 fn decode_hex<const N: usize>(hex: &str) -> [u8; N] {
@@ -179,12 +178,12 @@ async fn validate_evm_hypersync() {
         }],
     };
 
-    let mut stream = cherry_ingest::start_stream(cherry_ingest::ProviderConfig {
-        ..cherry_ingest::ProviderConfig::new(
-            cherry_ingest::ProviderKind::Hypersync,
-            cherry_ingest::Query::Evm(query),
-        )
-    })
+    let mut stream = cherry_ingest::start_stream(
+        cherry_ingest::ProviderConfig {
+            ..cherry_ingest::ProviderConfig::new(cherry_ingest::ProviderKind::Hypersync)
+        },
+        cherry_ingest::Query::Evm(query),
+    )
     .await
     .unwrap();
 
