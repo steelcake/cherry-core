@@ -94,7 +94,6 @@ pub struct TransactionRequest {
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct LogRequest {
     pub address: Vec<Address>,
-    pub event_signatures: Vec<String>,
     pub topic0: Vec<Topic>,
     pub topic1: Vec<Topic>,
     pub topic2: Vec<Topic>,
