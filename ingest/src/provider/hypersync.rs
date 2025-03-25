@@ -289,7 +289,9 @@ fn map_response(
         map_traces(&resp.traces).context("map traces")?,
     );
 
+    dbg!(&data);
     let data = run_query(&data, generic_query).context("run generic query")?;
+    dbg!(&data);
 
     Ok(data)
 }

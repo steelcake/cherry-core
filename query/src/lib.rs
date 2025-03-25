@@ -338,6 +338,8 @@ pub fn run_query(
     data: &BTreeMap<TableName, RecordBatch>,
     query: &Query,
 ) -> Result<BTreeMap<TableName, RecordBatch>> {
+    let data = select_fields(data, &query.fields).context("select fields")?;
+
     let filters = query
         .selection
         .par_iter()
@@ -346,15 +348,13 @@ pub fn run_query(
                 .par_iter()
                 .enumerate()
                 .map(|(i, selection)| {
-                    run_table_selection(data, table_name, selection).with_context(|| {
+                    run_table_selection(&data, table_name, selection).with_context(|| {
                         format!("run table selection no:{} for table {}", i, table_name)
                     })
                 })
                 .collect::<Result<Vec<_>>>()
         })
         .collect::<Result<Vec<_>>>()?;
-
-    let data = select_fields(data, &query.fields).context("select fields")?;
 
     data.par_iter()
         .filter_map(|(table_name, table_data)| {

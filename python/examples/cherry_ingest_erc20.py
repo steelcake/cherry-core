@@ -35,8 +35,7 @@ query = ingest.Query(
         logs=[
             ingest.evm.LogRequest(
                 address=[contract_address],
-                event_signatures=[signature],
-                # topic0=[topic0], same effect as above
+                topic0=[topic0],
                 include_blocks=True,
             )
         ],
@@ -45,6 +44,8 @@ query = ingest.Query(
                 number=True,
             ),
             log=ingest.evm.LogFields(
+                block_number=True,
+                address=True,
                 data=True,
                 topic0=True,
                 topic1=True,
