@@ -66,9 +66,7 @@ pub fn query_to_hypersync(query: &evm::Query) -> Result<hypersync_nt::Query> {
             address: lg.address.iter().map(|addr| addr.0.into()).collect::<Vec<_>>(),
             address_filter: None,
             topics: vec![
-                lg.topic0.iter().map(|x| Ok(x.0.into())).chain(lg.event_signatures.iter().map(|sig| {
-                    Ok(cherry_evm_decode::signature_to_topic0(sig).context("map signature to topic0")?.into())
-                })).collect::<Result<Vec<_>>>()?,
+                lg.topic0.iter().map(|x| x.0.into()).collect(),
                 lg.topic1.iter().map(|x| x.0.into()).collect(),
                 lg.topic2.iter().map(|x| x.0.into()).collect(),
                 lg.topic3.iter().map(|x| x.0.into()).collect(),

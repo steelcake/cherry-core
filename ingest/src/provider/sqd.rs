@@ -298,28 +298,17 @@ fn evm_query_to_sqd(query: &evm::Query) -> Result<sqd_portal_client::evm::Query>
     let mut logs: Vec<_> = Vec::with_capacity(query.logs.len());
 
     for lg in query.logs.iter() {
-        let mut topic0 = Vec::with_capacity(lg.topic0.len() + lg.event_signatures.len());
-
-        topic0.extend_from_slice(lg.topic0.as_slice());
-
-        for sig in lg.event_signatures.iter() {
-            let t0 = cherry_evm_decode::signature_to_topic0(sig)
-                .context("convert event signature to topic0")?;
-            topic0.push(evm::Topic(t0));
-        }
-
-        let topic0 = topic0
-            .into_iter()
-            .map(|x| hex_encode(x.0.as_slice()))
-            .collect::<Vec<_>>();
-
         logs.push(sqd_portal_client::evm::LogRequest {
             address: lg
                 .address
                 .iter()
                 .map(|x| hex_encode(x.0.as_slice()))
                 .collect(),
-            topic0,
+            topic0: lg
+                .topic0
+                .iter()
+                .map(|x| hex_encode(x.0.as_slice()))
+                .collect(),
             topic1: lg
                 .topic1
                 .iter()
