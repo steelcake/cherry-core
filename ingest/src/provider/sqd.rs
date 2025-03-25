@@ -1,12 +1,9 @@
 use crate::{evm, svm, DataStream, ProviderConfig, Query};
 use anyhow::{Context, Result};
-use cherry_query::run_query;
 use futures_lite::StreamExt;
 use std::collections::BTreeMap;
 
 use std::sync::Arc;
-
-use super::common::{evm_query_to_generic, svm_query_to_generic};
 
 fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query> {
     let base58_encode = |addr: &[u8]| {
@@ -538,14 +535,13 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
     match cfg.query {
         Query::Svm(query) => {
             let sqd_query = svm_query_to_sqd(&query).context("convert to sqd query")?;
-            let generic_query = svm_query_to_generic(&query);
 
             let receiver = client.svm_arrow_finalized_stream(sqd_query, stream_config);
 
             let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
 
             let stream = stream.map(move |v| {
-                v.and_then(|v| {
+                v.map(|v| {
                     let mut data = BTreeMap::new();
 
                     data.insert("blocks".to_owned(), v.blocks);
@@ -556,10 +552,7 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
                     data.insert("transactions".to_owned(), v.transactions);
                     data.insert("instructions".to_owned(), v.instructions);
 
-                    let data = cherry_query::run_query(&data, &generic_query)
-                        .context("run generic query")?;
-
-                    Ok(data)
+                    data
                 })
             });
 
@@ -567,14 +560,13 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
         }
         Query::Evm(query) => {
             let sqd_query = evm_query_to_sqd(&query).context("convert to sqd query")?;
-            let generic_query = evm_query_to_generic(&query);
 
             let receiver = client.evm_arrow_finalized_stream(sqd_query, stream_config);
 
             let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
 
             let stream = stream.map(move |v| {
-                v.and_then(|v| {
+                v.map(|v| {
                     let mut data = BTreeMap::new();
 
                     data.insert("blocks".to_owned(), v.blocks);
@@ -582,9 +574,7 @@ pub fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
                     data.insert("logs".to_owned(), v.logs);
                     data.insert("traces".to_owned(), v.traces);
 
-                    let data = run_query(&data, &generic_query).context("run generic query")?;
-
-                    Ok(data)
+                    data
                 })
             });
 

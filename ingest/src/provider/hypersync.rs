@@ -1,12 +1,10 @@
-use super::common::{evm_query_to_generic, field_selection_to_set};
+use super::common::field_selection_to_set;
 use crate::{evm, DataStream, ProviderConfig, Query};
 use anyhow::{anyhow, Context, Result};
 use arrow::array::ListBuilder;
 use arrow::array::{builder, new_null_array, Array, BinaryArray, BinaryBuilder, RecordBatch};
 use arrow::datatypes::DataType;
 use cherry_evm_schema::AccessListBuilder;
-use cherry_query::run_query;
-use cherry_query::Query as GenericQuery;
 use hypersync_client::format::AccessList;
 use hypersync_client::net_types::{self as hypersync_nt, JoinMode};
 use std::sync::Arc;
@@ -114,8 +112,6 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
         Query::Svm(_) => Err(anyhow!("svm is not supported by hypersync")),
         Query::Evm(query) => {
             let evm_query = query_to_hypersync(&query).context("convert to hypersync query")?;
-            let generic_query = evm_query_to_generic(&query);
-
             let client_config = hypersync_client::ClientConfig {
                 url: match cfg.url {
                     Some(url) => Some(url.parse().context("parse url")?),
@@ -157,11 +153,8 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
 
             tokio::spawn(async move {
                 while let Some(res) = receiver.recv().await {
-                    let res = res.and_then(|r| {
-                        map_response(&r.data, &generic_query)
-                            .context("map data")
-                            .map(|x| (r, x))
-                    });
+                    let res =
+                        res.and_then(|r| map_response(&r.data).context("map data").map(|x| (r, x)));
                     match res {
                         Ok((r, data)) => {
                             evm_query.from_block = r.next_block;
@@ -197,7 +190,6 @@ pub async fn start_stream(cfg: ProviderConfig) -> Result<DataStream> {
                     &tx,
                     rollback_offset,
                     head_poll_interval,
-                    &generic_query,
                 )
                 .await;
 
@@ -220,7 +212,6 @@ async fn chain_head_stream(
     tx: &mpsc::Sender<Result<BTreeMap<String, RecordBatch>>>,
     rollback_offset: u64,
     head_poll_interval: Duration,
-    generic_query: &GenericQuery,
 ) -> Result<()> {
     let mut height = client.get_height().await.context("get height")?;
 
@@ -239,7 +230,7 @@ async fn chain_head_stream(
 
         let res = client.get_arrow(evm_query).await.context("run query")?;
 
-        let data = map_response(&res.data, generic_query).context("map data")?;
+        let data = map_response(&res.data).context("map data")?;
 
         if tx.send(Ok(data)).await.is_err() {
             log::trace!("quitting chain head stream since the receiver is dropped");
@@ -271,7 +262,6 @@ fn make_rollback_offset(_chain_id: u64) -> u64 {
 
 fn map_response(
     resp: &hypersync_client::ArrowResponseData,
-    generic_query: &GenericQuery,
 ) -> Result<BTreeMap<String, RecordBatch>> {
     let mut data = BTreeMap::new();
 
@@ -288,8 +278,6 @@ fn map_response(
         "traces".to_owned(),
         map_traces(&resp.traces).context("map traces")?,
     );
-
-    let data = run_query(&data, generic_query).context("run generic query")?;
 
     Ok(data)
 }

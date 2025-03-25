@@ -19,9 +19,43 @@ use xxhash_rust::xxh3::xxh3_64;
 type TableName = String;
 type FieldName = String;
 
+#[derive(Clone)]
 pub struct Query {
-    pub selection: BTreeMap<TableName, Vec<TableSelection>>,
+    pub selection: Arc<BTreeMap<TableName, Vec<TableSelection>>>,
     pub fields: BTreeMap<TableName, Vec<FieldName>>,
+}
+
+impl Query {
+    pub fn add_request_and_include_fields(&mut self) -> Result<()> {
+        for (table_name, selections) in self.selection.iter() {
+            for selection in selections.iter() {
+                for col_name in selection.filters.keys() {
+                    let table_fields = self
+                        .fields
+                        .get_mut(table_name)
+                        .with_context(|| format!("get fields for table {}", table_name))?;
+                    table_fields.push(col_name.to_owned());
+                }
+
+                for include in selection.include.iter() {
+                    let other_table_fields = self
+                        .fields
+                        .get_mut(&include.other_table_name)
+                        .with_context(|| {
+                            format!("get fields for other table {}", include.other_table_name)
+                        })?;
+                    other_table_fields.extend_from_slice(&include.other_table_field_names);
+                    let table_fields = self
+                        .fields
+                        .get_mut(table_name)
+                        .with_context(|| format!("get fields for table {}", table_name))?;
+                    table_fields.extend_from_slice(&include.field_names);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub struct TableSelection {
@@ -401,7 +435,7 @@ pub fn run_query(
         .collect()
 }
 
-fn select_fields(
+pub fn select_fields(
     data: &BTreeMap<TableName, RecordBatch>,
     fields: &BTreeMap<TableName, Vec<FieldName>>,
 ) -> Result<BTreeMap<TableName, RecordBatch>> {
@@ -491,12 +525,15 @@ fn run_table_selection(
         let self_arr = columns_to_binary_array(table_data, &inc.field_names)
             .context("get row format binary arr for self")?;
 
-        let self_arr = match filtered_cache.entry(inc.field_names.clone()) {
+        let contains = match filtered_cache.entry(inc.field_names.clone()) {
             Entry::Vacant(entry) => {
                 let self_arr = compute::filter(&self_arr, &combined_filter)
                     .context("apply combined filter to self arr")?;
-                entry.insert(self_arr.clone());
-                self_arr
+                let contains =
+                    Contains::new(Arc::new(self_arr)).context("create contains filter")?;
+                let contains = Arc::new(contains);
+                entry.insert(Arc::clone(&contains));
+                contains
             }
             Entry::Occupied(entry) => Arc::clone(entry.get()),
         };
@@ -508,8 +545,6 @@ fn run_table_selection(
                     inc.other_table_name
                 )
             })?;
-
-        let contains = Contains::new(Arc::new(self_arr)).context("create contains filter")?;
 
         let f = contains
             .contains(&other_arr)
@@ -617,36 +652,41 @@ mod tests {
             ]
             .into_iter()
             .collect(),
-            selection: [(
-                "team_a".to_owned(),
-                vec![TableSelection {
-                    filters: [(
-                        "name".to_owned(),
-                        Filter::Contains(
-                            Contains::new(Arc::new(StringArray::from_iter_values(
-                                vec!["kamil", "mahmut"].into_iter(),
-                            )))
-                            .unwrap(),
-                        ),
-                    )]
-                    .into_iter()
-                    .collect(),
-                    include: vec![
-                        Include {
-                            field_names: vec!["age".to_owned(), "height".to_owned()],
-                            other_table_field_names: vec!["age2".to_owned(), "height2".to_owned()],
-                            other_table_name: "team_b".to_owned(),
-                        },
-                        Include {
-                            field_names: vec!["height".to_owned()],
-                            other_table_field_names: vec!["height".to_owned()],
-                            other_table_name: "team_a".to_owned(),
-                        },
-                    ],
-                }],
-            )]
-            .into_iter()
-            .collect(),
+            selection: Arc::new(
+                [(
+                    "team_a".to_owned(),
+                    vec![TableSelection {
+                        filters: [(
+                            "name".to_owned(),
+                            Filter::Contains(
+                                Contains::new(Arc::new(StringArray::from_iter_values(
+                                    vec!["kamil", "mahmut"].into_iter(),
+                                )))
+                                .unwrap(),
+                            ),
+                        )]
+                        .into_iter()
+                        .collect(),
+                        include: vec![
+                            Include {
+                                field_names: vec!["age".to_owned(), "height".to_owned()],
+                                other_table_field_names: vec![
+                                    "age2".to_owned(),
+                                    "height2".to_owned(),
+                                ],
+                                other_table_name: "team_b".to_owned(),
+                            },
+                            Include {
+                                field_names: vec!["height".to_owned()],
+                                other_table_field_names: vec!["height".to_owned()],
+                                other_table_name: "team_a".to_owned(),
+                            },
+                        ],
+                    }],
+                )]
+                .into_iter()
+                .collect(),
+            ),
         };
 
         let data = [("team_a".to_owned(), team_a), ("team_b".to_owned(), team_b)]

@@ -1,5 +1,5 @@
 use anyhow::Context;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
@@ -121,7 +121,8 @@ pub struct TraceRequest {
     pub include_blocks: bool,
 }
 
-#[derive(Serialize, Default, Debug, Clone, Copy)]
+#[derive(Deserialize, Serialize, Default, Debug, Clone, Copy)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct Fields {
     pub block: BlockFields,
@@ -141,7 +142,8 @@ impl Fields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct BlockFields {
     pub number: bool,
@@ -209,7 +211,8 @@ impl BlockFields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TransactionFields {
     pub block_hash: bool,
@@ -311,7 +314,8 @@ impl TransactionFields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct LogFields {
     pub removed: bool,
@@ -347,7 +351,8 @@ impl LogFields {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct TraceFields {
     #[serde(rename = "from")]
