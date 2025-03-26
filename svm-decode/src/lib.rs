@@ -1,7 +1,7 @@
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use arrow::{array::RecordBatch, compute::filter_record_batch};
-use std::{collections::HashMap, fs::File, io::{Error, ErrorKind, Read}};
-use anchor_lang::prelude::{borsh::BorshDeserialize, Pubkey};
+use std::fs::File;
+use anchor_lang::prelude::Pubkey;
 use arrow::array::{Array, BinaryArray, ListArray, UInt64Array};
 use anyhow::{anyhow, Result};
 
@@ -14,16 +14,16 @@ pub struct InstructionSignature {
     pub name: String,
     pub discriminator: &'static [u8],
     pub sec_discriminator: Option<&'static [u8]>,
-    pub params: Vec<inputParam>,
+    pub params: Vec<InputParam>,
     pub accounts: Vec<String>,
 }
-pub struct inputParam {
+pub struct InputParam {
     pub name: String,
     pub param_type: DynType,
 }
 
 #[derive(Debug, Clone)]
-enum DynType {
+pub enum DynType {
     Bool,
     Int,
     Uint,
@@ -34,7 +34,7 @@ enum DynType {
     FixedArray(usize),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DynValue {
     Bool(bool),
     Uint(u64),
@@ -140,7 +140,7 @@ fn deserialize_ix_value<'a>(param_type: &DynType, data: &'a mut [u8]) -> Result<
     }
 }
 
-pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Result<Vec<Vec<DynValue>>> {
+pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Result<Vec<Vec<Option<DynValue>>>> {
     let program_id_col = batch.column_by_name("program_id").unwrap();
     let program_id_array = program_id_col.as_any().downcast_ref::<BinaryArray>().unwrap();
 
@@ -149,56 +149,67 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
 
     let rest_of_accounts_col = batch.column_by_name("rest_of_accounts").unwrap();
     let rest_of_accounts_array = rest_of_accounts_col.as_any().downcast_ref::<ListArray>().unwrap();
-
-    // Get account arrays for potential use
     let account_arrays: Vec<&BinaryArray> = (0..10).map(|i| {
         let col_name = format!("a{}", i);
         let col = batch.column_by_name(&col_name).unwrap();
         col.as_any().downcast_ref::<BinaryArray>().unwrap()
     }).collect();
 
+    let num_params = signature.params.len();
     let mut decoded_instructions:Vec<DecodedIx>  = Vec::new();
-
+    let mut exploded_values: Vec<Vec<Option<DynValue>>> = (0..num_params)
+        .map(|_| Vec::new())
+        .collect();
+    
     for row_idx in 0..batch.num_rows() {
-
         let instr_program_id: [u8; 32] = program_id_array.value(row_idx).try_into().unwrap();
         let instr_program_id = Pubkey::new_from_array(instr_program_id);
 
         if !instr_program_id.to_string().as_str().eq(signature.program_id.to_string().as_str()) {
             println!("Program ID doesn't match: {:?}", instr_program_id);
+            exploded_values.iter_mut().for_each(|v| v.push(None));
             continue;
         }
 
-        // Get instruction data
         if data_array.is_null(row_idx) {
             println!("Instruction data is null");
+            exploded_values.iter_mut().for_each(|v| v.push(None));
             continue;
         }
 
         let instruction_data = data_array.value(row_idx);
-        let mut data = match_discriminators(&instruction_data, signature.discriminator, signature.sec_discriminator)?;
-        
+        println!("Instruction data: {:?}", instruction_data);
+        let data_result = match_discriminators(&instruction_data, signature.discriminator, signature.sec_discriminator);
+        let mut data = match data_result {
+            Ok(data) => data,
+            Err(e) => {
+                println!("Error matching discriminators: {:?}", e);
+                exploded_values.iter_mut().for_each(|v| v.push(None));
+                continue;
+            }
+        };
 
-        let instruction = DecodedIx {
+        let decoded_ix_result = DecodedIx {
             param_types: signature.params.iter().map(|p| p.param_type.clone()).collect(),
             fields: Vec::new(),
-        }.deserialize(&mut data)?;        
-        decoded_instructions.push(instruction);
+        }.deserialize(&mut data);
+
+        let decoded_ix = match decoded_ix_result {
+            Ok(ix) => ix,
+            Err(e) => {
+                println!("Error deserializing instruction: {:?}", e);
+                exploded_values.iter_mut().for_each(|v| v.push(None));
+                continue;
+            }
+        };
+        
+        println!("Decoded instruction: {:?}", decoded_ix);
+        exploded_values.iter_mut().for_each(|v| v.push(Some(decoded_ix.fields[0].clone())));
     }
 
-    let mut unpacked: Vec<Vec<DynValue>> = (0..signature.params.len())
-        .map(|_| Vec::new())
-        .collect();
-    
-    for ix_value in decoded_instructions {
-        for (index, value) in ix_value.fields.into_iter().enumerate() {
-            unpacked[index].push(value);
-        }
-    }
+    println!("Unpacked: {:?}", exploded_values);
 
-    println!("Unpacked: {:?}", unpacked);
-
-    Ok(unpacked)
+    Ok(exploded_values)
 }
 
 pub fn match_discriminators(
@@ -209,7 +220,6 @@ pub fn match_discriminators(
     let discriminator_len = discriminator.len();
     let disc = &instr_data[..discriminator_len];
     let mut ix_data = &instr_data[discriminator_len..];
-    println!("Discriminator: {:?}", disc);
     if !disc.eq(discriminator) {
         return Err(anyhow::anyhow!("Instruction data discriminator doesn't match signature discriminator"));
     }
@@ -221,7 +231,6 @@ pub fn match_discriminators(
         }
         ix_data = &ix_data[sec_discriminator_len..];
     }
-    println!("Instruction data: {:?}", ix_data);
     Ok(ix_data.to_vec())
 }
 
@@ -278,7 +287,7 @@ mod tests {
     // #[ignore]
     fn decode_instruction_test() {
         // read the filtered_instructions.parquet file
-        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("filtered_instructions2.parquet").unwrap()).unwrap();
+        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("filtered_instructions.parquet").unwrap()).unwrap();
         let mut reader = builder.build().unwrap();
         let instructions = reader.next().unwrap().unwrap();
 
@@ -288,7 +297,7 @@ mod tests {
             discriminator: &[3],
             sec_discriminator: None,
             params: vec![
-                inputParam {
+                InputParam {
                     name: "Amount".to_string(),
                     param_type: DynType::Uint,
                 },
