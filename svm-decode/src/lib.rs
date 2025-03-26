@@ -5,19 +5,15 @@ use anchor_lang::prelude::Pubkey;
 use arrow::array::{Array, BinaryArray, ListArray, UInt64Array};
 use anyhow::{anyhow, Result};
 
-pub struct DecodedInstructionData {
-    pub param_type: DynType,
-    pub value: DynValue,
-}
 pub struct InstructionSignature {
     pub program_id: Pubkey,
     pub name: String,
     pub discriminator: &'static [u8],
     pub sec_discriminator: Option<&'static [u8]>,
-    pub params: Vec<InputParam>,
+    pub params: Vec<ParamInput>,
     pub accounts: Vec<String>,
 }
-pub struct InputParam {
+pub struct ParamInput {
     pub name: String,
     pub param_type: DynType,
 }
@@ -31,7 +27,6 @@ pub enum DynType {
     Pubkey,
     Bytes(usize),
     String(usize),
-    FixedArray(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -43,99 +38,77 @@ pub enum DynValue {
     Pubkey(Pubkey),
     Bytes(usize, Vec<u8>),
     String(String, usize),
-    FixedArray(usize, Vec<DynValue>),
 }
 
-#[derive(Debug)]
-pub struct DecodedIx {
-    param_types: Vec<DynType>,
-    fields: Vec<DynValue>
-}
-
-impl DecodedIx {
-    fn deserialize(&self, data: &mut [u8]) -> Result<Self> {
-        let mut ix_values = Vec::new();
-        let mut remaining_data = data;
-        
-        for param_type in &self.param_types {           
-            // Deserialize value based on type
-            let (value, new_data) = deserialize_ix_value(param_type, remaining_data)?;
-            ix_values.push(value);
-            remaining_data = new_data;
-        }
-        if remaining_data.len() > 0 {
-            return Err(anyhow::anyhow!("Remaining data after deserialization"));
-        }
-        
-        Ok(DecodedIx { 
-            param_types: self.param_types.clone(), 
-            fields: ix_values 
-        })
+pub fn deserialize_data(data: &mut [u8], params: &[ParamInput]) -> Result<Vec<DynValue>> {
+    let mut ix_values = Vec::with_capacity(params.len());
+    let mut remaining_data = data;
+    
+    for param in params {           
+        // Deserialize value based on type
+        let (value, new_data) = deserialize_value(&param.param_type, remaining_data)?;
+        ix_values.push(value);
+        remaining_data = new_data;
     }
+    
+    if !remaining_data.is_empty() {
+        return Err(anyhow!("Remaining data after deserialization: {} bytes", remaining_data.len()));
+    }
+    
+    Ok(ix_values)
 }
 
-fn deserialize_ix_value<'a>(param_type: &DynType, data: &'a mut [u8]) -> Result<(DynValue, &'a mut [u8])> {
+fn deserialize_value<'a>(param_type: &DynType, data: &'a mut [u8]) -> Result<(DynValue, &'a mut [u8])> {
     match param_type {
         DynType::Bool => {
             if data.is_empty() {
-                return Err(anyhow::anyhow!("Not enough data for bool"));
+                return Err(anyhow!("Not enough data for bool: expected 1 byte, got 0"));
             }
             let value = data[0] != 0;
             Ok((DynValue::Bool(value), &mut data[1..]))
         }
         DynType::Uint => {
             if data.len() < 8 {
-                return Err(anyhow::anyhow!("Not enough data for uint"));
+                return Err(anyhow!("Not enough data for uint: expected 8 bytes, got {}", data.len()));
             }
             let value = u64::from_le_bytes(data[..8].try_into().unwrap());
             Ok((DynValue::Uint(value), &mut data[8..]))
         }
         DynType::Int => {
             if data.len() < 8 {
-                return Err(anyhow::anyhow!("Not enough data for int"));
+                return Err(anyhow!("Not enough data for int: expected 8 bytes, got {}", data.len()));
             }
             let value = i64::from_le_bytes(data[..8].try_into().unwrap());
             Ok((DynValue::Int(value), &mut data[8..]))
         }
         DynType::FixedBytes(size) => {
             if data.len() < *size {
-                return Err(anyhow::anyhow!("Not enough data for fixed bytes"));
+                return Err(anyhow!("Not enough data for fixed bytes: expected {} bytes, got {}", size, data.len()));
             }
             let value = data[..*size].to_vec();
             Ok((DynValue::FixedBytes(*size, value), &mut data[*size..]))
         }
         DynType::Pubkey => {
             if data.len() < 32 {
-                return Err(anyhow::anyhow!("Not enough data for pubkey"));
+                return Err(anyhow!("Not enough data for pubkey: expected 32 bytes, got {}", data.len()));
             }
             let value = Pubkey::new_from_array(data[..32].try_into().unwrap());
             Ok((DynValue::Pubkey(value), &mut data[32..]))
         }
         DynType::Bytes(size) => {
             if data.len() < *size {
-                return Err(anyhow::anyhow!("Not enough data for bytes"));
+                return Err(anyhow!("Not enough data for bytes: expected {} bytes, got {}", size, data.len()));
             }
             let value = data[..*size].to_vec();
             Ok((DynValue::Bytes(*size, value), &mut data[*size..]))
         }
         DynType::String(size) => {
             if data.len() < *size {
-                return Err(anyhow::anyhow!("Not enough data for string"));
+                return Err(anyhow!("Not enough data for string: expected {} bytes, got {}", size, data.len()));
             }
-            let value = String::from_utf8(data[..*size].to_vec())?;
+            let value = String::from_utf8(data[..*size].to_vec())
+                .map_err(|e| anyhow!("Invalid UTF-8 string: {}", e))?;
             Ok((DynValue::String(value, *size), &mut data[*size..]))
-        }
-        DynType::FixedArray(size) => {
-            let mut values = Vec::new();
-            let mut remaining_data = data;
-            
-            for _ in 0..*size {
-                let (value, new_data) = deserialize_ix_value(param_type, remaining_data)?;
-                values.push(value);
-                remaining_data = new_data;
-            }
-            
-            Ok((DynValue::FixedArray(*size, values), remaining_data))
         }
     }
 }
@@ -156,7 +129,7 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
     }).collect();
 
     let num_params = signature.params.len();
-    let mut decoded_instructions:Vec<DecodedIx>  = Vec::new();
+    let mut decoded_instructions:Vec<Vec<DynValue>>  = Vec::new();
     let mut exploded_values: Vec<Vec<Option<DynValue>>> = (0..num_params)
         .map(|_| Vec::new())
         .collect();
@@ -164,9 +137,7 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
     for row_idx in 0..batch.num_rows() {
         let instr_program_id: [u8; 32] = program_id_array.value(row_idx).try_into().unwrap();
         let instr_program_id = Pubkey::new_from_array(instr_program_id);
-
-        if !instr_program_id.to_string().as_str().eq(signature.program_id.to_string().as_str()) {
-            println!("Program ID doesn't match: {:?}", instr_program_id);
+        if instr_program_id != signature.program_id {
             exploded_values.iter_mut().for_each(|v| v.push(None));
             continue;
         }
@@ -189,11 +160,7 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
             }
         };
 
-        let decoded_ix_result = DecodedIx {
-            param_types: signature.params.iter().map(|p| p.param_type.clone()).collect(),
-            fields: Vec::new(),
-        }.deserialize(&mut data);
-
+        let decoded_ix_result = deserialize_data(&mut data, &signature.params);
         let decoded_ix = match decoded_ix_result {
             Ok(ix) => ix,
             Err(e) => {
@@ -204,7 +171,9 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
         };
         
         println!("Decoded instruction: {:?}", decoded_ix);
-        exploded_values.iter_mut().for_each(|v| v.push(Some(decoded_ix.fields[0].clone())));
+        for (i, value) in decoded_ix.into_iter().enumerate() {
+            exploded_values[i].push(Some(value));
+        }
     }
 
     println!("Unpacked: {:?}", exploded_values);
@@ -297,7 +266,7 @@ mod tests {
             discriminator: &[3],
             sec_discriminator: None,
             params: vec![
-                InputParam {
+                ParamInput {
                     name: "Amount".to_string(),
                     param_type: DynType::Uint,
                 },
