@@ -4,6 +4,8 @@ use std::fs::File;
 use anchor_lang::prelude::Pubkey;
 use arrow::array::{Array, BinaryArray, ListArray, UInt64Array};
 use anyhow::{anyhow, Result};
+mod deserialize;
+use deserialize::{deserialize_data, DynType, DynValue, ParamInput};
 
 pub struct InstructionSignature {
     pub program_id: Pubkey,
@@ -12,105 +14,6 @@ pub struct InstructionSignature {
     pub sec_discriminator: Option<&'static [u8]>,
     pub params: Vec<ParamInput>,
     pub accounts: Vec<String>,
-}
-pub struct ParamInput {
-    pub name: String,
-    pub param_type: DynType,
-}
-
-#[derive(Debug, Clone)]
-pub enum DynType {
-    Bool,
-    Int,
-    Uint,
-    FixedBytes(usize),
-    Pubkey,
-    Bytes(usize),
-    String(usize),
-}
-
-#[derive(Debug, Clone)]
-pub enum DynValue {
-    Bool(bool),
-    Uint(u64),
-    Int(i64),
-    FixedBytes(usize, Vec<u8>),
-    Pubkey(Pubkey),
-    Bytes(usize, Vec<u8>),
-    String(String, usize),
-}
-
-pub fn deserialize_data(data: &mut [u8], params: &[ParamInput]) -> Result<Vec<DynValue>> {
-    let mut ix_values = Vec::with_capacity(params.len());
-    let mut remaining_data = data;
-    
-    for param in params {           
-        // Deserialize value based on type
-        let (value, new_data) = deserialize_value(&param.param_type, remaining_data)?;
-        ix_values.push(value);
-        remaining_data = new_data;
-    }
-    
-    if !remaining_data.is_empty() {
-        return Err(anyhow!("Remaining data after deserialization: {} bytes", remaining_data.len()));
-    }
-    
-    Ok(ix_values)
-}
-
-fn deserialize_value<'a>(param_type: &DynType, data: &'a mut [u8]) -> Result<(DynValue, &'a mut [u8])> {
-    match param_type {
-        DynType::Bool => {
-            if data.is_empty() {
-                return Err(anyhow!("Not enough data for bool: expected 1 byte, got 0"));
-            }
-            let value = data[0] != 0;
-            Ok((DynValue::Bool(value), &mut data[1..]))
-        }
-        DynType::Uint => {
-            if data.len() < 8 {
-                return Err(anyhow!("Not enough data for uint: expected 8 bytes, got {}", data.len()));
-            }
-            let value = u64::from_le_bytes(data[..8].try_into().unwrap());
-            Ok((DynValue::Uint(value), &mut data[8..]))
-        }
-        DynType::Int => {
-            if data.len() < 8 {
-                return Err(anyhow!("Not enough data for int: expected 8 bytes, got {}", data.len()));
-            }
-            let value = i64::from_le_bytes(data[..8].try_into().unwrap());
-            Ok((DynValue::Int(value), &mut data[8..]))
-        }
-        DynType::FixedBytes(size) => {
-            if data.len() < *size {
-                return Err(anyhow!("Not enough data for fixed bytes: expected {} bytes, got {}", size, data.len()));
-            }
-            let value = data[..*size].to_vec();
-            Ok((DynValue::FixedBytes(*size, value), &mut data[*size..]))
-        }
-        DynType::Pubkey => {
-            if data.len() < 32 {
-                return Err(anyhow!("Not enough data for pubkey: expected 32 bytes, got {}", data.len()));
-            }
-            let value = Pubkey::new_from_array(data[..32].try_into().unwrap());
-            Ok((DynValue::Pubkey(value), &mut data[32..]))
-        }
-        DynType::Bytes(size) => {
-            if data.len() < *size {
-                return Err(anyhow!("Not enough data for bytes: expected {} bytes, got {}", size, data.len()));
-            }
-            let value = data[..*size].to_vec();
-            Ok((DynValue::Bytes(*size, value), &mut data[*size..]))
-        }
-        DynType::String(size) => {
-            if data.len() < *size {
-                return Err(anyhow!("Not enough data for string: expected {} bytes, got {}", size, data.len()));
-            }
-            let value = String::from_utf8(data[..*size].to_vec())
-                .map_err(|e| anyhow!("Invalid UTF-8 string: {}", e))?;
-            Ok((DynValue::String(value, *size), &mut data[*size..]))
-        }
-    }
 }
 
 pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Result<Vec<Vec<Option<DynValue>>>> {
@@ -138,6 +41,7 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
         let instr_program_id: [u8; 32] = program_id_array.value(row_idx).try_into().unwrap();
         let instr_program_id = Pubkey::new_from_array(instr_program_id);
         if instr_program_id != signature.program_id {
+            println!("Instruction program id doesn't match signature program id");
             exploded_values.iter_mut().for_each(|v| v.push(None));
             continue;
         }
@@ -149,7 +53,6 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
         }
 
         let instruction_data = data_array.value(row_idx);
-        println!("Instruction data: {:?}", instruction_data);
         let data_result = match_discriminators(&instruction_data, signature.discriminator, signature.sec_discriminator);
         let mut data = match data_result {
             Ok(data) => data,
@@ -209,7 +112,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn read_parquet_files() {
         let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("../core/reports/instruction.parquet").unwrap()).unwrap();
         let mut reader = builder.build().unwrap();
@@ -234,7 +137,11 @@ mod tests {
                 mask.push(false);
             } else {
                 let value = program_id_col.value(i);
-                mask.push(value == spl_token_program_id); //value == jup_program_id || value == spl_token_2022_program_id || 
+                mask.push(
+                    // value == spl_token_program_id ||
+                    value == jup_program_id
+                    // value == spl_token_2022_program_id
+                );
             }
         }
 
@@ -261,22 +168,177 @@ mod tests {
         let instructions = reader.next().unwrap().unwrap();
 
         let ix_signature = InstructionSignature {
-            program_id: Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-            name: "Transfer".to_string(),
-            discriminator: &[3],
-            sec_discriminator: None,
+            // // SPL Token Transfer
+            // program_id: Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+            // name: "Transfer".to_string(),
+            // discriminator: &[3],
+            // sec_discriminator: None,
+            // params: vec![
+            //     ParamInput {
+            //         name: "Amount".to_string(),
+            //         param_type: DynType::U64,
+            //     },
+                
+            // ],
+            // accounts: vec![
+            //     "Source".to_string(),
+            //     "Destination".to_string(),
+            //     "Authority".to_string(),
+            // ],
+
+            // JUP SwapEvent
+            program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
+            name: "SwapEvent".to_string(),
+            discriminator: &[228, 69, 165, 46, 81, 203, 154, 29],
+            sec_discriminator: Some(&[64, 198, 205, 232, 38, 8, 113, 226]),
             params: vec![
                 ParamInput {
-                    name: "Amount".to_string(),
-                    param_type: DynType::Uint,
+                    name: "Amm".to_string(),
+                    param_type: DynType::Pubkey,
                 },
-                
+                ParamInput {
+                    name: "InputMint".to_string(),
+                    param_type: DynType::Pubkey,
+                },
+                ParamInput {
+                    name: "InputAmount".to_string(),
+                    param_type: DynType::U64,
+                },
+                ParamInput {
+                    name: "OutputMint".to_string(),
+                    param_type: DynType::Pubkey,
+                },
+                ParamInput {
+                    name: "OutputAmount".to_string(),
+                    param_type: DynType::U64,
+                },
             ],
             accounts: vec![
-                "Source".to_string(),
-                "Destination".to_string(),
-                "Authority".to_string(),
             ],
+
+            // // JUP Route
+            // program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
+            // name: "Route".to_string(),
+            // discriminator: &[229, 23, 203, 151, 122, 227, 173, 42],
+            // sec_discriminator: None,
+            // params: vec![
+            //     ParamInput {
+            //         name: "RoutePlan".to_string(),
+            //         param_type: DynType::Vec(Box::new(
+            //             DynType::Struct(vec![
+            //                 ("RoutePlanStep".to_string(), 
+            //                 DynType::Enum(vec![
+            //                     ("Saber".to_string(), DynType::Defined),
+            //                     ("SaberAddDecimalsDeposit".to_string(), DynType::Defined),
+            //                     ("SaberAddDecimalsWithdraw".to_string(), DynType::Defined),
+            //                     ("TokenSwap".to_string(), DynType::Defined),
+            //                     ("Sencha".to_string(), DynType::Defined),
+            //                     ("Step".to_string(), DynType::Defined),
+            //                     ("Cropper".to_string(), DynType::Defined),
+            //                     ("Raydium".to_string(), DynType::Defined),
+            //                     ("Crema".to_string(), DynType::Struct(vec![("a_to_b".to_string(), DynType::Bool)])),
+            //                     ("Lifinity".to_string(), DynType::Defined),
+            //                     ("Mercurial".to_string(), DynType::Defined),
+            //                     ("Cykura".to_string(), DynType::Defined),
+            //                     ("Serum".to_string(), DynType::Struct(vec![("side".to_string(), DynType::Enum(vec![("Bid".to_string(), DynType::Defined), ("Ask".to_string(), DynType::Defined)]))])),
+            //                     ("MarinadeDeposit".to_string(), DynType::Defined),
+            //                     ("MarinadeUnstake".to_string(), DynType::Defined),
+            //                     ("Aldrin".to_string(), DynType::Struct(vec![("side".to_string(), DynType::Enum(vec![("Bid".to_string(), DynType::Defined), ("Ask".to_string(), DynType::Defined)]))])),
+            //                     ("AldrinV2".to_string(), DynType::Struct(vec![("side".to_string(), DynType::Enum(vec![("Bid".to_string(), DynType::Defined), ("Ask".to_string(), DynType::Defined)]))])),
+            //                     ("Whirlpool".to_string(), DynType::Struct(vec![("a_to_b".to_string(), DynType::Bool)])),
+            //                     ("Invariant".to_string(), DynType::Struct(vec![("x_to_y".to_string(), DynType::Bool)])),
+            //                     ("Meteora".to_string(), DynType::Defined),
+            //                     ("GooseFX".to_string(), DynType::Defined),
+            //                     ("DeltaFi".to_string(), DynType::Struct(vec![("stable".to_string(), DynType::Bool)])),
+            //                     ("Balansol".to_string(), DynType::Defined),
+            //                     ("MarcoPolo".to_string(), DynType::Struct(vec![("x_to_y".to_string(), DynType::Bool)])),
+            //                     ("Dradex".to_string(), DynType::Struct(vec![("side".to_string(), DynType::Enum(vec![("Bid".to_string(), DynType::Defined), ("Ask".to_string(), DynType::Defined)]))])),
+            //                     ("LifinityV2".to_string(), DynType::Defined),
+            //                     ("RaydiumClmm".to_string(), DynType::Defined),
+            //                     ("Openbook".to_string(), DynType::Struct(vec![("side".to_string(), DynType::Enum(vec![("Bid".to_string(), DynType::Defined), ("Ask".to_string(), DynType::Defined)]))])),
+            //                     ("Phoenix".to_string(), DynType::Struct(vec![("side".to_string(), DynType::Enum(vec![("Bid".to_string(), DynType::Defined), ("Ask".to_string(), DynType::Defined)]))])),
+            //                     ("Symmetry".to_string(), DynType::Struct(vec![("from_token_id".to_string(), DynType::U64), ("to_token_id".to_string(), DynType::U64)])),
+            //                     ("TokenSwapV2".to_string(), DynType::Defined),
+            //                     ("HeliumTreasuryManagementRedeemV0".to_string(), DynType::Defined),
+            //                     ("StakeDexStakeWrappedSol".to_string(), DynType::Defined),
+            //                     ("StakeDexSwapViaStake".to_string(), DynType::Struct(vec![("bridge_stake_seed".to_string(), DynType::U32)])),
+            //                     ("GooseFXV2".to_string(), DynType::Defined),
+            //                     ("Perps".to_string(), DynType::Defined),
+            //                     ("PerpsAddLiquidity".to_string(), DynType::Defined),
+            //                     ("PerpsRemoveLiquidity".to_string(), DynType::Defined),
+            //                     ("MeteoraDlmm".to_string(), DynType::Defined),
+            //                     ("OpenBookV2".to_string(), DynType::Struct(vec![("side".to_string(), DynType::Enum(vec![("Bid".to_string(), DynType::Defined), ("Ask".to_string(), DynType::Defined)]))])),
+            //                     ("RaydiumClmmV2".to_string(), DynType::Defined),
+            //                     ("StakeDexPrefundWithdrawStakeAndDepositStake".to_string(), DynType::Struct(vec![("bridge_stake_seed".to_string(), DynType::U32)])),
+            //                     ("Clone".to_string(), DynType::Struct(vec![("pool_index".to_string(), DynType::U8), ("quantity_is_input".to_string(), DynType::Bool), ("quantity_is_collateral".to_string(), DynType::Bool)])),
+            //                     ("SanctumS".to_string(), DynType::Struct(vec![("src_lst_value_calc_accs".to_string(), DynType::U8), ("dst_lst_value_calc_accs".to_string(), DynType::U8), ("src_lst_index".to_string(), DynType::U32), ("dst_lst_index".to_string(), DynType::U32)])),
+            //                     ("SanctumSAddLiquidity".to_string(), DynType::Struct(vec![("lst_value_calc_accs".to_string(), DynType::U8), ("lst_index".to_string(), DynType::U32)])),
+            //                     ("SanctumSRemoveLiquidity".to_string(), DynType::Struct(vec![("lst_value_calc_accs".to_string(), DynType::U8), ("lst_index".to_string(), DynType::U32)])),
+            //                     ("RaydiumCP".to_string(), DynType::Defined),
+            //                     ("WhirlpoolSwapV2".to_string(), DynType::Struct(vec![("a_to_b".to_string(), DynType::Bool), ("remaining_accounts_info".to_string(), DynType::Defined)])),
+            //                     ("OneIntro".to_string(), DynType::Defined),
+            //                     ("PumpdotfunWrappedBuy".to_string(), DynType::Defined),
+            //                     ("PumpdotfunWrappedSell".to_string(), DynType::Defined),
+            //                     ("PerpsV2".to_string(), DynType::Defined),
+            //                     ("PerpsV2AddLiquidity".to_string(), DynType::Defined),
+            //                     ("PerpsV2RemoveLiquidity".to_string(), DynType::Defined),
+            //                     ("MoonshotWrappedBuy".to_string(), DynType::Defined),
+            //                     ("MoonshotWrappedSell".to_string(), DynType::Defined),
+            //                     ("StabbleStableSwap".to_string(), DynType::Defined),
+            //                     ("StabbleWeightedSwap".to_string(), DynType::Defined),
+            //                     ("Obric".to_string(), DynType::Struct(vec![("x_to_y".to_string(), DynType::Bool)])),
+            //                     ("FoxBuyFromEstimatedCost".to_string(), DynType::Defined),
+            //                     ("FoxClaimPartial".to_string(), DynType::Struct(vec![("is_y".to_string(), DynType::Bool)])),
+            //                     ("SolFi".to_string(), DynType::Struct(vec![("is_quote_to_base".to_string(), DynType::Bool)])),
+            //                     ("SolayerDelegateNoInit".to_string(), DynType::Defined),
+            //                     ("SolayerUndelegateNoInit".to_string(), DynType::Defined),
+            //                     ("TokenMill".to_string(), DynType::Struct(vec![("side".to_string(), DynType::Enum(vec![("Bid".to_string(), DynType::Defined), ("Ask".to_string(), DynType::Defined)]))])),
+            //                     ("DaosFunBuy".to_string(), DynType::Defined),
+            //                     ("DaosFunSell".to_string(), DynType::Defined),
+            //                     ("ZeroFi".to_string(), DynType::Defined),
+            //                     ("StakeDexWithdrawWrappedSol".to_string(), DynType::Defined),
+            //                     ("VirtualsBuy".to_string(), DynType::Defined),
+            //                     ("VirtualsSell".to_string(), DynType::Defined),
+            //                     ("Peren".to_string(), DynType::Struct(vec![("in_index".to_string(), DynType::U8), ("out_index".to_string(), DynType::U8)])),
+            //                     ("PumpdotfunAmmBuy".to_string(), DynType::Defined),
+            //                     ("PumpdotfunAmmSell".to_string(), DynType::Defined),
+            //                     ("Gamma".to_string(), DynType::Defined),
+            //                 ])),
+            //                 ("Percent".to_string(), DynType::U8),
+            //                 ("InputIndex".to_string(), DynType::U8),
+            //                 ("OutputIndex".to_string(), DynType::U8),
+            //             ])
+            //         )),
+            //     },
+            //     ParamInput {
+            //         name: "InAmount".to_string(),
+            //         param_type: DynType::U64,
+            //     },
+            //     ParamInput {
+            //         name: "QuotedOutAmount".to_string(),
+            //         param_type: DynType::U64,
+            //     },
+            //     ParamInput {
+            //         name: "SlippageBps".to_string(),
+            //         param_type: DynType::U16,
+            //     },
+            //     ParamInput {
+            //         name: "PlatformFeeBps".to_string(),
+            //         param_type: DynType::U8,
+            //     },          
+            // ],
+            // accounts: vec![
+            //     "TokenProgram".to_string(),
+            //     "UserTransferAuthority".to_string(),
+            //     "UserSourceTokenAccount".to_string(),
+            //     "UserDestinationTokenAccount".to_string(),
+            //     "DestinationTokenAccount".to_string(),
+            //     "PlatformFeeAccount".to_string(),
+            //     "EventAuthority".to_string(),
+            //     "Program".to_string(),
+            // ],
+
+
         };
 
         let result = decode_batch(&instructions, ix_signature);
