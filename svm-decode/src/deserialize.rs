@@ -10,8 +10,6 @@ pub struct ParamInput {
 /// Represents a dynamic type that can be deserialized from binary data
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynType {
-    /// A defined type that doesn't require deserialization
-    Defined,
     I8,
     I16,
     I32,
@@ -25,7 +23,6 @@ pub enum DynType {
     F32,
     F64,
     Bool,
-    Char,
     /// Solana specific types
     Pubkey,
     /// Complex types
@@ -52,7 +49,6 @@ pub enum DynValue {
     F32(f32),
     F64(f64),
     Bool(bool),
-    Char(char),
     /// Solana specific values
     Pubkey(Pubkey),
     /// Complex values
@@ -110,7 +106,6 @@ pub fn deserialize_data(data: &mut [u8], params: &[ParamInput]) -> Result<Vec<Dy
 /// * The data format doesn't match the expected type
 fn deserialize_value<'a>(param_type: &DynType, data: &'a mut [u8]) -> Result<(DynValue, &'a mut [u8])> {
     match param_type {
-        DynType::Defined => Ok((DynValue::Defined, data)),
         DynType::I8 => {
             if data.is_empty() {
                 return Err(anyhow!("Not enough data for i8: expected 1 byte, got {}", data.len()));
@@ -201,15 +196,6 @@ fn deserialize_value<'a>(param_type: &DynType, data: &'a mut [u8]) -> Result<(Dy
             }
             let value = data[0] != 0;
             Ok((DynValue::Bool(value), &mut data[1..]))
-        }
-        DynType::Char => {
-            if data.len() < 4 {
-                return Err(anyhow!("Not enough data for char: expected 4 bytes, got {}", data.len()));
-            }
-            let value = u32::from_le_bytes(data[..4].try_into().unwrap());
-            let char_value = char::from_u32(value)
-                .ok_or_else(|| anyhow!("Invalid Unicode scalar value: {}", value))?;
-            Ok((DynValue::Char(char_value), &mut data[4..]))
         }
         DynType::Pubkey => {
             if data.len() < 32 {
