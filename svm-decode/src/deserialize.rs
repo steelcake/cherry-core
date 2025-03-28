@@ -10,6 +10,8 @@ pub struct ParamInput {
 /// Represents a dynamic type that can be deserialized from binary data
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynType {
+    /// A defined type that doesn't require deserialization
+    Defined,
     I8,
     I16,
     I32,
@@ -20,8 +22,6 @@ pub enum DynType {
     U32,
     U64,
     U128,
-    F32,
-    F64,
     Bool,
     /// Solana specific types
     Pubkey,
@@ -46,8 +46,6 @@ pub enum DynValue {
     U32(u32),
     U64(u64),
     U128(u128),
-    F32(f32),
-    F64(f64),
     Bool(bool),
     /// Solana specific values
     Pubkey(Pubkey),
@@ -106,6 +104,7 @@ pub fn deserialize_data(data: &mut [u8], params: &[ParamInput]) -> Result<Vec<Dy
 /// * The data format doesn't match the expected type
 fn deserialize_value<'a>(param_type: &DynType, data: &'a mut [u8]) -> Result<(DynValue, &'a mut [u8])> {
     match param_type {
+        DynType::Defined => Ok((DynValue::Defined, data)),
         DynType::I8 => {
             if data.is_empty() {
                 return Err(anyhow!("Not enough data for i8: expected 1 byte, got {}", data.len()));
@@ -175,20 +174,6 @@ fn deserialize_value<'a>(param_type: &DynType, data: &'a mut [u8]) -> Result<(Dy
             }
             let value = u128::from_le_bytes(data[..16].try_into().unwrap());
             Ok((DynValue::U128(value), &mut data[16..]))
-        }
-        DynType::F32 => {
-            if data.len() < 4 {
-                return Err(anyhow!("Not enough data for f32: expected 4 bytes, got {}", data.len()));
-            }
-            let value = f32::from_le_bytes(data[..4].try_into().unwrap());
-            Ok((DynValue::F32(value), &mut data[4..]))
-        }
-        DynType::F64 => {
-            if data.len() < 8 {
-                return Err(anyhow!("Not enough data for f64: expected 8 bytes, got {}", data.len()));
-            }
-            let value = f64::from_le_bytes(data[..8].try_into().unwrap());
-            Ok((DynValue::F64(value), &mut data[8..]))
         }
         DynType::Bool => {
             if data.is_empty() {
