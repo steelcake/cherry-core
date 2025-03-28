@@ -9,7 +9,8 @@ members = [
   "python",
   "ingest",
   "svm-schema",
-  "query",
+  "query", 
+  "svm-decode",
 ]
 
 [workspace.dependencies]
