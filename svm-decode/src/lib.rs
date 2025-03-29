@@ -1,5 +1,5 @@
 use anchor_lang::prelude::Pubkey;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Result, Context};
 use arrow::array::{Array, BinaryArray, ListArray, UInt64Array};
 use arrow::{
     array::{builder, ArrowPrimitiveType, NullArray, RecordBatch, StructArray},
@@ -98,9 +98,8 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
     let data_arrays: Vec<Arc<dyn Array>> = exploded_values
         .iter()
         .enumerate()
-        .map(|(i, v)| to_arrow(&signature.params[i].param_type, v.clone()))
-        .collect::<Result<Vec<_>>>()
-        .unwrap();
+        .map(|(i, v)| to_arrow(&signature.params[i].param_type, v.clone()).unwrap())
+        .collect::<Vec<_>>();
 
     let schema = Arc::new(Schema::new(
         signature
@@ -330,7 +329,7 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
         } else {
             Some(NullBuffer::from(validity))
         },
-    )?;
+    ).context("construct list array")?;
     Ok(Arc::new(list_arr))
 }
 
@@ -354,11 +353,11 @@ fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
             Ok(DataType::List(Arc::new(Field::new("", inner_type, true))))
         }
         DynType::Enum(variants) => {
-            // For enums, we'll use a dictionary type to store the variant names
-            Ok(DataType::Dictionary(
-                Box::new(DataType::UInt8),
-                Box::new(DataType::Utf8),
-            ))
+            let fields = variants.iter().map(|(name, dt)| {
+                Ok(Arc::new(Field::new(name, to_arrow_dtype(dt)?, true)))
+            }).collect::<Result<Vec<_>>>().context("map enum type")?; 
+
+            Ok(DataType::Struct(Fields::from(fields)))
         }
         DynType::Struct(fields) => {
             let arrow_fields = fields
@@ -769,7 +768,7 @@ mod tests {
                     name: "RoutePlan".to_string(),
                     param_type: DynType::Vec(Box::new(DynType::Struct(vec![
                         (
-                            "RoutePlanStep".to_string(),
+                            "Swap".to_string(),
                             DynType::Enum(vec![
                                 ("Saber".to_string(), DynType::Defined),
                                 ("SaberAddDecimalsDeposit".to_string(), DynType::Defined),
