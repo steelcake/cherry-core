@@ -4,13 +4,32 @@ import pyarrow
 
 
 def cast(
-    map: list[Tuple[str, str]], data: pyarrow.RecordBatch, allow_cast_fail: bool = False
+    map: list[Tuple[str, pyarrow.DataType]],
+    data: pyarrow.RecordBatch,
+    allow_cast_fail: bool = False,
 ) -> pyarrow.RecordBatch:
     return cc.cast(map, data, allow_cast_fail)
 
 
-def cast_schema(map: list[Tuple[str, str]], schema: pyarrow.Schema) -> pyarrow.Schema:
+def cast_schema(
+    map: list[Tuple[str, pyarrow.DataType]], schema: pyarrow.Schema
+) -> pyarrow.Schema:
     return cc.cast_schema(map, schema)
+
+
+def cast_by_type(
+    data: pyarrow.RecordBatch,
+    from_type: pyarrow.DataType,
+    to_type: pyarrow.DataType,
+    allow_cast_fail: bool = False,
+) -> pyarrow.RecordBatch:
+    return cc.cast_by_type(data, from_type, to_type, allow_cast_fail)
+
+
+def cast_schema_by_type(
+    schema: pyarrow.Schema, from_type: pyarrow.DataType, to_type: pyarrow.DataType
+) -> pyarrow.Schema:
+    return cc.cast_schema_by_type(schema, from_type, to_type)
 
 
 def base58_encode(data: pyarrow.RecordBatch) -> pyarrow.RecordBatch:

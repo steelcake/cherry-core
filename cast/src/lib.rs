@@ -21,7 +21,7 @@ pub fn cast<S: AsRef<str>>(
     let mut arrays = Vec::with_capacity(data.num_columns());
 
     let cast_opt = CastOptions {
-        safe: !allow_cast_fail,
+        safe: allow_cast_fail,
         ..Default::default()
     };
 
@@ -53,6 +53,61 @@ pub fn cast_schema<S: AsRef<str>>(map: &[(S, DataType)], schema: &Schema) -> Res
 
         if let Some(tgt) = cast_target {
             *f = Arc::new(Field::new(f.name(), tgt.1.clone(), f.is_nullable()));
+        }
+    }
+
+    Ok(Schema::new(fields))
+}
+
+/// Casts all columns with from_type to to_type.
+///
+/// Returns error if casting a row fails and `allow_cast_fail` is set to `false`.
+/// Writes `null` to output if casting a row fails and `allow_cast_fail` is set to `true`.
+pub fn cast_by_type(
+    data: &RecordBatch,
+    from_type: &DataType,
+    to_type: &DataType,
+    allow_cast_fail: bool,
+) -> Result<RecordBatch> {
+    let schema =
+        cast_schema_by_type(data.schema_ref(), from_type, to_type).context("cast schema")?;
+
+    let mut arrays = Vec::with_capacity(data.num_columns());
+
+    let cast_opt = CastOptions {
+        safe: allow_cast_fail,
+        ..Default::default()
+    };
+
+    for (col, field) in data.columns().iter().zip(data.schema_ref().fields().iter()) {
+        let col = if col.data_type() == from_type {
+            Arc::new(
+                arrow::compute::cast_with_options(col, to_type, &cast_opt)
+                    .with_context(|| format!("Failed when casting column '{}'", field.name()))?,
+            )
+        } else {
+            col.clone()
+        };
+
+        arrays.push(col);
+    }
+
+    let batch = RecordBatch::try_new(Arc::new(schema), arrays).context("construct record batch")?;
+
+    Ok(batch)
+}
+
+/// Casts columns with from_type to to_type
+pub fn cast_schema_by_type(
+    schema: &Schema,
+    from_type: &DataType,
+    to_type: &DataType,
+) -> Result<Schema> {
+    let mut fields = schema.fields().to_vec();
+
+    for f in fields.iter_mut() {
+        if f.data_type() == from_type {
+            *f = Arc::new(Field::new(f.name(), to_type.clone(), f.is_nullable()));
         }
     }
 

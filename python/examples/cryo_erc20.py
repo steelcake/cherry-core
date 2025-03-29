@@ -43,7 +43,7 @@ decoded = cherry_core.evm_decode_events(signature, batch, allow_decode_fail=Fals
 # This function is a helper function to do multiple cast operations at once. It casts
 # the named column 'amount' to 128 bit integers in this case.
 decoded = cherry_core.cast(
-    [("amount", "Decimal128(38, 0)")], decoded, allow_cast_fail=False
+    [("amount", pyarrow.decimal128(38, 0))], decoded, allow_cast_fail=False
 )
 
 # convert all binary columns to prefix hex string format like '0xabc'
