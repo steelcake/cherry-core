@@ -277,9 +277,56 @@ fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
 }
 
 fn to_enum(
-    fields: &Vec<(String, DynType)>,
+    variants: &Vec<(String, DynType)>,
     param_values: Vec<Option<DynValue>>,
 ) -> Result<Arc<dyn Array>> {
+    let mut values = Vec::with_capacity(param_values.len());
+
+    let make_struct = |variant_name, inner_val| {
+        let struct_inner = variants.iter().map(|(name, _)| {
+            if name == variant_name {
+                (name.clone(), Box::new(inner_val))
+            } else {
+                (name.clone(), Box::new(DynValue::Defined))
+            }
+        });
+
+        DynValue::Struct(struct_inner)
+    };
+
+    for val in param_values {
+        match val {
+            None => {
+                values.push(None);
+            }
+            Some(v) => match v {
+                DynValue::Enum((variant_name, inner_val)) => {
+                    values.push(make_struct(variant_name, inner_val));
+                }
+                _ => {
+                    return Err(anyhow!("type mismatch"));
+                }
+            }
+        }
+    }
+
+    to_struct(variants, values)
+
+
+    let mut struct_type = Vec::<(String, DynType)>::new();
+    let mut struct_value = Vec::<(String, DynValue)>::new();
+
+
+    for field in fields.iter() {
+        struct_type.push(field.0.clone(), field.1));
+    }
+
+    for (field, val) in fields.iter().zip(param_values) {
+        struct_type.push((format!(field.0), ))
+    }
+
+
+
     let mut variant_indices = Vec::with_capacity(param_values.len());
     let mut variant_values = Vec::with_capacity(param_values.len());
 
