@@ -13,3 +13,6 @@ arrow = { workspace = true }
 parquet = "54"
 anchor-lang = "0.31.0"
 anyhow = { workspace = true }
+
+[dev-dependencies]
+borsh = "1"
