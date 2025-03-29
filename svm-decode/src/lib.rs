@@ -113,8 +113,31 @@ fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<d
         DynType::Vec(inner_type) => to_list(inner_type, values),
         DynType::Struct(inner_type) => to_struct(inner_type, values),
         DynType::Enum(inner_type) => to_enum(inner_type, values),
+        DynType::Option(inner_type) => to_option(inner_type, values),
         _ => Err(anyhow!("Unsupported type: {:?}", param_type)),
     }
+}
+
+fn to_option(inner_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
+    let mut opt_values = Vec::with_capacity(values.len());
+
+    for value in values {
+        match value {
+            None => opt_values.push(None),
+            Some(v) => {
+                match v {
+                    DynValue::Option(inner_val) => {
+                        opt_values.push(inner_val.map(|v| *v));
+                    }
+                    _ => {
+                        return Err(anyhow!("Expected option type, found: {:?}", v));
+                    }
+                }
+            }
+        }
+    }
+
+    to_arrow(inner_type, opt_values)
 }
 
 fn to_number<T>(num_bits: usize, values: &[Option<DynValue>]) -> Result<Arc<dyn Array>>
@@ -243,6 +266,7 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
 
 fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
     match param_type {
+        DynType::Option(inner_type) => to_arrow_dtype(inner_type),
         DynType::I8 => Ok(DataType::Int8),
         DynType::I16 => Ok(DataType::Int16),
         DynType::I32 => Ok(DataType::Int32),
@@ -280,16 +304,20 @@ fn to_enum(
     variants: &Vec<(String, DynType)>,
     param_values: Vec<Option<DynValue>>,
 ) -> Result<Arc<dyn Array>> {
+
+    println!("variants: {:?}", variants);
+    println!("param_values: {:?}", param_values);
+    
     let mut values = Vec::with_capacity(param_values.len());
 
-    let make_struct = |variant_name, inner_val| {
+    let make_struct = |variant_name, inner_val: DynValue| {
         let struct_inner = variants.iter().map(|(name, _)| {
-            if name == variant_name {
-                (name.clone(), Box::new(inner_val))
+            if name == &variant_name {
+                (name.clone(), DynValue::Option(Some(Box::new(inner_val.clone()))))
             } else {
-                (name.clone(), Box::new(DynValue::Defined))
+                (name.clone(), DynValue::Option(None))
             }
-        });
+        }).collect::<Vec<_>>();
 
         DynValue::Struct(struct_inner)
     };
@@ -300,8 +328,8 @@ fn to_enum(
                 values.push(None);
             }
             Some(v) => match v {
-                DynValue::Enum((variant_name, inner_val)) => {
-                    values.push(make_struct(variant_name, inner_val));
+                DynValue::Enum(variant_name, inner_val) => {
+                    values.push(Some(make_struct(variant_name, *inner_val)));
                 }
                 _ => {
                     return Err(anyhow!("type mismatch"));
@@ -310,58 +338,61 @@ fn to_enum(
         }
     }
 
-    to_struct(variants, values)
+    let variants = variants.iter().map(|(name, param_type)| (name.clone(), DynType::Option(Box::new(param_type.clone())))).collect::<Vec<_>>();
 
-
-    let mut struct_type = Vec::<(String, DynType)>::new();
-    let mut struct_value = Vec::<(String, DynValue)>::new();
-
-
-    for field in fields.iter() {
-        struct_type.push(field.0.clone(), field.1));
-    }
-
-    for (field, val) in fields.iter().zip(param_values) {
-        struct_type.push((format!(field.0), ))
-    }
-
-
-
-    let mut variant_indices = Vec::with_capacity(param_values.len());
-    let mut variant_values = Vec::with_capacity(param_values.len());
-
-    for val in param_values {
-        match val {
-            Some(DynValue::Enum(variant_name, inner_val)) => {
-                // Find the index of the variant in the fields list
-                let variant_index = fields.iter()
-                    .position(|(name, _)| name == &variant_name)
-                    .ok_or_else(|| anyhow!("Unknown enum variant: {}", variant_name))?;
-                
-                variant_indices.push(Some(variant_index as u8));
-                variant_values.push(Some(*inner_val));
-            }
-            None => {
-                variant_indices.push(None);
-                variant_values.push(None);
-            }
-            Some(val) => return Err(anyhow!("Expected enum value, found: {:?}", val)),
-        }
-    }
-
-    // Create a dictionary array for the variant names
-    let variant_names: Vec<&str> = fields.iter().map(|(name, _)| name.as_str()).collect();
-    let dictionary = Arc::new(arrow::array::StringArray::from(variant_names));
-    
-    // Create the dictionary array with indices
-    let indices = arrow::array::UInt8Array::from(variant_indices);
-    let dictionary_array = arrow::array::DictionaryArray::try_new(
-        indices,
-        dictionary,
-    )?;
-
-    Ok(Arc::new(dictionary_array))
+    to_struct(&variants, values)
 }
+
+
+//     let mut struct_type = Vec::<(String, DynType)>::new();
+//     let mut struct_value = Vec::<(String, DynValue)>::new();
+
+
+//     for field in fields.iter() {
+//         struct_type.push(field.0.clone(), field.1));
+//     }
+
+//     for (field, val) in fields.iter().zip(param_values) {
+//         struct_type.push((format!(field.0), ))
+//     }
+
+
+
+//     let mut variant_indices = Vec::with_capacity(param_values.len());
+//     let mut variant_values = Vec::with_capacity(param_values.len());
+
+//     for val in param_values {
+//         match val {
+//             Some(DynValue::Enum(variant_name, inner_val)) => {
+//                 // Find the index of the variant in the fields list
+//                 let variant_index = fields.iter()
+//                     .position(|(name, _)| name == &variant_name)
+//                     .ok_or_else(|| anyhow!("Unknown enum variant: {}", variant_name))?;
+                
+//                 variant_indices.push(Some(variant_index as u8));
+//                 variant_values.push(Some(*inner_val));
+//             }
+//             None => {
+//                 variant_indices.push(None);
+//                 variant_values.push(None);
+//             }
+//             Some(val) => return Err(anyhow!("Expected enum value, found: {:?}", val)),
+//         }
+//     }
+
+//     // Create a dictionary array for the variant names
+//     let variant_names: Vec<&str> = fields.iter().map(|(name, _)| name.as_str()).collect();
+//     let dictionary = Arc::new(arrow::array::StringArray::from(variant_names));
+    
+//     // Create the dictionary array with indices
+//     let indices = arrow::array::UInt8Array::from(variant_indices);
+//     let dictionary_array = arrow::array::DictionaryArray::try_new(
+//         indices,
+//         dictionary,
+//     )?;
+
+//     Ok(Arc::new(dictionary_array))
+// }
 
 // fn to_enum(
 //     fields: &Vec<(String, DynType)>,
@@ -516,7 +547,7 @@ mod tests {
     // #[ignore]
     fn read_parquet_files() {
         // let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("../core/reports/instruction.parquet").unwrap()).unwrap();
-        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("filtered_instructions.parquet").unwrap()).unwrap();
+        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("filtered_instructions2.parquet").unwrap()).unwrap();
         let mut reader = builder.build().unwrap();
         let instructions = reader.next().unwrap().unwrap();
 

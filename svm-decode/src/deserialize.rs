@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Result, Context};
 use anchor_lang::prelude::Pubkey;
 
 /// Represents a parameter input with a name and dynamic type
@@ -29,6 +29,7 @@ pub enum DynType {
     Vec(Box<DynType>),
     Struct(Vec<(String, DynType)>),
     Enum(Vec<(String, DynType)>),
+    Option(Box<DynType>),
 }
 
 /// Represents a dynamically deserialized value
@@ -53,6 +54,7 @@ pub enum DynValue {
     Vec(Vec<DynValue>),
     Struct(Vec<(String, DynValue)>),
     Enum(String, Box<DynValue>),
+    Option(Option<Box<DynValue>>),
 }
 
 /// Deserializes binary data into a vector of dynamic values based on the provided parameter types
@@ -105,6 +107,19 @@ pub fn deserialize_data(data: &mut [u8], params: &[ParamInput]) -> Result<Vec<Dy
 fn deserialize_value<'a>(param_type: &DynType, data: &'a mut [u8]) -> Result<(DynValue, &'a mut [u8])> {
     match param_type {
         DynType::Defined => Ok((DynValue::Defined, data)),
+        DynType::Option(inner_type) => {
+            let value = data.first().context("Not enough data for option")?;
+            match value {
+                0 => Ok((DynValue::Option(None), &mut data[1..])),
+                1 => {
+                    let (value, new_data) = deserialize_value(inner_type, &mut data[1..])?;
+                    Ok((DynValue::Option(Some(Box::new(value))), new_data))
+                }
+                _ => {
+                    return Err(anyhow!("Invalid option value: {}", value));
+                }
+            }
+        }
         DynType::I8 => {
             if data.is_empty() {
                 return Err(anyhow!("Not enough data for i8: expected 1 byte, got {}", data.len()));
