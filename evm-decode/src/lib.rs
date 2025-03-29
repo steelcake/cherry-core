@@ -92,7 +92,7 @@ fn decode_call_impl<const IS_INPUT: bool>(
         DynSolType::Tuple(resolved.returns().types().to_vec())
     };
 
-    let array = to_arrow(&sol_type, decoded).context("map params to arrow")?;
+    let array = to_arrow(&sol_type, decoded, allow_decode_fail).context("map params to arrow")?;
     match array.data_type() {
         DataType::Struct(_) => {
             let arr = array.as_any().downcast_ref::<StructArray>().unwrap();
@@ -204,7 +204,7 @@ pub fn decode_events(
             }
         }
 
-        arrays.push(to_arrow(sol_type, decoded).context("map topic to arrow")?);
+        arrays.push(to_arrow(sol_type, decoded, allow_decode_fail).context("map topic to arrow")?);
     }
 
     let body_col = data
@@ -233,7 +233,8 @@ pub fn decode_events(
         }
     }
 
-    let body_array = to_arrow(&body_sol_type, body_decoded).context("map body to arrow")?;
+    let body_array =
+        to_arrow(&body_sol_type, body_decoded, allow_decode_fail).context("map body to arrow")?;
     match body_array.data_type() {
         DataType::Struct(_) => {
             let arr = body_array.as_any().downcast_ref::<StructArray>().unwrap();
@@ -367,44 +368,56 @@ fn num_bits_to_int_type(num_bits: usize) -> DataType {
     }
 }
 
-fn to_arrow(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Result<Arc<dyn Array>> {
+fn to_arrow(
+    sol_type: &DynSolType,
+    sol_values: Vec<Option<DynSolValue>>,
+    allow_decode_fail: bool,
+) -> Result<Arc<dyn Array>> {
     match sol_type {
         DynSolType::Bool => to_bool(&sol_values),
         DynSolType::Bytes => to_binary(&sol_values),
         DynSolType::String => to_string(&sol_values),
         DynSolType::Address => to_binary(&sol_values),
-        DynSolType::Int(num_bits) => to_int(*num_bits, &sol_values),
-        DynSolType::Uint(num_bits) => to_uint(*num_bits, &sol_values),
-        DynSolType::Array(inner_type) => to_list(inner_type, sol_values),
+        DynSolType::Int(num_bits) => to_int(*num_bits, &sol_values, allow_decode_fail),
+        DynSolType::Uint(num_bits) => to_uint(*num_bits, &sol_values, allow_decode_fail),
+        DynSolType::Array(inner_type) => to_list(inner_type, sol_values, allow_decode_fail),
         DynSolType::Function => Err(anyhow!(
             "decoding 'Function' typed value in function signature isn't supported."
         )),
-        DynSolType::FixedArray(inner_type, _) => to_list(inner_type, sol_values),
-        DynSolType::Tuple(fields) => to_struct(fields, sol_values),
+        DynSolType::FixedArray(inner_type, _) => to_list(inner_type, sol_values, allow_decode_fail),
+        DynSolType::Tuple(fields) => to_struct(fields, sol_values, allow_decode_fail),
         DynSolType::FixedBytes(_) => to_binary(&sol_values),
     }
 }
 
-fn to_int(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
+fn to_int(
+    num_bits: usize,
+    sol_values: &[Option<DynSolValue>],
+    allow_decode_fail: bool,
+) -> Result<Arc<dyn Array>> {
     match num_bits_to_int_type(num_bits) {
         DataType::Int8 => to_int_impl::<Int8Type>(num_bits, sol_values),
         DataType::Int16 => to_int_impl::<Int16Type>(num_bits, sol_values),
         DataType::Int32 => to_int_impl::<Int32Type>(num_bits, sol_values),
         DataType::Int64 => to_int_impl::<Int64Type>(num_bits, sol_values),
         DataType::Decimal128(_, _) => to_decimal128(num_bits, sol_values),
-        DataType::Decimal256(_, _) => to_decimal256(num_bits, sol_values),
+        DataType::Decimal256(_, _) => to_decimal256(num_bits, sol_values, allow_decode_fail),
         _ => unreachable!(),
     }
 }
 
-fn to_uint(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
+fn to_uint(
+    num_bits: usize,
+    sol_values: &[Option<DynSolValue>],
+    allow_decode_fail: bool,
+) -> Result<Arc<dyn Array>> {
     match num_bits_to_int_type(num_bits) {
         DataType::UInt8 => to_int_impl::<UInt8Type>(num_bits, sol_values),
         DataType::UInt16 => to_int_impl::<UInt16Type>(num_bits, sol_values),
         DataType::UInt32 => to_int_impl::<UInt32Type>(num_bits, sol_values),
         DataType::UInt64 => to_int_impl::<UInt64Type>(num_bits, sol_values),
         DataType::Decimal128(_, _) => to_decimal128(num_bits, sol_values),
-        DataType::Decimal256(_, _) => to_decimal256(num_bits, sol_values),
+        DataType::Decimal256(_, _) => to_decimal256(num_bits, sol_values, allow_decode_fail),
         _ => unreachable!(),
     }
 }
@@ -447,7 +460,11 @@ fn to_decimal128(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<
     Ok(Arc::new(builder.finish()))
 }
 
-fn to_decimal256(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<Arc<dyn Array>> {
+fn to_decimal256(
+    num_bits: usize,
+    sol_values: &[Option<DynSolValue>],
+    allow_decode_fail: bool,
+) -> Result<Arc<dyn Array>> {
     let mut builder = builder::Decimal256Builder::new();
 
     for val in sol_values.iter() {
@@ -462,10 +479,19 @@ fn to_decimal256(num_bits: usize, sol_values: &[Option<DynSolValue>]) -> Result<
                 }
                 DynSolValue::Uint(v, nb) => {
                     assert_eq!(num_bits, *nb);
-                    let v = I256::try_from(*v).context("map u256 to i256")?;
-
-                    builder
-                        .append_value(arrow::datatypes::i256::from_be_bytes(v.to_be_bytes::<32>()));
+                    match I256::try_from(*v).context("try u256 to i256") {
+                        Ok(v) => builder.append_value(arrow::datatypes::i256::from_be_bytes(
+                            v.to_be_bytes::<32>(),
+                        )),
+                        Err(e) => {
+                            if allow_decode_fail {
+                                log::debug!("failed to decode u256: {}", e);
+                                builder.append_null();
+                            } else {
+                                return Err(e);
+                            }
+                        }
+                    }
                 }
                 _ => {
                     return Err(anyhow!(
@@ -525,7 +551,11 @@ where
     Ok(Arc::new(builder.finish()))
 }
 
-fn to_list(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Result<Arc<dyn Array>> {
+fn to_list(
+    sol_type: &DynSolType,
+    sol_values: Vec<Option<DynSolValue>>,
+    allow_decode_fail: bool,
+) -> Result<Arc<dyn Array>> {
     let mut lengths = Vec::with_capacity(sol_values.len());
     let mut values = Vec::with_capacity(sol_values.len() * 2);
     let mut validity = Vec::with_capacity(sol_values.len() * 2);
@@ -555,7 +585,7 @@ fn to_list(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Resul
         }
     }
 
-    let values = to_arrow(sol_type, values).context("map inner")?;
+    let values = to_arrow(sol_type, values, allow_decode_fail).context("map inner")?;
     let field = Field::new(
         "",
         to_arrow_dtype(sol_type).context("construct data type")?,
@@ -578,6 +608,7 @@ fn to_list(sol_type: &DynSolType, sol_values: Vec<Option<DynSolValue>>) -> Resul
 fn to_struct(
     fields: &[DynSolType],
     sol_values: Vec<Option<DynSolValue>>,
+    allow_decode_fail: bool,
 ) -> Result<Arc<dyn Array>> {
     let mut values = vec![Vec::with_capacity(sol_values.len()); fields.len()];
 
@@ -617,7 +648,7 @@ fn to_struct(
     let mut arrays = Vec::with_capacity(fields.len());
 
     for (sol_type, arr_vals) in fields.iter().zip(values.into_iter()) {
-        arrays.push(to_arrow(sol_type, arr_vals)?);
+        arrays.push(to_arrow(sol_type, arr_vals, allow_decode_fail)?);
     }
 
     let fields = arrays
