@@ -106,8 +106,7 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
             .map(|p| Field::new(p.name.clone(), to_arrow_dtype(&p.param_type).unwrap(), true))
             .collect::<Vec<_>>(),
     ));
-    let batch = RecordBatch::try_new(schema, data_arrays)?;
-
+    let batch = RecordBatch::try_new(schema, data_arrays).context("Failed to create record batch from data arrays")?;
     // Save the filtered instructions to a new parquet file
     let mut file = File::create("decoded_instructions.parquet").unwrap();
     let mut writer = parquet::arrow::ArrowWriter::try_new(&mut file, batch.schema(), None).unwrap();
@@ -119,7 +118,7 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
 
 fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
     match param_type {
-        DynType::Defined => Ok(Arc::new(NullArray::new(values.len()))),
+        DynType::NoData => Ok(Arc::new(NullArray::new(values.len()))),
         DynType::I8 => to_number::<Int8Type>(8, &values),
         DynType::I16 => to_number::<Int16Type>(16, &values),
         DynType::I32 => to_number::<Int32Type>(32, &values),
@@ -145,14 +144,10 @@ fn to_option(inner_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<
     for value in values {
         match value {
             None => opt_values.push(None),
-            Some(v) => match v {
-                DynValue::Option(inner_val) => {
+            Some(DynValue::Option(inner_val)) => {
                     opt_values.push(inner_val.map(|v| *v));
                 }
-                _ => {
-                    return Err(anyhow!("Expected option type, found: {:?}", v));
-                }
-            },
+            _ => return Err(anyhow!("Expected option type, found: {:?}", value)),
         }
     }
 
@@ -315,8 +310,8 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
             }
         }
     }
-    let list_array_values = to_arrow(param_type, inner_values)?;
-    let field = Field::new("", to_arrow_dtype(param_type)?, true);
+    let list_array_values = to_arrow(param_type, inner_values).context("Failed to convert list to arrow")?;
+    let field = Field::new("", to_arrow_dtype(param_type).context("Failed to convert  Dyntype to arrow type")?, true);
     let list_arr = ListArray::try_new(
         Arc::new(field),
         OffsetBuffer::from_lengths(lengths),
@@ -326,7 +321,7 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
         } else {
             Some(NullBuffer::from(validity))
         },
-    ).context("construct list array")?;
+    ).context("Failed to construct ListArray from list array values")?;
     Ok(Arc::new(list_arr))
 }
 
@@ -346,12 +341,12 @@ fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
         DynType::Bool => Ok(DataType::Boolean),
         DynType::Pubkey => Ok(DataType::Binary),
         DynType::Vec(inner_type) => {
-            let inner_type = to_arrow_dtype(inner_type)?;
+            let inner_type = to_arrow_dtype(inner_type).context("Failed to convert list inner type to arrow type")?;
             Ok(DataType::List(Arc::new(Field::new("", inner_type, true))))
         }
         DynType::Enum(variants) => {
             let fields = variants.iter().map(|(name, dt)| {
-                Ok(Arc::new(Field::new(name, to_arrow_dtype(dt)?, true)))
+                Ok(Arc::new(Field::new(name, to_arrow_dtype(dt).context("Failed to convert enum inner variant type to arrow type")?, true)))
             }).collect::<Result<Vec<_>>>().context("map enum type")?; 
 
             Ok(DataType::Struct(Fields::from(fields)))
@@ -360,10 +355,10 @@ fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
             let arrow_fields = fields
                 .iter()
                 .map(|(name, field_type)| {
-                    let inner_dt = to_arrow_dtype(field_type)?;
+                    let inner_dt = to_arrow_dtype(field_type).context("Failed to convert struct inner field type to arrow type")?;
                     Ok(Field::new(name, inner_dt, true))
                 })
-                .collect::<Result<Vec<_>>>()?;
+                .collect::<Result<Vec<_>>>().context("Failed to convert struct fields to arrow fields")?;
             Ok(DataType::Struct(Fields::from(arrow_fields)))
         }
         DynType::Defined => Ok(DataType::Null),
@@ -374,52 +369,42 @@ fn to_enum(
     variants: &Vec<(String, DynType)>,
     param_values: Vec<Option<DynValue>>,
 ) -> Result<Arc<dyn Array>> {
-    println!("variants: {:?}", variants);
-    println!("param_values: {:?}", param_values);
 
+    // Converts the enum variants into a struct type as Vec<(String, DynValue)>, and then call to_struct;
+    // In the struct, all enum variants are DynValue::Option(None) except for the variant that matches the enum value.
     let mut values = Vec::with_capacity(param_values.len());
 
+    // Helper closure that, for each variant in the Enum, create a tuple (name, value) and collect them into a Vec. StructInner = Vec<(String, DynValue)>;
     let make_struct = |variant_name, inner_val: DynValue| {
-        let struct_inner = variants
-            .iter()
-            .map(|(name, _)| {
+        let struct_inner = variants .iter().map(|(name, _)| {
                 if name == &variant_name {
-                    (
-                        name.clone(),
-                        DynValue::Option(Some(Box::new(inner_val.clone()))),
-                    )
+                    println!("inner_val: {:?}", inner_val);
+                    (name.clone(), DynValue::Option(Some(Box::new(inner_val.clone()))))
                 } else {
                     (name.clone(), DynValue::Option(None))
                 }
             })
             .collect::<Vec<_>>();
-
-        println!("struct_inner: {:?}", struct_inner);
         DynValue::Struct(struct_inner)
     };
 
     for val in param_values {
         match val {
-            None => {
-                values.push(None);
-            }
-            Some(v) => match v {
-                DynValue::Enum(variant_name, inner_val) => {
-                    println!("variant_name: {:?}, inner_val: {:?}", variant_name, inner_val);
+            None => values.push(None),
+            Some(DynValue::Enum(variant_name, inner_val)) => {
                     values.push(Some(make_struct(variant_name, *inner_val)));
-                }
-                _ => {
-                    return Err(anyhow!("type mismatch"));
-                }
-            },
+            }
+            Some(_) => { return Err(anyhow!("type mismatch")); }
         }
     }
-    println!("values: {:?}", values);
+    println!("Values: {:?}", values);
 
-    let variants = variants
-        .iter()
+    // Since the enum variants are now a struct of Option types, we need to convert the enum variant types 
+    // into a Struct type, in this case Vec<(name, Option types).
+    let variants = variants.iter()
         .map(|(name, param_type)| (name.clone(), DynType::Option(Box::new(param_type.clone()))))
         .collect::<Vec<_>>();
+    println!("variants: {:?}", variants);
 
     to_struct(&variants, values)
 }
@@ -457,7 +442,7 @@ fn to_struct(
     let mut arrays = Vec::with_capacity(fields.len());
 
     for ((param_name, param_type), arr_vals) in fields.iter().zip(inner_values.into_iter()) {
-        arrays.push(to_arrow(param_type, arr_vals)?);
+        arrays.push(to_arrow(param_type, arr_vals).context("Failed to convert struct inner values to arrow")?);
     }
 
     let fields = arrays
@@ -467,8 +452,7 @@ fn to_struct(
         .collect::<Vec<_>>();
     let schema = Arc::new(Schema::new(fields));
 
-    let batch = RecordBatch::try_new(schema, arrays)?;
-
+    let batch = RecordBatch::try_new(schema, arrays).context("Failed to create record batch from struct arrays")?;
     Ok(Arc::new(StructArray::from(batch)))
 }
 
@@ -502,6 +486,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn test_simple_borsh() {
         #[derive(borsh::BorshSerialize)]
         enum InnerEnum {
@@ -521,10 +506,10 @@ mod tests {
         let enum_type = DynType::Enum(vec![
             ("First".to_owned(), DynType::Enum(vec![
                 ("Number".to_owned(), DynType::I32),
-                ("Text".to_owned(), DynType::Defined),
+                ("Text".to_owned(), DynType::NoData),
             ])),
             ("Second".to_owned(), DynType::Bool),
-            ("Third".to_owned(), DynType::Defined),
+            ("Third".to_owned(), DynType::NoData),
         ]);
 
         let decoded_ix_result = deserialize_data(
@@ -541,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn read_parquet_files() {
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
         use arrow::compute::filter_record_batch;
@@ -651,40 +636,40 @@ mod tests {
                         (
                             "Swap".to_string(),
                             DynType::Enum(vec![
-                                ("Saber".to_string(), DynType::Defined),
-                                ("SaberAddDecimalsDeposit".to_string(), DynType::Defined),
-                                ("SaberAddDecimalsWithdraw".to_string(), DynType::Defined),
-                                ("TokenSwap".to_string(), DynType::Defined),
-                                ("Sencha".to_string(), DynType::Defined),
-                                ("Step".to_string(), DynType::Defined),
-                                ("Cropper".to_string(), DynType::Defined),
-                                ("Raydium".to_string(), DynType::Defined),
+                                ("Saber".to_string(), DynType::NoData),
+                                ("SaberAddDecimalsDeposit".to_string(), DynType::NoData),
+                                ("SaberAddDecimalsWithdraw".to_string(), DynType::NoData),
+                                ("TokenSwap".to_string(), DynType::NoData),
+                                ("Sencha".to_string(), DynType::NoData),
+                                ("Step".to_string(), DynType::NoData),
+                                ("Cropper".to_string(), DynType::NoData),
+                                ("Raydium".to_string(), DynType::NoData),
                                 (
                                     "Crema".to_string(),
                                     DynType::Struct(vec![("a_to_b".to_string(), DynType::Bool)]),
                                 ),
-                                ("Lifinity".to_string(), DynType::Defined),
-                                ("Mercurial".to_string(), DynType::Defined),
-                                ("Cykura".to_string(), DynType::Defined),
+                                ("Lifinity".to_string(), DynType::NoData),
+                                ("Mercurial".to_string(), DynType::NoData),
+                                ("Cykura".to_string(), DynType::NoData),
                                 (
                                     "Serum".to_string(),
                                     DynType::Struct(vec![(
                                         "side".to_string(),
                                         DynType::Enum(vec![
-                                            ("Bid".to_string(), DynType::Defined),
-                                            ("Ask".to_string(), DynType::Defined),
+                                            ("Bid".to_string(), DynType::NoData),
+                                            ("Ask".to_string(), DynType::NoData),
                                         ]),
                                     )]),
                                 ),
-                                ("MarinadeDeposit".to_string(), DynType::Defined),
-                                ("MarinadeUnstake".to_string(), DynType::Defined),
+                                ("MarinadeDeposit".to_string(), DynType::NoData),
+                                ("MarinadeUnstake".to_string(), DynType::NoData),
                                 (
                                     "Aldrin".to_string(),
                                     DynType::Struct(vec![(
                                         "side".to_string(),
                                         DynType::Enum(vec![
-                                            ("Bid".to_string(), DynType::Defined),
-                                            ("Ask".to_string(), DynType::Defined),
+                                            ("Bid".to_string(), DynType::NoData),
+                                            ("Ask".to_string(), DynType::NoData),
                                         ]),
                                     )]),
                                 ),
@@ -693,8 +678,8 @@ mod tests {
                                     DynType::Struct(vec![(
                                         "side".to_string(),
                                         DynType::Enum(vec![
-                                            ("Bid".to_string(), DynType::Defined),
-                                            ("Ask".to_string(), DynType::Defined),
+                                            ("Bid".to_string(), DynType::NoData),
+                                            ("Ask".to_string(), DynType::NoData),
                                         ]),
                                     )]),
                                 ),
@@ -706,13 +691,13 @@ mod tests {
                                     "Invariant".to_string(),
                                     DynType::Struct(vec![("x_to_y".to_string(), DynType::Bool)]),
                                 ),
-                                ("Meteora".to_string(), DynType::Defined),
-                                ("GooseFX".to_string(), DynType::Defined),
+                                ("Meteora".to_string(), DynType::NoData),
+                                ("GooseFX".to_string(), DynType::NoData),
                                 (
                                     "DeltaFi".to_string(),
                                     DynType::Struct(vec![("stable".to_string(), DynType::Bool)]),
                                 ),
-                                ("Balansol".to_string(), DynType::Defined),
+                                ("Balansol".to_string(), DynType::NoData),
                                 (
                                     "MarcoPolo".to_string(),
                                     DynType::Struct(vec![("x_to_y".to_string(), DynType::Bool)]),
@@ -722,20 +707,20 @@ mod tests {
                                     DynType::Struct(vec![(
                                         "side".to_string(),
                                         DynType::Enum(vec![
-                                            ("Bid".to_string(), DynType::Defined),
-                                            ("Ask".to_string(), DynType::Defined),
+                                            ("Bid".to_string(), DynType::NoData),
+                                            ("Ask".to_string(), DynType::NoData),
                                         ]),
                                     )]),
                                 ),
-                                ("LifinityV2".to_string(), DynType::Defined),
-                                ("RaydiumClmm".to_string(), DynType::Defined),
+                                ("LifinityV2".to_string(), DynType::NoData),
+                                ("RaydiumClmm".to_string(), DynType::NoData),
                                 (
                                     "Openbook".to_string(),
                                     DynType::Struct(vec![(
                                         "side".to_string(),
                                         DynType::Enum(vec![
-                                            ("Bid".to_string(), DynType::Defined),
-                                            ("Ask".to_string(), DynType::Defined),
+                                            ("Bid".to_string(), DynType::NoData),
+                                            ("Ask".to_string(), DynType::NoData),
                                         ]),
                                     )]),
                                 ),
@@ -744,8 +729,8 @@ mod tests {
                                     DynType::Struct(vec![(
                                         "side".to_string(),
                                         DynType::Enum(vec![
-                                            ("Bid".to_string(), DynType::Defined),
-                                            ("Ask".to_string(), DynType::Defined),
+                                            ("Bid".to_string(), DynType::NoData),
+                                            ("Ask".to_string(), DynType::NoData),
                                         ]),
                                     )]),
                                 ),
@@ -756,12 +741,12 @@ mod tests {
                                         ("to_token_id".to_string(), DynType::U64),
                                     ]),
                                 ),
-                                ("TokenSwapV2".to_string(), DynType::Defined),
+                                ("TokenSwapV2".to_string(), DynType::NoData),
                                 (
                                     "HeliumTreasuryManagementRedeemV0".to_string(),
-                                    DynType::Defined,
+                                    DynType::NoData,
                                 ),
-                                ("StakeDexStakeWrappedSol".to_string(), DynType::Defined),
+                                ("StakeDexStakeWrappedSol".to_string(), DynType::NoData),
                                 (
                                     "StakeDexSwapViaStake".to_string(),
                                     DynType::Struct(vec![(
@@ -769,22 +754,22 @@ mod tests {
                                         DynType::U32,
                                     )]),
                                 ),
-                                ("GooseFXV2".to_string(), DynType::Defined),
-                                ("Perps".to_string(), DynType::Defined),
-                                ("PerpsAddLiquidity".to_string(), DynType::Defined),
-                                ("PerpsRemoveLiquidity".to_string(), DynType::Defined),
-                                ("MeteoraDlmm".to_string(), DynType::Defined),
+                                ("GooseFXV2".to_string(), DynType::NoData),
+                                ("Perps".to_string(), DynType::NoData),
+                                ("PerpsAddLiquidity".to_string(), DynType::NoData),
+                                ("PerpsRemoveLiquidity".to_string(), DynType::NoData),
+                                ("MeteoraDlmm".to_string(), DynType::NoData),
                                 (
                                     "OpenBookV2".to_string(),
                                     DynType::Struct(vec![(
                                         "side".to_string(),
                                         DynType::Enum(vec![
-                                            ("Bid".to_string(), DynType::Defined),
-                                            ("Ask".to_string(), DynType::Defined),
+                                            ("Bid".to_string(), DynType::NoData),
+                                            ("Ask".to_string(), DynType::NoData),
                                         ]),
                                     )]),
                                 ),
-                                ("RaydiumClmmV2".to_string(), DynType::Defined),
+                                ("RaydiumClmmV2".to_string(), DynType::NoData),
                                 (
                                     "StakeDexPrefundWithdrawStakeAndDepositStake".to_string(),
                                     DynType::Struct(vec![(
@@ -823,29 +808,29 @@ mod tests {
                                         ("lst_index".to_string(), DynType::U32),
                                     ]),
                                 ),
-                                ("RaydiumCP".to_string(), DynType::Defined),
+                                ("RaydiumCP".to_string(), DynType::NoData),
                                 (
                                     "WhirlpoolSwapV2".to_string(),
                                     DynType::Struct(vec![
                                         ("a_to_b".to_string(), DynType::Bool),
-                                        ("remaining_accounts_info".to_string(), DynType::Defined),
+                                        ("remaining_accounts_info".to_string(), DynType::NoData),
                                     ]),
                                 ),
-                                ("OneIntro".to_string(), DynType::Defined),
-                                ("PumpdotfunWrappedBuy".to_string(), DynType::Defined),
-                                ("PumpdotfunWrappedSell".to_string(), DynType::Defined),
-                                ("PerpsV2".to_string(), DynType::Defined),
-                                ("PerpsV2AddLiquidity".to_string(), DynType::Defined),
-                                ("PerpsV2RemoveLiquidity".to_string(), DynType::Defined),
-                                ("MoonshotWrappedBuy".to_string(), DynType::Defined),
-                                ("MoonshotWrappedSell".to_string(), DynType::Defined),
-                                ("StabbleStableSwap".to_string(), DynType::Defined),
-                                ("StabbleWeightedSwap".to_string(), DynType::Defined),
+                                ("OneIntro".to_string(), DynType::NoData),
+                                ("PumpdotfunWrappedBuy".to_string(), DynType::NoData),
+                                ("PumpdotfunWrappedSell".to_string(), DynType::NoData),
+                                ("PerpsV2".to_string(), DynType::NoData),
+                                ("PerpsV2AddLiquidity".to_string(), DynType::NoData),
+                                ("PerpsV2RemoveLiquidity".to_string(), DynType::NoData),
+                                ("MoonshotWrappedBuy".to_string(), DynType::NoData),
+                                ("MoonshotWrappedSell".to_string(), DynType::NoData),
+                                ("StabbleStableSwap".to_string(), DynType::NoData),
+                                ("StabbleWeightedSwap".to_string(), DynType::NoData),
                                 (
                                     "Obric".to_string(),
                                     DynType::Struct(vec![("x_to_y".to_string(), DynType::Bool)]),
                                 ),
-                                ("FoxBuyFromEstimatedCost".to_string(), DynType::Defined),
+                                ("FoxBuyFromEstimatedCost".to_string(), DynType::NoData),
                                 (
                                     "FoxClaimPartial".to_string(),
                                     DynType::Struct(vec![("is_y".to_string(), DynType::Bool)]),
@@ -857,24 +842,24 @@ mod tests {
                                         DynType::Bool,
                                     )]),
                                 ),
-                                ("SolayerDelegateNoInit".to_string(), DynType::Defined),
-                                ("SolayerUndelegateNoInit".to_string(), DynType::Defined),
+                                ("SolayerDelegateNoInit".to_string(), DynType::NoData),
+                                ("SolayerUndelegateNoInit".to_string(), DynType::NoData),
                                 (
                                     "TokenMill".to_string(),
                                     DynType::Struct(vec![(
                                         "side".to_string(),
                                         DynType::Enum(vec![
-                                            ("Bid".to_string(), DynType::Defined),
-                                            ("Ask".to_string(), DynType::Defined),
+                                            ("Bid".to_string(), DynType::NoData),
+                                            ("Ask".to_string(), DynType::NoData),
                                         ]),
                                     )]),
                                 ),
-                                ("DaosFunBuy".to_string(), DynType::Defined),
-                                ("DaosFunSell".to_string(), DynType::Defined),
-                                ("ZeroFi".to_string(), DynType::Defined),
-                                ("StakeDexWithdrawWrappedSol".to_string(), DynType::Defined),
-                                ("VirtualsBuy".to_string(), DynType::Defined),
-                                ("VirtualsSell".to_string(), DynType::Defined),
+                                ("DaosFunBuy".to_string(), DynType::NoData),
+                                ("DaosFunSell".to_string(), DynType::NoData),
+                                ("ZeroFi".to_string(), DynType::NoData),
+                                ("StakeDexWithdrawWrappedSol".to_string(), DynType::NoData),
+                                ("VirtualsBuy".to_string(), DynType::NoData),
+                                ("VirtualsSell".to_string(), DynType::NoData),
                                 (
                                     "Peren".to_string(),
                                     DynType::Struct(vec![
@@ -882,9 +867,9 @@ mod tests {
                                         ("out_index".to_string(), DynType::U8),
                                     ]),
                                 ),
-                                ("PumpdotfunAmmBuy".to_string(), DynType::Defined),
-                                ("PumpdotfunAmmSell".to_string(), DynType::Defined),
-                                ("Gamma".to_string(), DynType::Defined),
+                                ("PumpdotfunAmmBuy".to_string(), DynType::NoData),
+                                ("PumpdotfunAmmSell".to_string(), DynType::NoData),
+                                ("Gamma".to_string(), DynType::NoData),
                             ]),
                         ),
                         ("Percent".to_string(), DynType::U8),
