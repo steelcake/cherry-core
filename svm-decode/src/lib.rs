@@ -1,14 +1,12 @@
 use anchor_lang::prelude::Pubkey;
 use anyhow::{anyhow, Result, Context};
-use arrow::array::{Array, BinaryArray, ListArray, UInt64Array};
+use arrow::array::{Array, BinaryArray, ListArray};
 use arrow::{
     array::{builder, ArrowPrimitiveType, NullArray, RecordBatch, StructArray},
     buffer::{NullBuffer, OffsetBuffer},
-    compute::filter_record_batch,
     datatypes::*,
 };
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use std::{fs::File, ops::DerefMut, sync::Arc};
+use std::{fs::File, sync::Arc};
 mod deserialize;
 use deserialize::{deserialize_data, DynType, DynValue, ParamInput};
 
@@ -32,11 +30,11 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
     let data_array = data_col.as_any().downcast_ref::<BinaryArray>().unwrap();
 
     let rest_of_accounts_col = batch.column_by_name("rest_of_accounts").unwrap();
-    let rest_of_accounts_array = rest_of_accounts_col
+    let _rest_of_accounts_array = rest_of_accounts_col
         .as_any()
         .downcast_ref::<ListArray>()
         .unwrap();
-    let account_arrays: Vec<&BinaryArray> = (0..10)
+    let _account_arrays: Vec<&BinaryArray> = (0..10)
         .map(|i| {
             let col_name = format!("a{}", i);
             let col = batch.column_by_name(&col_name).unwrap();
@@ -45,7 +43,7 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
         .collect();
 
     let num_params = signature.params.len();
-    let mut decoded_instructions: Vec<Vec<DynValue>> = Vec::new();
+    let mut _decoded_instructions: Vec<Vec<DynValue>> = Vec::new();
     let mut exploded_values: Vec<Vec<Option<DynValue>>> =
         (0..num_params).map(|_| Vec::new()).collect();
 
@@ -138,7 +136,6 @@ fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<d
         DynType::Struct(inner_type) => to_struct(inner_type, values),
         DynType::Enum(inner_type) => to_enum(inner_type, values),
         DynType::Option(inner_type) => to_option(inner_type, values),
-        _ => Err(anyhow!("Unsupported type: {:?}", param_type)),
     }
 }
 
@@ -397,6 +394,7 @@ fn to_enum(
             })
             .collect::<Vec<_>>();
 
+        println!("struct_inner: {:?}", struct_inner);
         DynValue::Struct(struct_inner)
     };
 
@@ -407,6 +405,7 @@ fn to_enum(
             }
             Some(v) => match v {
                 DynValue::Enum(variant_name, inner_val) => {
+                    println!("variant_name: {:?}, inner_val: {:?}", variant_name, inner_val);
                     values.push(Some(make_struct(variant_name, *inner_val)));
                 }
                 _ => {
@@ -415,6 +414,7 @@ fn to_enum(
             },
         }
     }
+    println!("values: {:?}", values);
 
     let variants = variants
         .iter()
@@ -423,127 +423,6 @@ fn to_enum(
 
     to_struct(&variants, values)
 }
-
-//     let mut struct_type = Vec::<(String, DynType)>::new();
-//     let mut struct_value = Vec::<(String, DynValue)>::new();
-
-//     for field in fields.iter() {
-//         struct_type.push(field.0.clone(), field.1));
-//     }
-
-//     for (field, val) in fields.iter().zip(param_values) {
-//         struct_type.push((format!(field.0), ))
-//     }
-
-//     let mut variant_indices = Vec::with_capacity(param_values.len());
-//     let mut variant_values = Vec::with_capacity(param_values.len());
-
-//     for val in param_values {
-//         match val {
-//             Some(DynValue::Enum(variant_name, inner_val)) => {
-//                 // Find the index of the variant in the fields list
-//                 let variant_index = fields.iter()
-//                     .position(|(name, _)| name == &variant_name)
-//                     .ok_or_else(|| anyhow!("Unknown enum variant: {}", variant_name))?;
-
-//                 variant_indices.push(Some(variant_index as u8));
-//                 variant_values.push(Some(*inner_val));
-//             }
-//             None => {
-//                 variant_indices.push(None);
-//                 variant_values.push(None);
-//             }
-//             Some(val) => return Err(anyhow!("Expected enum value, found: {:?}", val)),
-//         }
-//     }
-
-//     // Create a dictionary array for the variant names
-//     let variant_names: Vec<&str> = fields.iter().map(|(name, _)| name.as_str()).collect();
-//     let dictionary = Arc::new(arrow::array::StringArray::from(variant_names));
-
-//     // Create the dictionary array with indices
-//     let indices = arrow::array::UInt8Array::from(variant_indices);
-//     let dictionary_array = arrow::array::DictionaryArray::try_new(
-//         indices,
-//         dictionary,
-//     )?;
-
-//     Ok(Arc::new(dictionary_array))
-// }
-
-// fn to_enum(
-//     fields: &Vec<(String, DynType)>,
-//     param_values: Vec<Option<DynValue>>,
-// ) -> Result<Arc<dyn Array>> {
-//     println!("param_values: {:?}", param_values);
-//     println!("fields: {:?}", fields);
-//     let mut variant_names = Vec::with_capacity(param_values.len());
-//     let mut variant_indices = Vec::with_capacity(param_values.len());
-//     let mut variant_values = Vec::with_capacity(param_values.len());
-//     let mut variant_fields = Vec::with_capacity(param_values.len());
-
-//     for val in param_values {
-//         match val {
-//             Some(DynValue::Enum(variant_name, inner_val)) => {
-//                 // Find the index of the variant in the fields list
-//                 let variant_index = fields.iter()
-//                     .position(|(name, _)| name == &variant_name)
-//                     .ok_or_else(|| anyhow!("Unknown enum variant: {}", variant_name))?;
-
-//                 variant_names.push(Some(variant_name));
-//                 variant_indices.push(Some(variant_index as u8));
-//                 variant_values.push(Some(*inner_val));
-//                 variant_fields.push(fields[variant_index].clone());
-//             }
-//             None => {
-//                 variant_names.push(None);
-//                 variant_indices.push(None);
-//                 variant_values.push(None);
-//                 variant_fields.push((String::from(""), DynType::Defined));
-//             }
-//             Some(val) => return Err(anyhow!("Expected enum value, found: {:?}", val)),
-//         }
-//     };
-
-//     println!("variant_names: {:?}", variant_names);
-//     println!("variant_indices: {:?}", variant_indices);
-//     println!("variant_values: {:?}", variant_values);
-//     println!("variant_fields: {:?}", variant_fields);
-//     // Create a dictionary array for the variant names
-//     let variant_names: Vec<&str> = fields.iter().map(|(name, _)| name.as_str()).collect();
-//     let dictionary = Arc::new(arrow::array::StringArray::from(variant_names));
-
-//     // Create the dictionary array with indices
-//     let indices = arrow::array::UInt8Array::from(variant_indices);
-//     let dictionary_array = arrow::array::DictionaryArray::try_new(
-//         indices,
-//         dictionary,
-//     )?;
-
-//     // Create a struct array for the variant values
-
-//     let mut arrays = Vec::with_capacity(fields.len());
-
-//     for ((_, param_type), arr_vals) in variant_fields.iter().zip(variant_values.into_iter()) {
-//         arrays.push(to_arrow(param_type, vec![arr_vals])?);
-//     }
-//     for arr in arrays.clone() {
-//         println!("Array length: {:?}", arr.len());
-//         println!("Array data type: {:?}", arr.data_type());
-//         println!("Array: {:?}", arr);
-//     }
-
-//     let fields = arrays
-//         .iter()
-//         .zip(variant_fields.iter())
-//         .map(|(arr, (name, _))| Field::new(name, arr.data_type().clone(), true))
-//         .collect::<Vec<_>>();
-//     let schema = Arc::new(Schema::new(fields));
-
-//     let batch = RecordBatch::try_new(schema, arrays)?;
-
-//     Ok(Arc::new(StructArray::from(batch)))
-// }
 
 fn to_struct(
     fields: &Vec<(String, DynType)>,
@@ -625,46 +504,48 @@ mod tests {
     #[test]
     fn test_simple_borsh() {
         #[derive(borsh::BorshSerialize)]
-        enum InnerDummy {
-            Good(i32),
-            Bad(u64),
+        enum InnerEnum {
+            Number(i32),
+            Text,
         }
 
         #[derive(borsh::BorshSerialize)]
-        enum Dummy {
-            Good(InnerDummy),
-            Bad(u64),
-            Third(Option<bool>),
+        enum OuterEnum {
+            First(InnerEnum),
+            Second(bool),
+            Third,
         }
 
-        // let bytes = borsh::to_vec(&Dummy::Good(InnerDummy::Good(15))).unwrap();
-        let bytes = borsh::to_vec(&Dummy::Third(Some(false))).unwrap();
+        let bytes = borsh::to_vec(&OuterEnum::Third).unwrap();
 
-        let t = DynType::Enum(vec![
-            ("Good".to_owned(), DynType::Enum(vec![
-                ("Good".to_owned(), DynType::I32),
-                ("Bad".to_owned(), DynType::U64),
+        let enum_type = DynType::Enum(vec![
+            ("First".to_owned(), DynType::Enum(vec![
+                ("Number".to_owned(), DynType::I32),
+                ("Text".to_owned(), DynType::Defined),
             ])),
-            ("Bad".to_owned(), DynType::U64),
-            ("Third".to_owned(), DynType::Option(Box::new(DynType::Bool))),
+            ("Second".to_owned(), DynType::Bool),
+            ("Third".to_owned(), DynType::Defined),
         ]);
 
         let decoded_ix_result = deserialize_data(
             &bytes,
             &vec![ParamInput {
-                name: "my_param_0".to_owned(),
-                param_type: t.clone(),
+                name: "my_enum".to_owned(),
+                param_type: enum_type.clone(),
             }],
         ).unwrap();
 
-        let r = to_arrow(&t, vec![Some(decoded_ix_result[0].clone())]).unwrap();
+        let r = to_arrow(&enum_type, vec![Some(decoded_ix_result[0].clone())]).unwrap();
 
         panic!("{:?}", r);
     }
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn read_parquet_files() {
+        use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+        use arrow::compute::filter_record_batch;
+        
         // let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("../core/reports/instruction.parquet").unwrap()).unwrap();
         let builder = ParquetRecordBatchReaderBuilder::try_new(
             File::open("filtered_instructions2.parquet").unwrap(),
@@ -676,10 +557,10 @@ mod tests {
         // Filter instructions by program id
         let jup_program_id =
             Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4").to_bytes();
-        let spl_token_program_id =
-            Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").to_bytes();
-        let spl_token_2022_program_id =
-            Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb").to_bytes();
+        // let spl_token_program_id =
+        //     Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").to_bytes();
+        // let spl_token_2022_program_id =
+        //     Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb").to_bytes();
 
         // Get the index of the program_id column
         let program_id_idx = instructions.schema().index_of("program_id").unwrap();
