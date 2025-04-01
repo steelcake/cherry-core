@@ -1,14 +1,15 @@
 use anchor_lang::prelude::Pubkey;
-use anyhow::{anyhow, Result, Context};
-use arrow::array::{Array, BinaryArray, ListArray};
+use anyhow::{Result, Context};
+use arrow::array::{Array, BinaryArray};
 use arrow::{
-    array::{builder, ArrowPrimitiveType, NullArray, RecordBatch, StructArray},
-    buffer::{NullBuffer, OffsetBuffer},
+    array::RecordBatch,
     datatypes::*,
 };
 use std::{fs::File, sync::Arc};
 mod deserialize;
-use deserialize::{deserialize_data, DynType, DynValue, ParamInput};
+use deserialize::{deserialize_data, DynValue, ParamInput};
+mod arrow_converter;
+use arrow_converter::{to_arrow, to_arrow_dtype};
 
 pub struct InstructionSignature {
     pub program_id: Pubkey,
@@ -135,367 +136,6 @@ pub fn decode_batch(batch: &RecordBatch, signature: InstructionSignature) -> Res
     Ok(batch)
 }
 
-fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
-    match param_type {
-        DynType::NoData => Ok(Arc::new(NullArray::new(values.len()))),
-        DynType::I8 => to_number::<Int8Type>(8, &values),
-        DynType::I16 => to_number::<Int16Type>(16, &values),
-        DynType::I32 => to_number::<Int32Type>(32, &values),
-        DynType::I64 => to_number::<Int64Type>(64, &values),
-        DynType::I128 => to_number::<Decimal128Type>(128, &values),
-        DynType::U8 => to_number::<UInt8Type>(8, &values),
-        DynType::U16 => to_number::<UInt16Type>(16, &values),
-        DynType::U32 => to_number::<UInt32Type>(32, &values),
-        DynType::U64 => to_number::<UInt64Type>(64, &values),
-        DynType::U128 => to_number::<Decimal128Type>(128, &values),
-        DynType::Bool => to_bool(&values),
-        DynType::Pubkey => to_binary(&values),
-        DynType::Vec(inner_type) => to_list(inner_type, values),
-        DynType::Struct(inner_type) => to_struct(inner_type, values),
-        DynType::Enum(inner_type) => to_enum(inner_type, values),
-        DynType::Option(inner_type) => to_option(inner_type, values),
-    }
-}
-
-fn to_option(inner_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
-    let mut opt_values = Vec::with_capacity(values.len());
-
-    for value in values {
-        match value {
-            None => opt_values.push(None),
-            Some(DynValue::Option(inner_val)) => {
-                    opt_values.push(inner_val.map(|v| *v));
-                }
-            _ => return Err(anyhow!("Expected option type, found: {:?}", value)),
-        }
-    }
-
-    to_arrow(inner_type, opt_values)
-}
-
-fn to_number<T>(num_bits: usize, values: &[Option<DynValue>]) -> Result<Arc<dyn Array>>
-where
-    T: ArrowPrimitiveType,
-    T::Native: TryFrom<i8>
-        + TryFrom<u8>
-        + TryFrom<i16>
-        + TryFrom<u16>
-        + TryFrom<i32>
-        + TryFrom<u32>
-        + TryFrom<i64>
-        + TryFrom<u64>
-        + TryFrom<i128>
-        + TryFrom<u128>,
-{
-    let mut builder = builder::PrimitiveBuilder::<T>::with_capacity(values.len());
-
-    for v in values.iter() {
-        match v {
-            Some(val) => match convert_value::<T>(val, num_bits) {
-                Ok(converted) => builder.append_value(converted),
-                Err(e) => return Err(e),
-            },
-            None => builder.append_null(),
-        }
-    }
-
-    Ok(Arc::new(builder.finish()))
-}
-
-// Helper function to convert a value to T::Native
-fn convert_value<T: ArrowPrimitiveType>(val: &DynValue, expected_bits: usize) -> Result<T::Native>
-where
-    T::Native: TryFrom<i8>
-        + TryFrom<u8>
-        + TryFrom<i16>
-        + TryFrom<u16>
-        + TryFrom<i32>
-        + TryFrom<u32>
-        + TryFrom<i64>
-        + TryFrom<u64>
-        + TryFrom<i128>
-        + TryFrom<u128>,
-{
-    let (actual_bits, value) = match val {
-        DynValue::I8(v) => (
-            8,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert i8")),
-        ),
-        DynValue::U8(v) => (
-            8,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert u8")),
-        ),
-        DynValue::I16(v) => (
-            16,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert i16")),
-        ),
-        DynValue::U16(v) => (
-            16,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert u16")),
-        ),
-        DynValue::I32(v) => (
-            32,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert i32")),
-        ),
-        DynValue::U32(v) => (
-            32,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert u32")),
-        ),
-        DynValue::I64(v) => (
-            64,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert i64")),
-        ),
-        DynValue::U64(v) => (
-            64,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert u64")),
-        ),
-        DynValue::I128(v) => (
-            128,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert i128")),
-        ),
-        DynValue::U128(v) => (
-            128,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert u128")),
-        ),
-        _ => return Err(anyhow!("Unexpected value type: {:?}", val)),
-    };
-
-    if actual_bits != expected_bits {
-        return Err(anyhow!(
-            "Bit width mismatch: expected {} bits, got {} bits",
-            expected_bits,
-            actual_bits
-        ));
-    }
-
-    value.map_err(|_| anyhow!("Failed to convert value to target type"))
-}
-
-fn to_bool(values: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
-    let mut builder = builder::BooleanBuilder::new();
-    for val in values {
-        match val {
-            Some(DynValue::Bool(b)) => builder.append_value(*b),
-            Some(v) => {
-                return Err(anyhow!(
-                    "found unexpected value. Expected: bool, Found: {:?}",
-                    v
-                ))
-            }
-            None => builder.append_null(),
-        }
-    }
-    Ok(Arc::new(builder.finish()))
-}
-
-fn to_binary(values: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
-    let mut builder = builder::BinaryBuilder::new();
-    for val in values {
-        match val {
-            Some(DynValue::Pubkey(data)) => builder.append_value(data),
-            Some(val) => return Err(anyhow!("Expected binary type, found: {:?}", val)),
-            None => builder.append_null(),
-        }
-    }
-    Ok(Arc::new(builder.finish()))
-}
-
-fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
-    let mut lengths = Vec::with_capacity(param_values.len());
-    let mut inner_values = Vec::with_capacity(param_values.len() * 2);
-    let mut validity = Vec::with_capacity(param_values.len());
-
-    let mut all_valid = true;
-
-    for val in param_values {
-        match val {
-            Some(val) => match val {
-                DynValue::Vec(inner_vals) => {
-                lengths.push(inner_vals.len());
-                inner_values.extend(inner_vals.into_iter().map(Some));
-                validity.push(true);
-            }
-            _ => {
-                    return Err(anyhow!(
-                        "found unexpected value. Expected list type, Found: {:?}",
-                        val
-                    ));
-                }
-            },
-            None => {
-                lengths.push(0);
-                validity.push(false);
-                all_valid = false;
-            }
-        }
-    }
-
-    // First get the correct Arrow DataType for the inner type
-    let arrow_data_type = to_arrow_dtype(param_type)?;
-    
-    // Convert inner values to Arrow array
-    let list_array_values = to_arrow(param_type, inner_values)
-        .context("Failed to convert list elements to arrow array")?;
-    
-    // Create field with the correct data type
-    let field = Field::new("", arrow_data_type, true);
-    
-    // Create list array using the converted values
-    let list_arr = ListArray::try_new(
-        Arc::new(field),
-        OffsetBuffer::from_lengths(lengths),
-        list_array_values,
-        if all_valid { None } else { Some(NullBuffer::from(validity)) },
-    ).context("Failed to construct ListArray from list array values")?;
-    
-    Ok(Arc::new(list_arr))
-}
-
-fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
-    match param_type {
-        DynType::Option(inner_type) => to_arrow_dtype(inner_type),
-        DynType::I8 => Ok(DataType::Int8),
-        DynType::I16 => Ok(DataType::Int16),
-        DynType::I32 => Ok(DataType::Int32),
-        DynType::I64 => Ok(DataType::Int64),
-        DynType::I128 => Ok(DataType::Decimal128(128, 0)),
-        DynType::U8 => Ok(DataType::UInt8),
-        DynType::U16 => Ok(DataType::UInt16),
-        DynType::U32 => Ok(DataType::UInt32),
-        DynType::U64 => Ok(DataType::UInt64),
-        DynType::U128 => Ok(DataType::Decimal128(128, 0)),
-        DynType::Bool => Ok(DataType::Boolean),
-        DynType::Pubkey => Ok(DataType::Binary),
-        DynType::Vec(inner_type) => {
-            let inner_type = to_arrow_dtype(inner_type).context("Failed to convert list inner type to arrow type")?;
-            Ok(DataType::List(Arc::new(Field::new("", inner_type, true))))
-        }
-        DynType::Enum(variants) => {
-            let fields = variants.iter().map(|(name, dt)| {
-                let struct_fields = vec![
-                    Field::new("variant_chosen", DataType::Boolean, true),
-                    Field::new("Data", to_arrow_dtype(&DynType::Option(Box::new(dt.clone())))?, true),
-                ];
-                
-                Ok(Field::new(name, DataType::Struct(Fields::from(struct_fields)), true))
-            }).collect::<Result<Vec<_>>>().context("Failed to map enum type to Arrow data type")?;
-
-            Ok(DataType::Struct(Fields::from(fields)))
-        }
-        DynType::Struct(fields) => {
-            let arrow_fields = fields
-                .iter()
-                .map(|(name, field_type)| {
-                    let inner_dt = to_arrow_dtype(field_type).context("Failed to convert struct inner field type to arrow type")?;
-                    Ok(Field::new(name, inner_dt, true))
-                })
-                .collect::<Result<Vec<_>>>().context("Failed to convert struct fields to arrow fields")?;
-            Ok(DataType::Struct(Fields::from(arrow_fields)))
-        }
-        DynType::NoData => Ok(DataType::Null),
-    }
-}
-
-fn to_enum(
-    variants: &Vec<(String, DynType)>,
-    param_values: Vec<Option<DynValue>>,
-) -> Result<Arc<dyn Array>> {
-    // Converts the enum variants into a struct type as Vec<(String, DynValue)>, and then call to_struct
-    let mut values = Vec::with_capacity(param_values.len());
-
-    // Helper closure that, for each variant in the Enum, create a tuple (name, value) and collect them into a Vec
-    let make_struct = |variant_name, inner_val: DynValue| {
-        // Create a struct where only the chosen variant has a value, others are None
-        let struct_inner = variants.iter().map(|(name, _)| {
-            if name == &variant_name {
-                (name.clone(), DynValue::Struct(vec![
-                    ("variant_chosen".to_string(), DynValue::Bool(true)),
-                    ("Data".to_string(), DynValue::Option(Some(Box::new(inner_val.clone()))))
-                ]))
-            } else {
-                // This variant was not chosen - set to None
-                (name.clone(), DynValue::Struct(vec![
-                    ("variant_chosen".to_string(), DynValue::Bool(false)),
-                    ("Data".to_string(), DynValue::Option(None))
-                ]))
-            }
-        })
-        .collect::<Vec<_>>();
-        DynValue::Struct(struct_inner)
-    };
-
-    for val in param_values {
-        match val {
-            None => {
-                values.push(None);
-            }
-            Some(DynValue::Enum(variant_name, inner_val)) => {
-                values.push(Some(make_struct(variant_name, *inner_val)));
-            }
-            Some(_) => return Err(anyhow!("type mismatch")),
-        }
-    }
-
-    // Convert variants to struct type
-    let struct_variants = variants.iter()
-        .map(|(name, param_type)| {
-            (name.clone(), DynType::Struct(vec![
-                ("variant_chosen".to_string(), DynType::Bool),
-                ("Data".to_string(), DynType::Option(Box::new(param_type.clone())))
-            ]))
-        })
-        .collect::<Vec<_>>();
-
-    to_struct(&struct_variants, values)
-}
-
-fn to_struct(
-    fields: &Vec<(String, DynType)>,
-    param_values: Vec<Option<DynValue>>,
-) -> Result<Arc<dyn Array>> {
-    let mut inner_values = vec![Vec::with_capacity(param_values.len()); fields.len()];
-
-    for val in param_values.iter() {
-        match val {
-            Some(DynValue::Struct(inner_vals)) => {
-                if inner_values.len() != inner_vals.len() {
-                    return Err(anyhow!(
-                        "found unexpected struct length value. Expected: {}, Found: {}",
-                        inner_values.len(),
-                        inner_vals.len()
-                    ));
-                }
-                for (v, (_, inner)) in inner_values.iter_mut().zip(inner_vals) {
-                    v.push(Some(inner.clone()));
-                }
-            }
-            Some(val) => {
-                return Err(anyhow!(
-                    "found unexpected value. Expected: Struct, Found: {:?}",
-                    val
-                ))
-            }
-            None => inner_values.iter_mut().for_each(|v| v.push(None)),
-        }
-    }
-
-    let mut arrays = Vec::with_capacity(fields.len());
-
-    for ((_, param_type), arr_vals) in fields.iter().zip(inner_values.into_iter()) {
-        arrays.push(to_arrow(param_type, arr_vals).context("Failed to convert struct inner values to arrow")?);
-    }
-
-    let fields = arrays
-        .iter()
-        .zip(fields.iter())
-        .map(|(arr, (name, _))| Field::new(name, arr.data_type().clone(), true))
-        .collect::<Vec<_>>();
-    let schema = Arc::new(Schema::new(fields));
-
-    let batch = RecordBatch::try_new(schema, arrays).context("Failed to create record batch from struct arrays")?;
-    Ok(Arc::new(StructArray::from(batch)))
-}
-
 pub fn match_discriminators(
     instr_data: &[u8],
     discriminator: &[u8],
@@ -522,56 +162,10 @@ pub fn match_discriminators(
     Ok(ix_data.to_vec())
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    #[ignore]
-    fn test_simple_borsh() {
-        #[derive(borsh::BorshSerialize)]
-        enum InnerEnum {
-            Number(i32),
-            Text,
-        }
-
-        #[derive(borsh::BorshSerialize)]
-        enum OuterEnum {
-            First(InnerEnum),
-            Second(bool),
-            Third,
-        }
-
-        let bytes = borsh::to_vec(&OuterEnum::Third).unwrap();
-
-        let enum_type = DynType::Enum(vec![
-            ("First".to_owned(), DynType::Enum(vec![
-                ("Number".to_owned(), DynType::I32),
-                ("Text".to_owned(), DynType::NoData),
-            ])),
-            ("Second".to_owned(), DynType::Bool),
-            ("Third".to_owned(), DynType::NoData),
-        ]);
-
-        let decoded_ix_result = deserialize_data(
-            &bytes,
-            &vec![ParamInput {
-                name: "my_enum".to_owned(),
-                param_type: enum_type.clone(),
-            }],
-        ).unwrap();
-
-        let r = to_arrow(&enum_type, vec![Some(decoded_ix_result[0].clone())]).unwrap();
-
-        let schema = Arc::new(Schema::new(vec![Field::new("example", to_arrow_dtype(&enum_type).unwrap(), true)]));
-        let batch = RecordBatch::try_new(schema, vec![r]).context("Failed to create record batch from data arrays").unwrap();
-        // Save the filtered instructions to a new parquet file
-        let mut file = File::create("decoded_instructions.parquet").unwrap();
-        let mut writer = parquet::arrow::ArrowWriter::try_new(&mut file, batch.schema(), None).unwrap();
-        writer.write(&batch).unwrap();
-        writer.close().unwrap();
-
-        panic!("{:?}", batch);
-    }
+    use crate::deserialize::{DynType, ParamInput};
 
     #[test]
     // #[ignore]
@@ -580,7 +174,6 @@ mod tests {
         use arrow::compute::filter_record_batch;
         
         let builder = ParquetRecordBatchReaderBuilder::try_new(
-            // File::open("filtered_instructions2.parquet").unwrap(),
             File::open("../core/reports/instruction.parquet").unwrap(),
         )
         .unwrap();
@@ -592,8 +185,6 @@ mod tests {
             // Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4").to_bytes();
         // let spl_token_program_id =
             Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").to_bytes();
-        // let spl_token_2022_program_id =
-        //     Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb").to_bytes();
 
         // Get the index of the program_id column
         let program_id_idx = instructions.schema().index_of("program_id").unwrap();
@@ -624,53 +215,53 @@ mod tests {
         let filtered_instructions = filter_record_batch(&instructions, &mask_array).unwrap();
 
         let ix_signature = InstructionSignature {
-            // SPL Token Transfer
-            program_id: Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-            name: "Transfer".to_string(),
-            discriminator: &[3],
-            sec_discriminator: None,
-            params: vec![
-                ParamInput {
-                    name: "Amount".to_string(),
-                    param_type: DynType::U64,
-                },
-
-            ],
-            accounts: vec![
-                "Source".to_string(),
-                "Destination".to_string(),
-                "Authority".to_string(),
-            ],
-
-            // // JUP SwapEvent
-            // program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
-            // name: "SwapEvent".to_string(),
-            // discriminator: &[228, 69, 165, 46, 81, 203, 154, 29],
-            // sec_discriminator: Some(&[64, 198, 205, 232, 38, 8, 113, 226]),
+            // // SPL Token Transfer
+            // program_id: Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+            // name: "Transfer".to_string(),
+            // discriminator: &[3],
+            // sec_discriminator: None,
             // params: vec![
             //     ParamInput {
-            //         name: "Amm".to_string(),
-            //         param_type: DynType::Pubkey,
-            //     },
-            //     ParamInput {
-            //         name: "InputMint".to_string(),
-            //         param_type: DynType::Pubkey,
-            //     },
-            //     ParamInput {
-            //         name: "InputAmount".to_string(),
+            //         name: "Amount".to_string(),
             //         param_type: DynType::U64,
             //     },
-            //     ParamInput {
-            //         name: "OutputMint".to_string(),
-            //         param_type: DynType::Pubkey,
-            //     },
-            //     ParamInput {
-            //         name: "OutputAmount".to_string(),
-            //         param_type: DynType::U64,
-            //     },
+
             // ],
             // accounts: vec![
+            //     "Source".to_string(),
+            //     "Destination".to_string(),
+            //     "Authority".to_string(),
             // ],
+
+            // JUP SwapEvent
+            program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
+            name: "SwapEvent".to_string(),
+            discriminator: &[228, 69, 165, 46, 81, 203, 154, 29],
+            sec_discriminator: Some(&[64, 198, 205, 232, 38, 8, 113, 226]),
+            params: vec![
+                ParamInput {
+                    name: "Amm".to_string(),
+                    param_type: DynType::Pubkey,
+                },
+                ParamInput {
+                    name: "InputMint".to_string(),
+                    param_type: DynType::Pubkey,
+                },
+                ParamInput {
+                    name: "InputAmount".to_string(),
+                    param_type: DynType::U64,
+                },
+                ParamInput {
+                    name: "OutputMint".to_string(),
+                    param_type: DynType::Pubkey,
+                },
+                ParamInput {
+                    name: "OutputAmount".to_string(),
+                    param_type: DynType::U64,
+                },
+            ],
+            accounts: vec![
+            ],
 
             // // JUP Route
             // program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
