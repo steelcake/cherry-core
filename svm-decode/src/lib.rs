@@ -284,7 +284,7 @@ fn to_binary(values: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
 fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
     let mut lengths = Vec::with_capacity(param_values.len());
     let mut inner_values = Vec::with_capacity(param_values.len() * 2);
-    let mut validity = Vec::with_capacity(param_values.len() * 2);
+    let mut validity = Vec::with_capacity(param_values.len());
 
     let mut all_valid = true;
 
@@ -292,11 +292,11 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
         match val {
             Some(val) => match val {
                 DynValue::Vec(inner_vals) => {
-                    lengths.push(inner_vals.len());
-                    inner_values.extend(inner_vals.into_iter().map(Some));
-                    validity.push(true);
-                }
-                _ => {
+                lengths.push(inner_vals.len());
+                inner_values.extend(inner_vals.into_iter().map(Some));
+                validity.push(true);
+            }
+            _ => {
                     return Err(anyhow!(
                         "found unexpected value. Expected list type, Found: {:?}",
                         val
@@ -310,18 +310,25 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
             }
         }
     }
-    let list_array_values = to_arrow(param_type, inner_values).context("Failed to convert list to arrow")?;
-    let field = Field::new("", to_arrow_dtype(param_type).context("Failed to convert  Dyntype to arrow type")?, true);
+
+    // First get the correct Arrow DataType for the inner type
+    let arrow_data_type = to_arrow_dtype(param_type)?;
+    
+    // Convert inner values to Arrow array
+    let list_array_values = to_arrow(param_type, inner_values)
+        .context("Failed to convert list elements to arrow array")?;
+    
+    // Create field with the correct data type
+    let field = Field::new("", arrow_data_type, true);
+    
+    // Create list array using the converted values
     let list_arr = ListArray::try_new(
         Arc::new(field),
         OffsetBuffer::from_lengths(lengths),
         list_array_values,
-        if all_valid {
-            None
-        } else {
-            Some(NullBuffer::from(validity))
-        },
+        if all_valid { None } else { Some(NullBuffer::from(validity)) },
     ).context("Failed to construct ListArray from list array values")?;
+    
     Ok(Arc::new(list_arr))
 }
 
@@ -346,8 +353,13 @@ fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
         }
         DynType::Enum(variants) => {
             let fields = variants.iter().map(|(name, dt)| {
-                Ok(Arc::new(Field::new(name, to_arrow_dtype(dt).context("Failed to convert enum inner variant type to arrow type")?, true)))
-            }).collect::<Result<Vec<_>>>().context("map enum type")?; 
+                let struct_fields = vec![
+                    Field::new("variant_chosen", DataType::Boolean, true),
+                    Field::new("Data", to_arrow_dtype(&DynType::Option(Box::new(dt.clone())))?, true),
+                ];
+                
+                Ok(Field::new(name, DataType::Struct(Fields::from(struct_fields)), true))
+            }).collect::<Result<Vec<_>>>().context("Failed to map enum type to Arrow data type")?;
 
             Ok(DataType::Struct(Fields::from(fields)))
         }
@@ -361,7 +373,7 @@ fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
                 .collect::<Result<Vec<_>>>().context("Failed to convert struct fields to arrow fields")?;
             Ok(DataType::Struct(Fields::from(arrow_fields)))
         }
-        DynType::Defined => Ok(DataType::Null),
+        DynType::NoData => Ok(DataType::Null),
     }
 }
 
@@ -369,44 +381,54 @@ fn to_enum(
     variants: &Vec<(String, DynType)>,
     param_values: Vec<Option<DynValue>>,
 ) -> Result<Arc<dyn Array>> {
-
-    // Converts the enum variants into a struct type as Vec<(String, DynValue)>, and then call to_struct;
-    // In the struct, all enum variants are DynValue::Option(None) except for the variant that matches the enum value.
+    // Converts the enum variants into a struct type as Vec<(String, DynValue)>, and then call to_struct
     let mut values = Vec::with_capacity(param_values.len());
 
-    // Helper closure that, for each variant in the Enum, create a tuple (name, value) and collect them into a Vec. StructInner = Vec<(String, DynValue)>;
+    // Helper closure that, for each variant in the Enum, create a tuple (name, value) and collect them into a Vec
     let make_struct = |variant_name, inner_val: DynValue| {
-        let struct_inner = variants .iter().map(|(name, _)| {
-                if name == &variant_name {
-                    println!("inner_val: {:?}", inner_val);
-                    (name.clone(), DynValue::Option(Some(Box::new(inner_val.clone()))))
-                } else {
-                    (name.clone(), DynValue::Option(None))
-                }
-            })
-            .collect::<Vec<_>>();
+        // Create a struct where only the chosen variant has a value, others are None
+        let struct_inner = variants.iter().map(|(name, _)| {
+            if name == &variant_name {
+                println!("variant_name: {}", variant_name);
+                (name.clone(), DynValue::Struct(vec![
+                    ("variant_chosen".to_string(), DynValue::Bool(true)),
+                    ("Data".to_string(), DynValue::Option(Some(Box::new(inner_val.clone()))))
+                ]))
+            } else {
+                // This variant was not chosen - set to None
+                (name.clone(), DynValue::Struct(vec![
+                    ("variant_chosen".to_string(), DynValue::Bool(false)),
+                    ("Data".to_string(), DynValue::Option(None))
+                ]))
+            }
+        })
+        .collect::<Vec<_>>();
         DynValue::Struct(struct_inner)
     };
 
     for val in param_values {
         match val {
-            None => values.push(None),
-            Some(DynValue::Enum(variant_name, inner_val)) => {
-                    values.push(Some(make_struct(variant_name, *inner_val)));
+            None => {
+                values.push(None);
             }
-            Some(_) => { return Err(anyhow!("type mismatch")); }
+            Some(DynValue::Enum(variant_name, inner_val)) => {
+                values.push(Some(make_struct(variant_name, *inner_val)));
+            }
+            Some(_) => return Err(anyhow!("type mismatch")),
         }
     }
-    println!("Values: {:?}", values);
 
-    // Since the enum variants are now a struct of Option types, we need to convert the enum variant types 
-    // into a Struct type, in this case Vec<(name, Option types).
-    let variants = variants.iter()
-        .map(|(name, param_type)| (name.clone(), DynType::Option(Box::new(param_type.clone()))))
+    // Convert variants to struct type
+    let struct_variants = variants.iter()
+        .map(|(name, param_type)| {
+            (name.clone(), DynType::Struct(vec![
+                ("variant_chosen".to_string(), DynType::Bool),
+                ("Data".to_string(), DynType::Option(Box::new(param_type.clone())))
+            ]))
+        })
         .collect::<Vec<_>>();
-    println!("variants: {:?}", variants);
 
-    to_struct(&variants, values)
+    to_struct(&struct_variants, values)
 }
 
 fn to_struct(
@@ -522,7 +544,15 @@ mod tests {
 
         let r = to_arrow(&enum_type, vec![Some(decoded_ix_result[0].clone())]).unwrap();
 
-        panic!("{:?}", r);
+        let schema = Arc::new(Schema::new(vec![Field::new("example", to_arrow_dtype(&enum_type).unwrap(), true)]));
+        let batch = RecordBatch::try_new(schema, vec![r]).context("Failed to create record batch from data arrays").unwrap();
+        // Save the filtered instructions to a new parquet file
+        let mut file = File::create("decoded_instructions.parquet").unwrap();
+        let mut writer = parquet::arrow::ArrowWriter::try_new(&mut file, batch.schema(), None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.close().unwrap();
+
+        panic!("{:?}", batch);
     }
 
     #[test]
@@ -534,6 +564,7 @@ mod tests {
         // let builder = ParquetRecordBatchReaderBuilder::try_new(File::open("../core/reports/instruction.parquet").unwrap()).unwrap();
         let builder = ParquetRecordBatchReaderBuilder::try_new(
             File::open("filtered_instructions2.parquet").unwrap(),
+            // File::open("../core/reports/instruction.parquet").unwrap(),
         )
         .unwrap();
         let mut reader = builder.build().unwrap();

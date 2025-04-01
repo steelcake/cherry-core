@@ -272,9 +272,8 @@ fn deserialize_value<'a>(param_type: &DynType, data: &'a [u8]) -> Result<(DynVal
                     "Not enough data for enum: expected at least 1 byte for variant index"
                 ));
             }
-            let data_len = data.len();
             let variant_index = data[0] as usize;
-            let mut remaining_data = &data[1..];
+            let remaining_data = &data[1..];
 
             if variant_index >= variants.len() {
                 return Err(anyhow!("Invalid enum variant index: {}", variant_index));
