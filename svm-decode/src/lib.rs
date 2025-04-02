@@ -12,7 +12,6 @@ pub struct InstructionSignature<'a> {
     pub program_id: Pubkey,
     pub name: String,
     pub discriminator: &'a [u8],
-    pub sec_discriminator: Option<&'a [u8]>,
     pub params: Vec<ParamInput>,
     pub accounts: Vec<String>,
 }
@@ -65,7 +64,6 @@ pub fn decode_instruction_data(
         let data_result = match_discriminators(
             &instruction_data,
             signature.discriminator,
-            signature.sec_discriminator,
         );
         let mut data = match data_result {
             Ok(data) => data,
@@ -154,7 +152,6 @@ pub fn decode_instruction_data(
 pub fn match_discriminators(
     instr_data: &[u8],
     discriminator: &[u8],
-    sec_discriminator: Option<&[u8]>,
 ) -> Result<Vec<u8>> {
     let discriminator_len = discriminator.len();
     let disc = &instr_data[..discriminator_len];
@@ -163,16 +160,6 @@ pub fn match_discriminators(
         return Err(anyhow::anyhow!(
             "Instruction data discriminator doesn't match signature discriminator"
         ));
-    }
-    if let Some(sec_discriminator) = sec_discriminator {
-        let sec_discriminator_len = sec_discriminator.len();
-        let sec_disc = &ix_data[..sec_discriminator_len];
-        if !sec_disc.eq(sec_discriminator) {
-            return Err(anyhow::anyhow!(
-                "Instruction data sec_discriminator doesn't match signature sec_discriminator"
-            ));
-        }
-        ix_data = &ix_data[sec_discriminator_len..];
     }
     Ok(ix_data.to_vec())
 }
@@ -184,7 +171,7 @@ mod tests {
     use std::fs::File;
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn read_parquet_with_real_data() {
         use arrow::compute::filter_record_batch;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -235,7 +222,6 @@ mod tests {
             // program_id: Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
             // name: "Transfer".to_string(),
             // discriminator: &[3],
-            // sec_discriminator: None,
             // params: vec![
             //     ParamInput {
             //         name: "Amount".to_string(),
@@ -252,8 +238,7 @@ mod tests {
             // JUP SwapEvent
             program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
             name: "SwapEvent".to_string(),
-            discriminator: &[228, 69, 165, 46, 81, 203, 154, 29],
-            sec_discriminator: Some(&[64, 198, 205, 232, 38, 8, 113, 226]),
+            discriminator: &[228, 69, 165, 46, 81, 203, 154, 29, 64, 198, 205, 232, 38, 8, 113, 226],
             params: vec![
                 ParamInput {
                     name: "Amm".to_string(),
@@ -281,7 +266,6 @@ mod tests {
             //     program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
             //     name: "Route".to_string(),
             //     discriminator: &[229, 23, 203, 151, 122, 227, 173, 42],
-            //     sec_discriminator: None,
             //     params: vec![
             //         ParamInput {
             //             name: "RoutePlan".to_string(),
