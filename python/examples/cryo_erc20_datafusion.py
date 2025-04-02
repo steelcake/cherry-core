@@ -4,17 +4,17 @@ import typing
 import polars
 import pyarrow
 
-signature = "Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)"
+signature = "Transfer(address indexed from, address indexed to, uint256 amount)"
 topic0 = cherry_core.evm_signature_to_topic0(signature)
-# contract_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+contract_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
 # get filtered events from last 10 blocks
 data = cryo_collect(
     datatype="logs",
     blocks=["-10:"],
-    rpc="https://base.rpc.hypersync.xyz",
+    rpc="https://eth.rpc.hypersync.xyz",
     output_format="polars",
-    contract=[],
+    contract=[contract_address],
     topic0=[topic0],
     hex=False,
 )
@@ -43,7 +43,7 @@ decoded = cherry_core.evm_decode_events(signature, batch, allow_decode_fail=Fals
 # This function is a helper function to do multiple cast operations at once. It casts
 # the named column 'amount' to 128 bit integers in this case.
 decoded = cherry_core.cast(
-    [("amount", "Decimal128(38, 0)")], decoded, allow_cast_fail=False
+    [("amount", pyarrow.decimal128(38, 0))], decoded, allow_cast_fail=False
 )
 
 # convert all binary columns to prefix hex string format like '0xabc'

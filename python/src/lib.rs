@@ -1,7 +1,6 @@
-use std::str::FromStr;
 use std::sync::LazyLock;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context};
 use arrow::array::{Array, ArrayData, BinaryArray, Decimal256Array, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Schema};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
@@ -22,6 +21,8 @@ fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(cast, m)?)?;
     m.add_function(wrap_pyfunction!(cast_schema, m)?)?;
+    m.add_function(wrap_pyfunction!(cast_by_type, m)?)?;
+    m.add_function(wrap_pyfunction!(cast_schema_by_type, m)?)?;
     m.add_function(wrap_pyfunction!(base58_encode, m)?)?;
     m.add_function(wrap_pyfunction!(base58_encode_column, m)?)?;
     m.add_function(wrap_pyfunction!(hex_encode, m)?)?;
@@ -51,9 +52,18 @@ fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+struct CastDataType(DataType);
+
+impl<'py> pyo3::FromPyObject<'py> for CastDataType {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        let dt = DataType::from_pyarrow_bound(ob)?;
+        Ok(Self(dt))
+    }
+}
+
 #[pyfunction]
 fn cast(
-    map: Vec<(String, String)>,
+    map: Vec<(String, CastDataType)>,
     batch: &Bound<'_, PyAny>,
     allow_cast_fail: bool,
     py: Python<'_>,
@@ -61,12 +71,8 @@ fn cast(
     let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
     let map = map
         .into_iter()
-        .map(|x| {
-            DataType::from_str(&x.1)
-                .map(|dt| (x.0, dt))
-                .context("parse data type")
-        })
-        .collect::<Result<Vec<_>>>()?;
+        .map(|(name, dt)| (name, dt.0))
+        .collect::<Vec<_>>();
 
     let batch = baselib::cast::cast(&map, &batch, allow_cast_fail).context("cast")?;
 
@@ -75,21 +81,58 @@ fn cast(
 
 #[pyfunction]
 fn cast_schema(
-    map: Vec<(String, String)>,
+    map: Vec<(String, CastDataType)>,
     schema: &Bound<'_, PyAny>,
     py: Python<'_>,
 ) -> PyResult<PyObject> {
     let schema = Schema::from_pyarrow_bound(schema).context("convert schema from pyarrow")?;
     let map = map
         .into_iter()
-        .map(|x| {
-            DataType::from_str(&x.1)
-                .map(|dt| (x.0, dt))
-                .context("parse data type")
-        })
-        .collect::<Result<Vec<_>>>()?;
+        .map(|(name, dt)| (name, dt.0))
+        .collect::<Vec<_>>();
 
     let schema = baselib::cast::cast_schema(&map, &schema).context("cast")?;
+
+    Ok(schema
+        .to_pyarrow(py)
+        .context("map result back to pyarrow")?)
+}
+
+#[pyfunction]
+fn cast_by_type(
+    batch: &Bound<'_, PyAny>,
+    from_type: &Bound<'_, PyAny>,
+    to_type: &Bound<'_, PyAny>,
+    allow_cast_fail: bool,
+    py: Python<'_>,
+) -> PyResult<PyObject> {
+    let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
+
+    let from_type =
+        DataType::from_pyarrow_bound(from_type).context("convert from_type to pyarrow")?;
+    let to_type = DataType::from_pyarrow_bound(to_type).context("convert to_type to pyarrow")?;
+
+    let batch = baselib::cast::cast_by_type(&batch, &from_type, &to_type, allow_cast_fail)
+        .context("cast")?;
+
+    Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
+}
+
+#[pyfunction]
+fn cast_schema_by_type(
+    schema: &Bound<'_, PyAny>,
+    from_type: &Bound<'_, PyAny>,
+    to_type: &Bound<'_, PyAny>,
+    py: Python<'_>,
+) -> PyResult<PyObject> {
+    let schema = Schema::from_pyarrow_bound(schema).context("convert schema from pyarrow")?;
+
+    let from_type =
+        DataType::from_pyarrow_bound(from_type).context("convert from_type to pyarrow")?;
+    let to_type = DataType::from_pyarrow_bound(to_type).context("convert to_type to pyarrow")?;
+
+    let schema =
+        baselib::cast::cast_schema_by_type(&schema, &from_type, &to_type).context("cast")?;
 
     Ok(schema
         .to_pyarrow(py)
