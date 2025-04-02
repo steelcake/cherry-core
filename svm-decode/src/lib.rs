@@ -149,7 +149,7 @@ pub fn decode_instruction_data(
 pub fn match_discriminators(instr_data: &[u8], discriminator: &[u8]) -> Result<Vec<u8>> {
     let discriminator_len = discriminator.len();
     let disc = &instr_data[..discriminator_len];
-    let mut ix_data = &instr_data[discriminator_len..];
+    let ix_data = &instr_data[discriminator_len..];
     if !disc.eq(discriminator) {
         return Err(anyhow::anyhow!(
             "Instruction data discriminator doesn't match signature discriminator"
