@@ -2,7 +2,7 @@ use crate::deserialize::{DynType, DynValue};
 use anyhow::{anyhow, Context, Result};
 use arrow::array::{Array, ListArray};
 use arrow::{
-    array::{builder, ArrowPrimitiveType, NullArray, RecordBatch, StructArray},
+    array::{builder, ArrowPrimitiveType, RecordBatch, StructArray},
     buffer::{NullBuffer, OffsetBuffer},
     datatypes::*,
 };
@@ -18,7 +18,6 @@ use std::sync::Arc;
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array wrapped in an Arc
 pub fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
     match param_type {
-        DynType::NoData => Ok(Arc::new(NullArray::new(values.len()))),
         DynType::I8 => to_number::<Int8Type>(8, &values),
         DynType::I16 => to_number::<Int16Type>(16, &values),
         DynType::I32 => to_number::<Int32Type>(32, &values),
@@ -69,15 +68,21 @@ pub fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
             let fields = variants
                 .iter()
                 .map(|(name, dt)| {
-                    let struct_fields = vec![
-                        Field::new("variant_chosen", DataType::Boolean, true),
-                        Field::new(
-                            "Data",
-                            to_arrow_dtype(&DynType::Option(Box::new(dt.clone())))?,
-                            true,
-                        ),
-                    ];
-
+                    let struct_fields = match dt {
+                        Some(dt) => {
+                            vec![
+                                Field::new("variant_chosen", DataType::Boolean, true),
+                                Field::new(
+                                    "Data",
+                                    to_arrow_dtype(&DynType::Option(Box::new(dt.clone())))?,
+                                    true,
+                                ),
+                            ]
+                        }
+                        None => {
+                            vec![Field::new("variant_chosen", DataType::Boolean, true)]
+                        }
+                    };
                     Ok(Field::new(
                         name,
                         DataType::Struct(Fields::from(struct_fields)),
@@ -101,7 +106,6 @@ pub fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
                 .context("Failed to convert struct fields to arrow fields")?;
             Ok(DataType::Struct(Fields::from(arrow_fields)))
         }
-        DynType::NoData => Ok(DataType::Null),
     }
 }
 
@@ -358,38 +362,52 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
 fn to_enum(
-    variants: &Vec<(String, DynType)>,
+    variants: &Vec<(String, Option<DynType>)>,
     param_values: Vec<Option<DynValue>>,
 ) -> Result<Arc<dyn Array>> {
     let mut values = Vec::with_capacity(param_values.len());
 
-    // Helper closure that, for each variant in the Enum, create a tuple (name, value) and collect them into a Vec
-    let make_struct = |variant_name, inner_val: DynValue| {
+    // Helper closure that creates a struct representation for an enum variant
+    let make_struct = |variant_name, inner_val: Option<Box<DynValue>>| {
         let struct_inner = variants
             .iter()
-            .map(|(name, _)| {
-                if name == &variant_name {
-                    (
+            .map(|(name, dt)| {
+                let is_selected_variant = name == &variant_name;
+
+                match dt {
+                    Some(_) => {
+                        let data_value = if is_selected_variant {
+                            // Only unwrap when we know inner_val is Some
+                            inner_val
+                                .as_ref()
+                                .map(|boxed| DynValue::Option(Some(Box::new((**boxed).clone()))))
+                                .unwrap_or(DynValue::Option(None))
+                        } else {
+                            DynValue::Option(None)
+                        };
+
+                        (
+                            name.clone(),
+                            DynValue::Struct(vec![
+                                (
+                                    "variant_chosen".to_string(),
+                                    DynValue::Bool(is_selected_variant),
+                                ),
+                                ("Data".to_string(), data_value),
+                            ]),
+                        )
+                    }
+                    None => (
                         name.clone(),
-                        DynValue::Struct(vec![
-                            ("variant_chosen".to_string(), DynValue::Bool(true)),
-                            (
-                                "Data".to_string(),
-                                DynValue::Option(Some(Box::new(inner_val.clone()))),
-                            ),
-                        ]),
-                    )
-                } else {
-                    (
-                        name.clone(),
-                        DynValue::Struct(vec![
-                            ("variant_chosen".to_string(), DynValue::Bool(false)),
-                            ("Data".to_string(), DynValue::Option(None)),
-                        ]),
-                    )
+                        DynValue::Struct(vec![(
+                            "variant_chosen".to_string(),
+                            DynValue::Bool(is_selected_variant),
+                        )]),
+                    ),
                 }
             })
             .collect::<Vec<_>>();
+
         DynValue::Struct(struct_inner)
     };
 
@@ -399,7 +417,7 @@ fn to_enum(
                 values.push(None);
             }
             Some(DynValue::Enum(variant_name, inner_val)) => {
-                values.push(Some(make_struct(variant_name, *inner_val)));
+                values.push(Some(make_struct(variant_name, inner_val)));
             }
             Some(_) => return Err(anyhow!("type mismatch")),
         }
@@ -408,8 +426,8 @@ fn to_enum(
     // Convert variants to struct type
     let struct_variants = variants
         .iter()
-        .map(|(name, param_type)| {
-            (
+        .map(|(name, param_type)| match param_type {
+            Some(param_type) => (
                 name.clone(),
                 DynType::Struct(vec![
                     ("variant_chosen".to_string(), DynType::Bool),
@@ -418,7 +436,11 @@ fn to_enum(
                         DynType::Option(Box::new(param_type.clone())),
                     ),
                 ]),
-            )
+            ),
+            None => (
+                name.clone(),
+                DynType::Struct(vec![("variant_chosen".to_string(), DynType::Bool)]),
+            ),
         })
         .collect::<Vec<_>>();
 
@@ -496,7 +518,6 @@ mod tests {
     fn test_nested_dyntypes() {
         // Create a complex nested structure that tests all DynType cases
         let nested_type = DynType::Struct(vec![
-            ("no_data".to_string(), DynType::NoData),
             ("i8_value".to_string(), DynType::I8),
             ("bool_value".to_string(), DynType::Bool),
             ("pubkey_value".to_string(), DynType::Pubkey),
@@ -511,8 +532,9 @@ mod tests {
             (
                 "nested_enum".to_string(),
                 DynType::Enum(vec![
-                    ("Variant1".to_string(), DynType::I8),
-                    ("Variant2".to_string(), DynType::Bool),
+                    ("Variant1".to_string(), Some(DynType::I8)),
+                    ("Variant2".to_string(), Some(DynType::Bool)),
+                    ("Variant3".to_string(), None),
                 ]),
             ),
             (
@@ -523,7 +545,6 @@ mod tests {
 
         // Create test data
         let test_data = DynValue::Struct(vec![
-            ("no_data".to_string(), DynValue::NoData),
             ("i8_value".to_string(), DynValue::I8(42)),
             ("bool_value".to_string(), DynValue::Bool(true)),
             (
@@ -543,7 +564,7 @@ mod tests {
             ),
             (
                 "nested_enum".to_string(),
-                DynValue::Enum("Variant1".to_string(), Box::new(DynValue::I8(120))),
+                DynValue::Enum("Variant3".to_string(), None),
             ),
             (
                 "optional_value".to_string(),

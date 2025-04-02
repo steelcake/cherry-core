@@ -10,8 +10,6 @@ pub struct ParamInput {
 /// Represents a dynamic type that can be deserialized from binary data
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynType {
-    /// A type for enum variants, that doesn't contain data, thus don't require deserialization
-    NoData,
     I8,
     I16,
     I32,
@@ -28,15 +26,13 @@ pub enum DynType {
     /// Complex types
     Vec(Box<DynType>),
     Struct(Vec<(String, DynType)>),
-    Enum(Vec<(String, DynType)>),
+    Enum(Vec<(String, Option<DynType>)>),
     Option(Box<DynType>),
 }
 
 /// Represents a dynamically deserialized value
 #[derive(Debug, Clone)]
 pub enum DynValue {
-    /// A value for enum that doesn't contain data
-    NoData,
     I8(i8),
     I16(i16),
     I32(i32),
@@ -53,7 +49,7 @@ pub enum DynValue {
     /// Complex values
     Vec(Vec<DynValue>),
     Struct(Vec<(String, DynValue)>),
-    Enum(String, Box<DynValue>),
+    Enum(String, Option<Box<DynValue>>),
     Option(Option<Box<DynValue>>),
 }
 
@@ -109,7 +105,6 @@ pub fn deserialize_data(data: &[u8], params: &[ParamInput]) -> Result<Vec<DynVal
 /// * The data format doesn't match the expected type
 fn deserialize_value<'a>(param_type: &DynType, data: &'a [u8]) -> Result<(DynValue, &'a [u8])> {
     match param_type {
-        DynType::NoData => Ok((DynValue::NoData, data)),
         DynType::Option(inner_type) => {
             let value = data.first().context("Not enough data for option")?;
             match value {
@@ -281,12 +276,15 @@ fn deserialize_value<'a>(param_type: &DynType, data: &'a [u8]) -> Result<(DynVal
 
             let (variant_name, variant_type) = &variants[variant_index];
 
-            let (variant_value, new_data) = deserialize_value(variant_type, remaining_data)?;
-
-            Ok((
-                DynValue::Enum(variant_name.clone(), Box::new(variant_value)),
-                new_data,
-            ))
+            if let Some(variant_type) = variant_type {
+                let (variant_value, new_data) = deserialize_value(variant_type, remaining_data)?;
+                Ok((
+                    DynValue::Enum(variant_name.clone(), Some(Box::new(variant_value))),
+                    new_data,
+                ))
+            } else {
+                Ok((DynValue::Enum(variant_name.clone(), None), remaining_data))
+            }
         }
     }
 }

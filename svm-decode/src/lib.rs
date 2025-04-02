@@ -178,10 +178,9 @@ mod tests {
         let instructions = reader.next().unwrap().unwrap();
 
         // Filter instructions by program id
-        let jup_program_id =
-            Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4").to_bytes();
-        // let spl_token_program_id =
-        // Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").to_bytes();
+        let program_id =
+            // Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4").to_bytes();
+            Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").to_bytes();
 
         // Get the index of the program_id column
         let program_id_idx = instructions.schema().index_of("program_id").unwrap();
@@ -202,7 +201,7 @@ mod tests {
                 let value = program_id_col.value(i);
                 mask.push(
                     // value == spl_token_program_id ||
-                    value == jup_program_id, // value == spl_token_2022_program_id
+                    value == program_id, // value == spl_token_2022_program_id
                 );
             }
         }
@@ -212,331 +211,358 @@ mod tests {
         let filtered_instructions = filter_record_batch(&instructions, &mask_array).unwrap();
 
         let ix_signature = InstructionSignature {
-            // // SPL Token Transfer
-            // program_id: Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-            // name: "Transfer".to_string(),
-            // discriminator: &[3],
+            // SPL Token Transfer
+            program_id: Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+            name: "Transfer".to_string(),
+            discriminator: &[3],
+            params: vec![ParamInput {
+                name: "Amount".to_string(),
+                param_type: DynType::U64,
+            }],
+            accounts: vec![
+                "Source".to_string(),
+                "Destination".to_string(),
+                "Authority".to_string(),
+            ],
+            // // JUP SwapEvent
+            // program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
+            // name: "SwapEvent".to_string(),
+            // discriminator: &[
+            //     228, 69, 165, 46, 81, 203, 154, 29, 64, 198, 205, 232, 38, 8, 113, 226,
+            // ],
             // params: vec![
             //     ParamInput {
-            //         name: "Amount".to_string(),
+            //         name: "Amm".to_string(),
+            //         param_type: DynType::Pubkey,
+            //     },
+            //     ParamInput {
+            //         name: "InputMint".to_string(),
+            //         param_type: DynType::Pubkey,
+            //     },
+            //     ParamInput {
+            //         name: "InputAmount".to_string(),
             //         param_type: DynType::U64,
             //     },
+            //     ParamInput {
+            //         name: "OutputMint".to_string(),
+            //         param_type: DynType::Pubkey,
+            //     },
+            //     ParamInput {
+            //         name: "OutputAmount".to_string(),
+            //         param_type: DynType::U64,
+            //     },
+            // ],
+            // accounts: vec![],
 
+            // // JUP Route
+            // program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
+            // name: "Route".to_string(),
+            // discriminator: &[229, 23, 203, 151, 122, 227, 173, 42],
+            // params: vec![
+            //     ParamInput {
+            //         name: "RoutePlan".to_string(),
+            //         param_type: DynType::Vec(Box::new(DynType::Struct(vec![
+            //             (
+            //                 "Swap".to_string(),
+            //                 DynType::Enum(vec![
+            //                     ("Saber".to_string(), None),
+            //                     ("SaberAddDecimalsDeposit".to_string(), None),
+            //                     ("SaberAddDecimalsWithdraw".to_string(), None),
+            //                     ("TokenSwap".to_string(), None),
+            //                     ("Sencha".to_string(), None),
+            //                     ("Step".to_string(), None),
+            //                     ("Cropper".to_string(), None),
+            //                     ("Raydium".to_string(), None),
+            //                     (
+            //                         "Crema".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "a_to_b".to_string(),
+            //                             DynType::Bool,
+            //                         )])),
+            //                     ),
+            //                     ("Lifinity".to_string(), None),
+            //                     ("Mercurial".to_string(), None),
+            //                     ("Cykura".to_string(), None),
+            //                     (
+            //                         "Serum".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "side".to_string(),
+            //                             DynType::Enum(vec![
+            //                                 ("Bid".to_string(), None),
+            //                                 ("Ask".to_string(), None),
+            //                             ]),
+            //                         )])),
+            //                     ),
+            //                     ("MarinadeDeposit".to_string(), None),
+            //                     ("MarinadeUnstake".to_string(), None),
+            //                     (
+            //                         "Aldrin".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "side".to_string(),
+            //                             DynType::Enum(vec![
+            //                                 ("Bid".to_string(), None),
+            //                                 ("Ask".to_string(), None),
+            //                             ]),
+            //                         )])),
+            //                     ),
+            //                     (
+            //                         "AldrinV2".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "side".to_string(),
+            //                             DynType::Enum(vec![
+            //                                 ("Bid".to_string(), None),
+            //                                 ("Ask".to_string(), None),
+            //                             ]),
+            //                         )])),
+            //                     ),
+            //                     (
+            //                         "Whirlpool".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "a_to_b".to_string(),
+            //                             DynType::Bool,
+            //                         )])),
+            //                     ),
+            //                     (
+            //                         "Invariant".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "x_to_y".to_string(),
+            //                             DynType::Bool,
+            //                         )])),
+            //                     ),
+            //                     ("Meteora".to_string(), None),
+            //                     ("GooseFX".to_string(), None),
+            //                     (
+            //                         "DeltaFi".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "stable".to_string(),
+            //                             DynType::Bool,
+            //                         )])),
+            //                     ),
+            //                     ("Balansol".to_string(), None),
+            //                     (
+            //                         "MarcoPolo".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "x_to_y".to_string(),
+            //                             DynType::Bool,
+            //                         )])),
+            //                     ),
+            //                     (
+            //                         "Dradex".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "side".to_string(),
+            //                             DynType::Enum(vec![
+            //                                 ("Bid".to_string(), None),
+            //                                 ("Ask".to_string(), None),
+            //                             ]),
+            //                         )])),
+            //                     ),
+            //                     ("LifinityV2".to_string(), None),
+            //                     ("RaydiumClmm".to_string(), None),
+            //                     (
+            //                         "Openbook".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "side".to_string(),
+            //                             DynType::Enum(vec![
+            //                                 ("Bid".to_string(), None),
+            //                                 ("Ask".to_string(), None),
+            //                             ]),
+            //                         )])),
+            //                     ),
+            //                     (
+            //                         "Phoenix".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "side".to_string(),
+            //                             DynType::Enum(vec![
+            //                                 ("Bid".to_string(), None),
+            //                                 ("Ask".to_string(), None),
+            //                             ]),
+            //                         )])),
+            //                     ),
+            //                     (
+            //                         "Symmetry".to_string(),
+            //                         Some(DynType::Struct(vec![
+            //                             ("from_token_id".to_string(), DynType::U64),
+            //                             ("to_token_id".to_string(), DynType::U64),
+            //                         ])),
+            //                     ),
+            //                     ("TokenSwapV2".to_string(), None),
+            //                     ("HeliumTreasuryManagementRedeemV0".to_string(), None),
+            //                     ("StakeDexStakeWrappedSol".to_string(), None),
+            //                     (
+            //                         "StakeDexSwapViaStake".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "bridge_stake_seed".to_string(),
+            //                             DynType::U32,
+            //                         )])),
+            //                     ),
+            //                     ("GooseFXV2".to_string(), None),
+            //                     ("Perps".to_string(), None),
+            //                     ("PerpsAddLiquidity".to_string(), None),
+            //                     ("PerpsRemoveLiquidity".to_string(), None),
+            //                     ("MeteoraDlmm".to_string(), None),
+            //                     (
+            //                         "OpenBookV2".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "side".to_string(),
+            //                             DynType::Enum(vec![
+            //                                 ("Bid".to_string(), None),
+            //                                 ("Ask".to_string(), None),
+            //                             ]),
+            //                         )])),
+            //                     ),
+            //                     ("RaydiumClmmV2".to_string(), None),
+            //                     (
+            //                         "StakeDexPrefundWithdrawStakeAndDepositStake".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "bridge_stake_seed".to_string(),
+            //                             DynType::U32,
+            //                         )])),
+            //                     ),
+            //                     (
+            //                         "Clone".to_string(),
+            //                         Some(DynType::Struct(vec![
+            //                             ("pool_index".to_string(), DynType::U8),
+            //                             ("quantity_is_input".to_string(), DynType::Bool),
+            //                             ("quantity_is_collateral".to_string(), DynType::Bool),
+            //                         ])),
+            //                     ),
+            //                     (
+            //                         "SanctumS".to_string(),
+            //                         Some(DynType::Struct(vec![
+            //                             ("src_lst_value_calc_accs".to_string(), DynType::U8),
+            //                             ("dst_lst_value_calc_accs".to_string(), DynType::U8),
+            //                             ("src_lst_index".to_string(), DynType::U32),
+            //                             ("dst_lst_index".to_string(), DynType::U32),
+            //                         ])),
+            //                     ),
+            //                     (
+            //                         "SanctumSAddLiquidity".to_string(),
+            //                         Some(DynType::Struct(vec![
+            //                             ("lst_value_calc_accs".to_string(), DynType::U8),
+            //                             ("lst_index".to_string(), DynType::U32),
+            //                         ])),
+            //                     ),
+            //                     (
+            //                         "SanctumSRemoveLiquidity".to_string(),
+            //                         Some(DynType::Struct(vec![
+            //                             ("lst_value_calc_accs".to_string(), DynType::U8),
+            //                             ("lst_index".to_string(), DynType::U32),
+            //                         ])),
+            //                     ),
+            //                     ("RaydiumCP".to_string(), None),
+            //                     (
+            //                         "WhirlpoolSwapV2".to_string(),
+            //                         Some(DynType::Struct(vec![
+            //                             ("a_to_b".to_string(), DynType::Bool),
+            //                             (
+            //                                 "remaining_accounts_info".to_string(),
+            //                                 DynType::Struct(vec![(
+            //                                     "slices".to_string(),
+            //                                     DynType::Vec(Box::new(DynType::Struct(vec![(
+            //                                         "remaining_accounts_slice".to_string(),
+            //                                         DynType::Struct(vec![
+            //                                             ("accounts_type".to_string(), DynType::U8),
+            //                                             ("length".to_string(), DynType::U8),
+            //                                         ]),
+            //                                     )]))),
+            //                                 )]),
+            //                             ),
+            //                         ])),
+            //                     ),
+            //                     ("OneIntro".to_string(), None),
+            //                     ("PumpdotfunWrappedBuy".to_string(), None),
+            //                     ("PumpdotfunWrappedSell".to_string(), None),
+            //                     ("PerpsV2".to_string(), None),
+            //                     ("PerpsV2AddLiquidity".to_string(), None),
+            //                     ("PerpsV2RemoveLiquidity".to_string(), None),
+            //                     ("MoonshotWrappedBuy".to_string(), None),
+            //                     ("MoonshotWrappedSell".to_string(), None),
+            //                     ("StabbleStableSwap".to_string(), None),
+            //                     ("StabbleWeightedSwap".to_string(), None),
+            //                     (
+            //                         "Obric".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "x_to_y".to_string(),
+            //                             DynType::Bool,
+            //                         )])),
+            //                     ),
+            //                     ("FoxBuyFromEstimatedCost".to_string(), None),
+            //                     (
+            //                         "FoxClaimPartial".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "is_y".to_string(),
+            //                             DynType::Bool,
+            //                         )])),
+            //                     ),
+            //                     (
+            //                         "SolFi".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "is_quote_to_base".to_string(),
+            //                             DynType::Bool,
+            //                         )])),
+            //                     ),
+            //                     ("SolayerDelegateNoInit".to_string(), None),
+            //                     ("SolayerUndelegateNoInit".to_string(), None),
+            //                     (
+            //                         "TokenMill".to_string(),
+            //                         Some(DynType::Struct(vec![(
+            //                             "side".to_string(),
+            //                             DynType::Enum(vec![
+            //                                 ("Bid".to_string(), None),
+            //                                 ("Ask".to_string(), None),
+            //                             ]),
+            //                         )])),
+            //                     ),
+            //                     ("DaosFunBuy".to_string(), None),
+            //                     ("DaosFunSell".to_string(), None),
+            //                     ("ZeroFi".to_string(), None),
+            //                     ("StakeDexWithdrawWrappedSol".to_string(), None),
+            //                     ("VirtualsBuy".to_string(), None),
+            //                     ("VirtualsSell".to_string(), None),
+            //                     (
+            //                         "Peren".to_string(),
+            //                         Some(DynType::Struct(vec![
+            //                             ("in_index".to_string(), DynType::U8),
+            //                             ("out_index".to_string(), DynType::U8),
+            //                         ])),
+            //                     ),
+            //                     ("PumpdotfunAmmBuy".to_string(), None),
+            //                     ("PumpdotfunAmmSell".to_string(), None),
+            //                     ("Gamma".to_string(), None),
+            //                 ]),
+            //             ),
+            //             ("Percent".to_string(), DynType::U8),
+            //             ("InputIndex".to_string(), DynType::U8),
+            //             ("OutputIndex".to_string(), DynType::U8),
+            //         ]))),
+            //     },
+            //     ParamInput {
+            //         name: "InAmount".to_string(),
+            //         param_type: DynType::U64,
+            //     },
+            //     ParamInput {
+            //         name: "QuotedOutAmount".to_string(),
+            //         param_type: DynType::U64,
+            //     },
+            //     ParamInput {
+            //         name: "SlippageBps".to_string(),
+            //         param_type: DynType::U16,
+            //     },
+            //     ParamInput {
+            //         name: "PlatformFeeBps".to_string(),
+            //         param_type: DynType::U8,
+            //     },
             // ],
             // accounts: vec![
-            //     "Source".to_string(),
-            //     "Destination".to_string(),
-            //     "Authority".to_string(),
+            //     "TokenProgram".to_string(),
+            //     "UserTransferAuthority".to_string(),
+            //     "UserSourceTokenAccount".to_string(),
+            //     "UserDestinationTokenAccount".to_string(),
+            //     "DestinationTokenAccount".to_string(),
+            //     "PlatformFeeAccount".to_string(),
+            //     "EventAuthority".to_string(),
+            //     "Program".to_string(),
             // ],
-
-            // JUP SwapEvent
-            program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
-            name: "SwapEvent".to_string(),
-            discriminator: &[
-                228, 69, 165, 46, 81, 203, 154, 29, 64, 198, 205, 232, 38, 8, 113, 226,
-            ],
-            params: vec![
-                ParamInput {
-                    name: "Amm".to_string(),
-                    param_type: DynType::Pubkey,
-                },
-                ParamInput {
-                    name: "InputMint".to_string(),
-                    param_type: DynType::Pubkey,
-                },
-                ParamInput {
-                    name: "InputAmount".to_string(),
-                    param_type: DynType::U64,
-                },
-                ParamInput {
-                    name: "OutputMint".to_string(),
-                    param_type: DynType::Pubkey,
-                },
-                ParamInput {
-                    name: "OutputAmount".to_string(),
-                    param_type: DynType::U64,
-                },
-            ],
-            accounts: vec![],
-            //     // JUP Route
-            //     program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
-            //     name: "Route".to_string(),
-            //     discriminator: &[229, 23, 203, 151, 122, 227, 173, 42],
-            //     params: vec![
-            //         ParamInput {
-            //             name: "RoutePlan".to_string(),
-            //             param_type: DynType::Vec(Box::new(DynType::Struct(vec![
-            //                 (
-            //                     "Swap".to_string(),
-            //                     DynType::Enum(vec![
-            //                         ("Saber".to_string(), DynType::NoData),
-            //                         ("SaberAddDecimalsDeposit".to_string(), DynType::NoData),
-            //                         ("SaberAddDecimalsWithdraw".to_string(), DynType::NoData),
-            //                         ("TokenSwap".to_string(), DynType::NoData),
-            //                         ("Sencha".to_string(), DynType::NoData),
-            //                         ("Step".to_string(), DynType::NoData),
-            //                         ("Cropper".to_string(), DynType::NoData),
-            //                         ("Raydium".to_string(), DynType::NoData),
-            //                         (
-            //                             "Crema".to_string(),
-            //                             DynType::Struct(vec![("a_to_b".to_string(), DynType::Bool)]),
-            //                         ),
-            //                         ("Lifinity".to_string(), DynType::NoData),
-            //                         ("Mercurial".to_string(), DynType::NoData),
-            //                         ("Cykura".to_string(), DynType::NoData),
-            //                         (
-            //                             "Serum".to_string(),
-            //                             DynType::Struct(vec![(
-            //                                 "side".to_string(),
-            //                                 DynType::Enum(vec![
-            //                                     ("Bid".to_string(), DynType::NoData),
-            //                                     ("Ask".to_string(), DynType::NoData),
-            //                                 ]),
-            //                             )]),
-            //                         ),
-            //                         ("MarinadeDeposit".to_string(), DynType::NoData),
-            //                         ("MarinadeUnstake".to_string(), DynType::NoData),
-            //                         (
-            //                             "Aldrin".to_string(),
-            //                             DynType::Struct(vec![(
-            //                                 "side".to_string(),
-            //                                 DynType::Enum(vec![
-            //                                     ("Bid".to_string(), DynType::NoData),
-            //                                     ("Ask".to_string(), DynType::NoData),
-            //                                 ]),
-            //                             )]),
-            //                         ),
-            //                         (
-            //                             "AldrinV2".to_string(),
-            //                             DynType::Struct(vec![(
-            //                                 "side".to_string(),
-            //                                 DynType::Enum(vec![
-            //                                     ("Bid".to_string(), DynType::NoData),
-            //                                     ("Ask".to_string(), DynType::NoData),
-            //                                 ]),
-            //                             )]),
-            //                         ),
-            //                         (
-            //                             "Whirlpool".to_string(),
-            //                             DynType::Struct(vec![("a_to_b".to_string(), DynType::Bool)]),
-            //                         ),
-            //                         (
-            //                             "Invariant".to_string(),
-            //                             DynType::Struct(vec![("x_to_y".to_string(), DynType::Bool)]),
-            //                         ),
-            //                         ("Meteora".to_string(), DynType::NoData),
-            //                         ("GooseFX".to_string(), DynType::NoData),
-            //                         (
-            //                             "DeltaFi".to_string(),
-            //                             DynType::Struct(vec![("stable".to_string(), DynType::Bool)]),
-            //                         ),
-            //                         ("Balansol".to_string(), DynType::NoData),
-            //                         (
-            //                             "MarcoPolo".to_string(),
-            //                             DynType::Struct(vec![("x_to_y".to_string(), DynType::Bool)]),
-            //                         ),
-            //                         (
-            //                             "Dradex".to_string(),
-            //                             DynType::Struct(vec![(
-            //                                 "side".to_string(),
-            //                                 DynType::Enum(vec![
-            //                                     ("Bid".to_string(), DynType::NoData),
-            //                                     ("Ask".to_string(), DynType::NoData),
-            //                                 ]),
-            //                             )]),
-            //                         ),
-            //                         ("LifinityV2".to_string(), DynType::NoData),
-            //                         ("RaydiumClmm".to_string(), DynType::NoData),
-            //                         (
-            //                             "Openbook".to_string(),
-            //                             DynType::Struct(vec![(
-            //                                 "side".to_string(),
-            //                                 DynType::Enum(vec![
-            //                                     ("Bid".to_string(), DynType::NoData),
-            //                                     ("Ask".to_string(), DynType::NoData),
-            //                                 ]),
-            //                             )]),
-            //                         ),
-            //                         (
-            //                             "Phoenix".to_string(),
-            //                             DynType::Struct(vec![
-            //                                 ("side".to_string(),
-            //                                 DynType::Enum(vec![
-            //                                     ("Bid".to_string(), DynType::NoData),
-            //                                     ("Ask".to_string(), DynType::NoData),
-            //                                 ]),
-            //                             )]),
-            //                         ),
-            //                         (
-            //                             "Symmetry".to_string(),
-            //                             DynType::Struct(vec![
-            //                                 ("from_token_id".to_string(), DynType::U64),
-            //                                 ("to_token_id".to_string(), DynType::U64),
-            //                             ]),
-            //                         ),
-            //                         ("TokenSwapV2".to_string(), DynType::NoData),
-            //                         (
-            //                             "HeliumTreasuryManagementRedeemV0".to_string(),
-            //                             DynType::NoData,
-            //                         ),
-            //                         ("StakeDexStakeWrappedSol".to_string(), DynType::NoData),
-            //                         (
-            //                             "StakeDexSwapViaStake".to_string(),
-            //                             DynType::Struct(vec![(
-            //                                 "bridge_stake_seed".to_string(),
-            //                                 DynType::U32,
-            //                             )]),
-            //                         ),
-            //                         ("GooseFXV2".to_string(), DynType::NoData),
-            //                         ("Perps".to_string(), DynType::NoData),
-            //                         ("PerpsAddLiquidity".to_string(), DynType::NoData),
-            //                         ("PerpsRemoveLiquidity".to_string(), DynType::NoData),
-            //                         ("MeteoraDlmm".to_string(), DynType::NoData),
-            //                         (
-            //                             "OpenBookV2".to_string(),
-            //                             DynType::Struct(vec![(
-            //                                 "side".to_string(),
-            //                                 DynType::Enum(vec![
-            //                                     ("Bid".to_string(), DynType::NoData),
-            //                                     ("Ask".to_string(), DynType::NoData),
-            //                                 ]),
-            //                             )]),
-            //                         ),
-            //                         ("RaydiumClmmV2".to_string(), DynType::NoData),
-            //                         (
-            //                             "StakeDexPrefundWithdrawStakeAndDepositStake".to_string(),
-            //                             DynType::Struct(vec![(
-            //                                 "bridge_stake_seed".to_string(),
-            //                                 DynType::U32,
-            //                             )]),
-            //                         ),
-            //                         (
-            //                             "Clone".to_string(),
-            //                             DynType::Struct(vec![
-            //                                 ("pool_index".to_string(), DynType::U8),
-            //                                 ("quantity_is_input".to_string(), DynType::Bool),
-            //                                 ("quantity_is_collateral".to_string(), DynType::Bool),
-            //                             ]),
-            //                         ),
-            //                         (
-            //                             "SanctumS".to_string(),
-            //                             DynType::Struct(vec![
-            //                                 ("src_lst_value_calc_accs".to_string(), DynType::U8),
-            //                                 ("dst_lst_value_calc_accs".to_string(), DynType::U8),
-            //                                 ("src_lst_index".to_string(), DynType::U32),
-            //                                 ("dst_lst_index".to_string(), DynType::U32),
-            //                             ]),
-            //                         ),
-            //                         (
-            //                             "SanctumSAddLiquidity".to_string(),
-            //                             DynType::Struct(vec![
-            //                                 ("lst_value_calc_accs".to_string(), DynType::U8),
-            //                                 ("lst_index".to_string(), DynType::U32),
-            //                             ]),
-            //                         ),
-            //                         (
-            //                             "SanctumSRemoveLiquidity".to_string(),
-            //                             DynType::Struct(vec![
-            //                                 ("lst_value_calc_accs".to_string(), DynType::U8),
-            //                                 ("lst_index".to_string(), DynType::U32),
-            //                             ]),
-            //                         ),
-            //                         ("RaydiumCP".to_string(), DynType::NoData),
-            //                         (
-            //                             "WhirlpoolSwapV2".to_string(),
-            //                             DynType::Struct(vec![
-            //                                 ("a_to_b".to_string(), DynType::Bool),
-            //                                 ("remaining_accounts_info".to_string(), DynType::NoData),
-            //                             ]),
-            //                         ),
-            //                         ("OneIntro".to_string(), DynType::NoData),
-            //                         ("PumpdotfunWrappedBuy".to_string(), DynType::NoData),
-            //                         ("PumpdotfunWrappedSell".to_string(), DynType::NoData),
-            //                         ("PerpsV2".to_string(), DynType::NoData),
-            //                         ("PerpsV2AddLiquidity".to_string(), DynType::NoData),
-            //                         ("PerpsV2RemoveLiquidity".to_string(), DynType::NoData),
-            //                         ("MoonshotWrappedBuy".to_string(), DynType::NoData),
-            //                         ("MoonshotWrappedSell".to_string(), DynType::NoData),
-            //                         ("StabbleStableSwap".to_string(), DynType::NoData),
-            //                         ("StabbleWeightedSwap".to_string(), DynType::NoData),
-            //                         (
-            //                             "Obric".to_string(),
-            //                             DynType::Struct(vec![("x_to_y".to_string(), DynType::Bool)]),
-            //                         ),
-            //                         ("FoxBuyFromEstimatedCost".to_string(), DynType::NoData),
-            //                         (
-            //                             "FoxClaimPartial".to_string(),
-            //                             DynType::Struct(vec![("is_y".to_string(), DynType::Bool)]),
-            //                         ),
-            //                         (
-            //                             "SolFi".to_string(),
-            //                             DynType::Struct(vec![(
-            //                                 "is_quote_to_base".to_string(),
-            //                                 DynType::Bool,
-            //                             )]),
-            //                         ),
-            //                         ("SolayerDelegateNoInit".to_string(), DynType::NoData),
-            //                         ("SolayerUndelegateNoInit".to_string(), DynType::NoData),
-            //                         (
-            //                             "TokenMill".to_string(),
-            //                             DynType::Struct(vec![(
-            //                                 "side".to_string(),
-            //                                 DynType::Enum(vec![
-            //                                     ("Bid".to_string(), DynType::NoData),
-            //                                     ("Ask".to_string(), DynType::NoData),
-            //                                 ]),
-            //                             )]),
-            //                         ),
-            //                         ("DaosFunBuy".to_string(), DynType::NoData),
-            //                         ("DaosFunSell".to_string(), DynType::NoData),
-            //                         ("ZeroFi".to_string(), DynType::NoData),
-            //                         ("StakeDexWithdrawWrappedSol".to_string(), DynType::NoData),
-            //                         ("VirtualsBuy".to_string(), DynType::NoData),
-            //                         ("VirtualsSell".to_string(), DynType::NoData),
-            //                         (
-            //                             "Peren".to_string(),
-            //                             DynType::Struct(vec![
-            //                                 ("in_index".to_string(), DynType::U8),
-            //                                 ("out_index".to_string(), DynType::U8),
-            //                             ]),
-            //                         ),
-            //                         ("PumpdotfunAmmBuy".to_string(), DynType::NoData),
-            //                         ("PumpdotfunAmmSell".to_string(), DynType::NoData),
-            //                         ("Gamma".to_string(), DynType::NoData),
-            //                     ]),
-            //                 ),
-            //                 ("Percent".to_string(), DynType::U8),
-            //                 ("InputIndex".to_string(), DynType::U8),
-            //                 ("OutputIndex".to_string(), DynType::U8),
-            //             ]))),
-            //         },
-            //         ParamInput {
-            //             name: "InAmount".to_string(),
-            //             param_type: DynType::U64,
-            //         },
-            //         ParamInput {
-            //             name: "QuotedOutAmount".to_string(),
-            //             param_type: DynType::U64,
-            //         },
-            //         ParamInput {
-            //             name: "SlippageBps".to_string(),
-            //             param_type: DynType::U16,
-            //         },
-            //         ParamInput {
-            //             name: "PlatformFeeBps".to_string(),
-            //             param_type: DynType::U8,
-            //         },
-            //     ],
-            //     accounts: vec![
-            //         "TokenProgram".to_string(),
-            //         "UserTransferAuthority".to_string(),
-            //         "UserSourceTokenAccount".to_string(),
-            //         "UserDestinationTokenAccount".to_string(),
-            //         "DestinationTokenAccount".to_string(),
-            //         "PlatformFeeAccount".to_string(),
-            //         "EventAuthority".to_string(),
-            //         "Program".to_string(),
-            //     ],
         };
 
         let result = decode_instruction_data(&filtered_instructions, ix_signature, true)
