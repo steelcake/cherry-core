@@ -61,10 +61,7 @@ pub fn decode_instruction_data(
         }
 
         let instruction_data = data_array.value(row_idx);
-        let data_result = match_discriminators(
-            &instruction_data,
-            signature.discriminator,
-        );
+        let data_result = match_discriminators(&instruction_data, signature.discriminator);
         let mut data = match data_result {
             Ok(data) => data,
             Err(e) if allow_decode_fail => {
@@ -149,10 +146,7 @@ pub fn decode_instruction_data(
     Ok(batch)
 }
 
-pub fn match_discriminators(
-    instr_data: &[u8],
-    discriminator: &[u8],
-) -> Result<Vec<u8>> {
+pub fn match_discriminators(instr_data: &[u8], discriminator: &[u8]) -> Result<Vec<u8>> {
     let discriminator_len = discriminator.len();
     let disc = &instr_data[..discriminator_len];
     let mut ix_data = &instr_data[discriminator_len..];
@@ -238,7 +232,9 @@ mod tests {
             // JUP SwapEvent
             program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
             name: "SwapEvent".to_string(),
-            discriminator: &[228, 69, 165, 46, 81, 203, 154, 29, 64, 198, 205, 232, 38, 8, 113, 226],
+            discriminator: &[
+                228, 69, 165, 46, 81, 203, 154, 29, 64, 198, 205, 232, 38, 8, 113, 226,
+            ],
             params: vec![
                 ParamInput {
                     name: "Amm".to_string(),
