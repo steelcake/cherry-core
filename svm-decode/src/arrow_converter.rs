@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Result, Context};
+use crate::deserialize::{DynType, DynValue};
+use anyhow::{anyhow, Context, Result};
 use arrow::array::{Array, ListArray};
 use arrow::{
     array::{builder, ArrowPrimitiveType, NullArray, RecordBatch, StructArray},
@@ -6,14 +7,13 @@ use arrow::{
     datatypes::*,
 };
 use std::sync::Arc;
-use crate::deserialize::{DynType, DynValue};
 
 /// Converts a vector of dynamic values into an Arrow array based on the specified type.
-/// 
+///
 /// # Arguments
 /// * `param_type` - The type information for the values to convert
 /// * `values` - Vector of optional dynamic values to convert
-/// 
+///
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array wrapped in an Arc
 pub fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
@@ -39,10 +39,10 @@ pub fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<A
 }
 
 /// Converts a svm dynamic type to its corresponding Arrow data type.
-/// 
+///
 /// # Arguments
 /// * `param_type` - The svm dynamic type to convert
-/// 
+///
 /// # Returns
 /// * `Result<DataType>` - The corresponding Arrow data type
 pub fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
@@ -61,18 +61,31 @@ pub fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
         DynType::Bool => Ok(DataType::Boolean),
         DynType::Pubkey => Ok(DataType::Binary),
         DynType::Vec(inner_type) => {
-            let inner_type = to_arrow_dtype(inner_type).context("Failed to convert list inner type to arrow type")?;
+            let inner_type = to_arrow_dtype(inner_type)
+                .context("Failed to convert list inner type to arrow type")?;
             Ok(DataType::List(Arc::new(Field::new("", inner_type, true))))
         }
         DynType::Enum(variants) => {
-            let fields = variants.iter().map(|(name, dt)| {
-                let struct_fields = vec![
-                    Field::new("variant_chosen", DataType::Boolean, true),
-                    Field::new("Data", to_arrow_dtype(&DynType::Option(Box::new(dt.clone())))?, true),
-                ];
-                
-                Ok(Field::new(name, DataType::Struct(Fields::from(struct_fields)), true))
-            }).collect::<Result<Vec<_>>>().context("Failed to map enum type to Arrow data type")?;
+            let fields = variants
+                .iter()
+                .map(|(name, dt)| {
+                    let struct_fields = vec![
+                        Field::new("variant_chosen", DataType::Boolean, true),
+                        Field::new(
+                            "Data",
+                            to_arrow_dtype(&DynType::Option(Box::new(dt.clone())))?,
+                            true,
+                        ),
+                    ];
+
+                    Ok(Field::new(
+                        name,
+                        DataType::Struct(Fields::from(struct_fields)),
+                        true,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()
+                .context("Failed to map enum type to Arrow data type")?;
 
             Ok(DataType::Struct(Fields::from(fields)))
         }
@@ -80,10 +93,12 @@ pub fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
             let arrow_fields = fields
                 .iter()
                 .map(|(name, field_type)| {
-                    let inner_dt = to_arrow_dtype(field_type).context("Failed to convert struct inner field type to arrow type")?;
+                    let inner_dt = to_arrow_dtype(field_type)
+                        .context("Failed to convert struct inner field type to arrow type")?;
                     Ok(Field::new(name, inner_dt, true))
                 })
-                .collect::<Result<Vec<_>>>().context("Failed to convert struct fields to arrow fields")?;
+                .collect::<Result<Vec<_>>>()
+                .context("Failed to convert struct fields to arrow fields")?;
             Ok(DataType::Struct(Fields::from(arrow_fields)))
         }
         DynType::NoData => Ok(DataType::Null),
@@ -91,11 +106,11 @@ pub fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
 }
 
 /// Converts a vector of optional values into an Arrow array for Option types.
-/// 
+///
 /// # Arguments
 /// * `inner_type` - The type of the inner value
 /// * `values` - Vector of optional dynamic values
-/// 
+///
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
 fn to_option(inner_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
@@ -105,8 +120,8 @@ fn to_option(inner_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<
         match value {
             None => opt_values.push(None),
             Some(DynValue::Option(inner_val)) => {
-                    opt_values.push(inner_val.map(|v| *v));
-                }
+                opt_values.push(inner_val.map(|v| *v));
+            }
             _ => return Err(anyhow!("Expected option type, found: {:?}", value)),
         }
     }
@@ -115,14 +130,14 @@ fn to_option(inner_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<
 }
 
 /// Converts a vector of numeric values into an Arrow array of the specified type.
-/// 
+///
 /// # Type Parameters
 /// * `T` - The Arrow primitive type to convert to
-/// 
+///
 /// # Arguments
 /// * `num_bits` - The expected bit width of the values
 /// * `values` - Slice of optional dynamic values to convert
-/// 
+///
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
 fn to_number<T>(num_bits: usize, values: &[Option<DynValue>]) -> Result<Arc<dyn Array>>
@@ -155,14 +170,14 @@ where
 }
 
 /// Helper function to convert a dynamic value to a specific Arrow primitive type.
-/// 
+///
 /// # Type Parameters
 /// * `T` - The Arrow primitive type to convert to
-/// 
+///
 /// # Arguments
 /// * `val` - The dynamic value to convert
 /// * `expected_bits` - The expected bit width of the value
-/// 
+///
 /// # Returns
 /// * `Result<T::Native>` - The converted value
 fn convert_value<T: ArrowPrimitiveType>(val: &DynValue, expected_bits: usize) -> Result<T::Native>
@@ -234,10 +249,10 @@ where
 }
 
 /// Converts a vector of boolean values into an Arrow array.
-/// 
+///
 /// # Arguments
 /// * `values` - Slice of optional dynamic values to convert
-/// 
+///
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
 fn to_bool(values: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
@@ -258,10 +273,10 @@ fn to_bool(values: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
 }
 
 /// Converts a vector of binary values (pubkeys) into an Arrow array.
-/// 
+///
 /// # Arguments
 /// * `values` - Slice of optional dynamic values to convert
-/// 
+///
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
 fn to_binary(values: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
@@ -277,11 +292,11 @@ fn to_binary(values: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
 }
 
 /// Converts a vector of list values into an Arrow ListArray.
-/// 
+///
 /// # Arguments
 /// * `param_type` - The type of the list elements
 /// * `param_values` - Vector of optional dynamic values to convert
-/// 
+///
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
 fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
@@ -295,11 +310,11 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
         match val {
             Some(val) => match val {
                 DynValue::Vec(inner_vals) => {
-                lengths.push(inner_vals.len());
-                inner_values.extend(inner_vals.into_iter().map(Some));
-                validity.push(true);
-            }
-            _ => {
+                    lengths.push(inner_vals.len());
+                    inner_values.extend(inner_vals.into_iter().map(Some));
+                    validity.push(true);
+                }
+                _ => {
                     return Err(anyhow!(
                         "found unexpected value. Expected list type, Found: {:?}",
                         val
@@ -322,19 +337,24 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
         Arc::new(field),
         OffsetBuffer::from_lengths(lengths),
         list_array_values,
-        if all_valid { None } else { Some(NullBuffer::from(validity)) },
-    ).context("Failed to construct ListArray from list array values")?;
-    
+        if all_valid {
+            None
+        } else {
+            Some(NullBuffer::from(validity))
+        },
+    )
+    .context("Failed to construct ListArray from list array values")?;
+
     Ok(Arc::new(list_arr))
 }
 
 /// Converts a vector of enum values into an Arrow struct array.
 /// Enum are mapped to a struct type where the enum variant is Vec<(String, DynValue)>, then call to_struct
-/// 
+///
 /// # Arguments
 /// * `variants` - Vector of (name, type) pairs defining the enum variants
 /// * `param_values` - Vector of optional dynamic values to convert
-/// 
+///
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
 fn to_enum(
@@ -345,20 +365,31 @@ fn to_enum(
 
     // Helper closure that, for each variant in the Enum, create a tuple (name, value) and collect them into a Vec
     let make_struct = |variant_name, inner_val: DynValue| {
-        let struct_inner = variants.iter().map(|(name, _)| {
-            if name == &variant_name {
-                (name.clone(), DynValue::Struct(vec![
-                    ("variant_chosen".to_string(), DynValue::Bool(true)),
-                    ("Data".to_string(), DynValue::Option(Some(Box::new(inner_val.clone()))))
-                ]))
-            } else {
-                (name.clone(), DynValue::Struct(vec![
-                    ("variant_chosen".to_string(), DynValue::Bool(false)),
-                    ("Data".to_string(), DynValue::Option(None))
-                ]))
-            }
-        })
-        .collect::<Vec<_>>();
+        let struct_inner = variants
+            .iter()
+            .map(|(name, _)| {
+                if name == &variant_name {
+                    (
+                        name.clone(),
+                        DynValue::Struct(vec![
+                            ("variant_chosen".to_string(), DynValue::Bool(true)),
+                            (
+                                "Data".to_string(),
+                                DynValue::Option(Some(Box::new(inner_val.clone()))),
+                            ),
+                        ]),
+                    )
+                } else {
+                    (
+                        name.clone(),
+                        DynValue::Struct(vec![
+                            ("variant_chosen".to_string(), DynValue::Bool(false)),
+                            ("Data".to_string(), DynValue::Option(None)),
+                        ]),
+                    )
+                }
+            })
+            .collect::<Vec<_>>();
         DynValue::Struct(struct_inner)
     };
 
@@ -375,12 +406,19 @@ fn to_enum(
     }
 
     // Convert variants to struct type
-    let struct_variants = variants.iter()
+    let struct_variants = variants
+        .iter()
         .map(|(name, param_type)| {
-            (name.clone(), DynType::Struct(vec![
-                ("variant_chosen".to_string(), DynType::Bool),
-                ("Data".to_string(), DynType::Option(Box::new(param_type.clone())))
-            ]))
+            (
+                name.clone(),
+                DynType::Struct(vec![
+                    ("variant_chosen".to_string(), DynType::Bool),
+                    (
+                        "Data".to_string(),
+                        DynType::Option(Box::new(param_type.clone())),
+                    ),
+                ]),
+            )
         })
         .collect::<Vec<_>>();
 
@@ -388,11 +426,11 @@ fn to_enum(
 }
 
 /// Converts a vector of struct values into an Arrow struct array.
-/// 
+///
 /// # Arguments
 /// * `fields` - Vector of (name, type) pairs defining the struct fields
 /// * `param_values` - Vector of optional dynamic values to convert
-/// 
+///
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
 fn to_struct(
@@ -428,7 +466,10 @@ fn to_struct(
     let mut arrays = Vec::with_capacity(fields.len());
 
     for ((_, param_type), arr_vals) in fields.iter().zip(inner_values.into_iter()) {
-        arrays.push(to_arrow(param_type, arr_vals).context("Failed to convert struct inner values to arrow")?);
+        arrays.push(
+            to_arrow(param_type, arr_vals)
+                .context("Failed to convert struct inner values to arrow")?,
+        );
     }
 
     let fields = arrays
@@ -438,17 +479,17 @@ fn to_struct(
         .collect::<Vec<_>>();
     let schema = Arc::new(Schema::new(fields));
 
-    let batch = RecordBatch::try_new(schema, arrays).context("Failed to create record batch from struct arrays")?;
+    let batch = RecordBatch::try_new(schema, arrays)
+        .context("Failed to create record batch from struct arrays")?;
     Ok(Arc::new(StructArray::from(batch)))
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::deserialize::DynType;
-    use std::fs::File;
     use anchor_lang::prelude::Pubkey;
+    use std::fs::File;
 
     #[test]
     // #[ignore]
@@ -460,15 +501,24 @@ mod tests {
             ("bool_value".to_string(), DynType::Bool),
             ("pubkey_value".to_string(), DynType::Pubkey),
             ("vec_value".to_string(), DynType::Vec(Box::new(DynType::I8))),
-            ("nested_struct".to_string(), DynType::Struct(vec![
-                ("inner_i8".to_string(), DynType::I8),
-                ("inner_bool".to_string(), DynType::Bool),
-            ])),
-            ("nested_enum".to_string(), DynType::Enum(vec![
-                ("Variant1".to_string(), DynType::I8),
-                ("Variant2".to_string(), DynType::Bool),
-            ])),
-            ("optional_value".to_string(), DynType::Option(Box::new(DynType::I8))),
+            (
+                "nested_struct".to_string(),
+                DynType::Struct(vec![
+                    ("inner_i8".to_string(), DynType::I8),
+                    ("inner_bool".to_string(), DynType::Bool),
+                ]),
+            ),
+            (
+                "nested_enum".to_string(),
+                DynType::Enum(vec![
+                    ("Variant1".to_string(), DynType::I8),
+                    ("Variant2".to_string(), DynType::Bool),
+                ]),
+            ),
+            (
+                "optional_value".to_string(),
+                DynType::Option(Box::new(DynType::I8)),
+            ),
         ]);
 
         // Create test data
@@ -476,18 +526,29 @@ mod tests {
             ("no_data".to_string(), DynValue::NoData),
             ("i8_value".to_string(), DynValue::I8(42)),
             ("bool_value".to_string(), DynValue::Bool(true)),
-            ("pubkey_value".to_string(), DynValue::Pubkey(Pubkey::new_unique())),
-            ("vec_value".to_string(), DynValue::Vec(vec![
-                DynValue::I8(1),
-                DynValue::I8(2),
-                DynValue::I8(3),
-            ])),
-            ("nested_struct".to_string(), DynValue::Struct(vec![
-                ("inner_i8".to_string(), DynValue::I8(100)),
-                ("inner_bool".to_string(), DynValue::Bool(false)),
-            ])),
-            ("nested_enum".to_string(), DynValue::Enum("Variant1".to_string(), Box::new(DynValue::I8(120)))),
-            ("optional_value".to_string(), DynValue::Option(Some(Box::new(DynValue::I8(127))))),
+            (
+                "pubkey_value".to_string(),
+                DynValue::Pubkey(Pubkey::new_unique()),
+            ),
+            (
+                "vec_value".to_string(),
+                DynValue::Vec(vec![DynValue::I8(1), DynValue::I8(2), DynValue::I8(3)]),
+            ),
+            (
+                "nested_struct".to_string(),
+                DynValue::Struct(vec![
+                    ("inner_i8".to_string(), DynValue::I8(100)),
+                    ("inner_bool".to_string(), DynValue::Bool(false)),
+                ]),
+            ),
+            (
+                "nested_enum".to_string(),
+                DynValue::Enum("Variant1".to_string(), Box::new(DynValue::I8(120))),
+            ),
+            (
+                "optional_value".to_string(),
+                DynValue::Option(Some(Box::new(DynValue::I8(127)))),
+            ),
         ]);
 
         // Create a vector of test values
@@ -498,14 +559,17 @@ mod tests {
         let arrow_array_clone = arrow_array.clone();
 
         // Create a schema and record batch
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("nested_data", to_arrow_dtype(&nested_type).unwrap(), true)
-        ]));
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "nested_data",
+            to_arrow_dtype(&nested_type).unwrap(),
+            true,
+        )]));
         let batch = RecordBatch::try_new(schema, vec![arrow_array]).unwrap();
 
         // Save to parquet for verification
         let mut file = File::create("nested_dyntypes.parquet").unwrap();
-        let mut writer = parquet::arrow::ArrowWriter::try_new(&mut file, batch.schema(), None).unwrap();
+        let mut writer =
+            parquet::arrow::ArrowWriter::try_new(&mut file, batch.schema(), None).unwrap();
         writer.write(&batch).unwrap();
         writer.close().unwrap();
 
