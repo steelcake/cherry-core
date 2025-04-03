@@ -18,16 +18,16 @@ use std::sync::Arc;
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array wrapped in an Arc
 pub fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
     match param_type {
-        DynType::I8 => to_number::<Int8Type>(8, &values),
-        DynType::I16 => to_number::<Int16Type>(16, &values),
-        DynType::I32 => to_number::<Int32Type>(32, &values),
-        DynType::I64 => to_number::<Int64Type>(64, &values),
-        DynType::I128 => to_number::<Decimal128Type>(128, &values),
-        DynType::U8 => to_number::<UInt8Type>(8, &values),
-        DynType::U16 => to_number::<UInt16Type>(16, &values),
-        DynType::U32 => to_number::<UInt32Type>(32, &values),
-        DynType::U64 => to_number::<UInt64Type>(64, &values),
-        DynType::U128 => to_number::<Decimal128Type>(128, &values),
+        DynType::I8 => to_number::<Int8Type>( &values),
+        DynType::I16 => to_number::<Int16Type>(&values),
+        DynType::I32 => to_number::<Int32Type>(&values),
+        DynType::I64 => to_number::<Int64Type>(&values),
+        DynType::I128 => to_number::<Decimal128Type>( &values),
+        DynType::U8 => to_number::<UInt8Type>(&values),
+        DynType::U16 => to_number::<UInt16Type>(&values),
+        DynType::U32 => to_number::<UInt32Type>( &values),
+        DynType::U64 => to_number::<UInt64Type>( &values),
+        DynType::U128 => to_number::<Decimal128Type>( &values),
         DynType::Bool => to_bool(&values),
         DynType::Pubkey => to_binary(&values),
         DynType::Vec(inner_type) => to_list(inner_type, values),
@@ -139,7 +139,7 @@ fn to_option(inner_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<
 ///
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
-fn to_number<T>(num_bits: usize, values: &[Option<DynValue>]) -> Result<Arc<dyn Array>>
+fn to_number<T>(values: &[Option<DynValue>]) -> Result<Arc<dyn Array>>
 where
     T: ArrowPrimitiveType,
     T::Native: TryFrom<i8>
@@ -157,94 +157,26 @@ where
 
     for v in values.iter() {
         match v {
-            Some(val) => match convert_value::<T>(val, num_bits) {
-                Ok(converted) => builder.append_value(converted),
-                Err(e) => return Err(e),
+            Some(v) => {
+                match v {
+                    DynValue::I8(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i8"))?),
+                    DynValue::U8(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u8"))?),
+                    DynValue::I16(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i16"))?),
+                    DynValue::U16(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u16"))?),
+                    DynValue::I32(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i32"))?),
+                    DynValue::U32(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u32"))?),
+                    DynValue::I64(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i64"))?),
+                    DynValue::U64(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u64"))?),
+                    DynValue::I128(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i128"))?),
+                    DynValue::U128(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u128"))?),
+                    _ => return Err(anyhow!("Unexpected value type for number conversion: {:?}", v)),
+                }
             },
             None => builder.append_null(),
         }
     }
 
     Ok(Arc::new(builder.finish()))
-}
-
-/// Helper function to convert a dynamic value to a specific Arrow primitive type.
-///
-/// # Type Parameters
-/// * `T` - The Arrow primitive type to convert to
-///
-/// # Arguments
-/// * `val` - The dynamic value to convert
-/// * `expected_bits` - The expected bit width of the value
-///
-/// # Returns
-/// * `Result<T::Native>` - The converted value
-fn convert_value<T: ArrowPrimitiveType>(val: &DynValue, expected_bits: usize) -> Result<T::Native>
-where
-    T::Native: TryFrom<i8>
-        + TryFrom<u8>
-        + TryFrom<i16>
-        + TryFrom<u16>
-        + TryFrom<i32>
-        + TryFrom<u32>
-        + TryFrom<i64>
-        + TryFrom<u64>
-        + TryFrom<i128>
-        + TryFrom<u128>,
-{
-    let (actual_bits, value) = match val {
-        DynValue::I8(v) => (
-            8,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert i8")),
-        ),
-        DynValue::U8(v) => (
-            8,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert u8")),
-        ),
-        DynValue::I16(v) => (
-            16,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert i16")),
-        ),
-        DynValue::U16(v) => (
-            16,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert u16")),
-        ),
-        DynValue::I32(v) => (
-            32,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert i32")),
-        ),
-        DynValue::U32(v) => (
-            32,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert u32")),
-        ),
-        DynValue::I64(v) => (
-            64,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert i64")),
-        ),
-        DynValue::U64(v) => (
-            64,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert u64")),
-        ),
-        DynValue::I128(v) => (
-            128,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert i128")),
-        ),
-        DynValue::U128(v) => (
-            128,
-            T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert u128")),
-        ),
-        _ => return Err(anyhow!("Unexpected value type: {:?}", val)),
-    };
-
-    if actual_bits != expected_bits {
-        return Err(anyhow!(
-            "Bit width mismatch: expected {} bits, got {} bits",
-            expected_bits,
-            actual_bits
-        ));
-    }
-
-    value.map_err(|_| anyhow!("Failed to convert value to target type"))
 }
 
 /// Converts a vector of boolean values into an Arrow array.
@@ -495,7 +427,7 @@ mod tests {
     use std::fs::File;
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn test_nested_dyntypes() {
         // Create a complex nested structure that tests all DynType cases
         let nested_type = DynType::Struct(vec![
