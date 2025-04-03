@@ -21,9 +21,8 @@ pub enum DynType {
     U64,
     U128,
     Bool,
-    /// Solana specific types
-    Pubkey,
     /// Complex types
+    FixedBytes(usize),
     Vec(Box<DynType>),
     Struct(Vec<(String, DynType)>),
     Enum(Vec<(String, Option<DynType>)>),
@@ -44,9 +43,8 @@ pub enum DynValue {
     U64(u64),
     U128(u128),
     Bool(bool),
-    /// Solana specific values
-    Pubkey(Pubkey),
     /// Complex values
+    FixedBytes(usize, Vec<u8>),
     Vec(Vec<DynValue>),
     Struct(Vec<(String, DynValue)>),
     Enum(String, Option<Box<DynValue>>),
@@ -220,15 +218,16 @@ fn deserialize_value<'a>(param_type: &DynType, data: &'a [u8]) -> Result<(DynVal
             let value = data[0] != 0;
             Ok((DynValue::Bool(value), &data[1..]))
         }
-        DynType::Pubkey => {
-            if data.len() < 32 {
+        DynType::FixedBytes(size) => {
+            if data.len() < *size {
                 return Err(anyhow!(
-                    "Not enough data for pubkey: expected 32 bytes, got {}",
+                    "Not enough data for pubkey: expected {} bytes, got {}",
+                    *size,
                     data.len()
                 ));
             }
-            let value = Pubkey::new_from_array(data[..32].try_into().unwrap());
-            Ok((DynValue::Pubkey(value), &data[32..]))
+            let value = data[..*size].to_vec();
+            Ok((DynValue::FixedBytes(*size, value), &data[*size..]))
         }
         DynType::Vec(inner_type) => {
             if data.len() < 4 {

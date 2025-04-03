@@ -165,7 +165,7 @@ mod tests {
     use std::fs::File;
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn read_parquet_with_real_data() {
         use arrow::compute::filter_record_batch;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
