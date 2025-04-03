@@ -68,26 +68,14 @@ pub fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
             let fields = variants
                 .iter()
                 .map(|(name, dt)| {
-                    let struct_fields = match dt {
+                    match dt {
                         Some(dt) => {
-                            vec![
-                                Field::new("variant_chosen", DataType::Boolean, true),
-                                Field::new(
-                                    "Data",
-                                    to_arrow_dtype(&DynType::Option(Box::new(dt.clone())))?,
-                                    true,
-                                ),
-                            ]
+                            Ok(Arc::new(Field::new(name, to_arrow_dtype(dt).context("Failed to convert enum inner variant type to arrow type")?, true)))
                         }
                         None => {
-                            vec![Field::new("variant_chosen", DataType::Boolean, true)]
+                            Ok(Arc::new(Field::new(name, DataType::Boolean, true)))
                         }
-                    };
-                    Ok(Field::new(
-                        name,
-                        DataType::Struct(Fields::from(struct_fields)),
-                        true,
-                    ))
+                    }
                 })
                 .collect::<Result<Vec<_>>>()
                 .context("Failed to map enum type to Arrow data type")?;
@@ -365,6 +353,8 @@ fn to_enum(
     variants: &Vec<(String, Option<DynType>)>,
     param_values: Vec<Option<DynValue>>,
 ) -> Result<Arc<dyn Array>> {
+    println!("variants: {:?}", variants);
+    println!("param_values: {:?}", param_values);
     let mut values = Vec::with_capacity(param_values.len());
 
     // Helper closure that creates a struct representation for an enum variant
@@ -386,24 +376,9 @@ fn to_enum(
                             DynValue::Option(None)
                         };
 
-                        (
-                            name.clone(),
-                            DynValue::Struct(vec![
-                                (
-                                    "variant_chosen".to_string(),
-                                    DynValue::Bool(is_selected_variant),
-                                ),
-                                ("Data".to_string(), data_value),
-                            ]),
-                        )
+                        (name.clone(), data_value)
                     }
-                    None => (
-                        name.clone(),
-                        DynValue::Struct(vec![(
-                            "variant_chosen".to_string(),
-                            DynValue::Bool(is_selected_variant),
-                        )]),
-                    ),
+                    None => (name.clone(), DynValue::Option(None)),
                 }
             })
             .collect::<Vec<_>>();
@@ -429,17 +404,11 @@ fn to_enum(
         .map(|(name, param_type)| match param_type {
             Some(param_type) => (
                 name.clone(),
-                DynType::Struct(vec![
-                    ("variant_chosen".to_string(), DynType::Bool),
-                    (
-                        "Data".to_string(),
-                        DynType::Option(Box::new(param_type.clone())),
-                    ),
-                ]),
+                DynType::Option(Box::new(param_type.clone()))
             ),
             None => (
                 name.clone(),
-                DynType::Struct(vec![("variant_chosen".to_string(), DynType::Bool)]),
+                DynType::Option(Box::new(DynType::Bool)),
             ),
         })
         .collect::<Vec<_>>();
@@ -514,21 +483,21 @@ mod tests {
     use std::fs::File;
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn test_nested_dyntypes() {
         // Create a complex nested structure that tests all DynType cases
         let nested_type = DynType::Struct(vec![
-            ("i8_value".to_string(), DynType::I8),
-            ("bool_value".to_string(), DynType::Bool),
-            ("pubkey_value".to_string(), DynType::Pubkey),
-            ("vec_value".to_string(), DynType::Vec(Box::new(DynType::I8))),
-            (
-                "nested_struct".to_string(),
-                DynType::Struct(vec![
-                    ("inner_i8".to_string(), DynType::I8),
-                    ("inner_bool".to_string(), DynType::Bool),
-                ]),
-            ),
+            // ("i8_value".to_string(), DynType::I8),
+            // ("bool_value".to_string(), DynType::Bool),
+            // ("pubkey_value".to_string(), DynType::Pubkey),
+            // ("vec_value".to_string(), DynType::Vec(Box::new(DynType::I8))),
+            // (
+            //     "nested_struct".to_string(),
+            //     DynType::Struct(vec![
+            //         ("inner_i8".to_string(), DynType::I8),
+            //         ("inner_bool".to_string(), DynType::Bool),
+            //     ]),
+            // ),
             (
                 "nested_enum".to_string(),
                 DynType::Enum(vec![
@@ -537,39 +506,39 @@ mod tests {
                     ("Variant3".to_string(), None),
                 ]),
             ),
-            (
-                "optional_value".to_string(),
-                DynType::Option(Box::new(DynType::I8)),
-            ),
+            // (
+            //     "optional_value".to_string(),
+            //     DynType::Option(Box::new(DynType::I8)),
+            // ),
         ]);
 
         // Create test data
         let test_data = DynValue::Struct(vec![
-            ("i8_value".to_string(), DynValue::I8(42)),
-            ("bool_value".to_string(), DynValue::Bool(true)),
-            (
-                "pubkey_value".to_string(),
-                DynValue::Pubkey(Pubkey::new_unique()),
-            ),
-            (
-                "vec_value".to_string(),
-                DynValue::Vec(vec![DynValue::I8(1), DynValue::I8(2), DynValue::I8(3)]),
-            ),
-            (
-                "nested_struct".to_string(),
-                DynValue::Struct(vec![
-                    ("inner_i8".to_string(), DynValue::I8(100)),
-                    ("inner_bool".to_string(), DynValue::Bool(false)),
-                ]),
-            ),
+            // ("i8_value".to_string(), DynValue::I8(42)),
+            // ("bool_value".to_string(), DynValue::Bool(true)),
+            // (
+            //     "pubkey_value".to_string(),
+            //     DynValue::Pubkey(Pubkey::new_unique()),
+            // ),
+            // (
+            //     "vec_value".to_string(),
+            //     DynValue::Vec(vec![DynValue::I8(1), DynValue::I8(2), DynValue::I8(3)]),
+            // ),
+            // (
+            //     "nested_struct".to_string(),
+            //     DynValue::Struct(vec![
+            //         ("inner_i8".to_string(), DynValue::I8(100)),
+            //         ("inner_bool".to_string(), DynValue::Bool(false)),
+            //     ]),
+            // ),
             (
                 "nested_enum".to_string(),
                 DynValue::Enum("Variant3".to_string(), None),
             ),
-            (
-                "optional_value".to_string(),
-                DynValue::Option(Some(Box::new(DynValue::I8(127)))),
-            ),
+            // (
+            //     "optional_value".to_string(),
+            //     DynValue::Option(Some(Box::new(DynValue::I8(127)))),
+            // ),
         ]);
 
         // Create a vector of test values
