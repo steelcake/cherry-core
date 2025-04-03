@@ -165,7 +165,7 @@ mod tests {
     use std::fs::File;
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn read_parquet_with_real_data() {
         use arrow::compute::filter_record_batch;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -180,7 +180,7 @@ mod tests {
         // Filter instructions by program id
         let program_id =
             Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4").to_bytes();
-            // Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").to_bytes();
+        // Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").to_bytes();
 
         // Get the index of the program_id column
         let program_id_idx = instructions.schema().index_of("program_id").unwrap();
