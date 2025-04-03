@@ -357,7 +357,7 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
 fn to_enum(
-    variants: &Vec<(String, Option<DynType>)>,
+    variants: &[(String, Option<DynType>)],
     param_values: Vec<Option<DynValue>>,
 ) -> Result<Arc<dyn Array>> {
     let mut values = Vec::with_capacity(param_values.len());
@@ -437,7 +437,7 @@ fn to_enum(
 /// # Returns
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array
 fn to_struct(
-    fields: &Vec<(String, DynType)>,
+    fields: &[(String, DynType)],
     param_values: Vec<Option<DynValue>>,
 ) -> Result<Arc<dyn Array>> {
     let mut inner_values = vec![Vec::with_capacity(param_values.len()); fields.len()];

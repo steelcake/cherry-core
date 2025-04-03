@@ -61,8 +61,8 @@ pub fn decode_instruction_data(
         }
 
         let instruction_data = data_array.value(row_idx);
-        let data_result = match_discriminators(&instruction_data, signature.discriminator);
-        let mut data = match data_result {
+        let data_result = match_discriminators(instruction_data, signature.discriminator);
+        let data = match data_result {
             Ok(data) => data,
             Err(e) if allow_decode_fail => {
                 log::debug!("Error matching discriminators: {:?}", e);
@@ -74,7 +74,7 @@ pub fn decode_instruction_data(
             }
         };
 
-        let decoded_ix_result = deserialize_data(&mut data, &signature.params);
+        let decoded_ix_result = deserialize_data(&data, &signature.params);
         let decoded_ix = match decoded_ix_result {
             Ok(ix) => ix,
             Err(e) if allow_decode_fail => {

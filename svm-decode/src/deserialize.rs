@@ -113,9 +113,7 @@ fn deserialize_value<'a>(param_type: &DynType, data: &'a [u8]) -> Result<(DynVal
                     let (value, new_data) = deserialize_value(inner_type, &data[1..])?;
                     Ok((DynValue::Option(Some(Box::new(value))), new_data))
                 }
-                _ => {
-                    return Err(anyhow!("Invalid option value: {}", value));
-                }
+                _ => Err(anyhow!("Invalid option value: {}", value)),
             }
         }
         DynType::I8 => {
