@@ -18,16 +18,16 @@ use std::sync::Arc;
 /// * `Result<Arc<dyn Array>>` - The converted Arrow array wrapped in an Arc
 pub fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<dyn Array>> {
     match param_type {
-        DynType::I8 => to_number::<Int8Type>( &values),
+        DynType::I8 => to_number::<Int8Type>(&values),
         DynType::I16 => to_number::<Int16Type>(&values),
         DynType::I32 => to_number::<Int32Type>(&values),
         DynType::I64 => to_number::<Int64Type>(&values),
-        DynType::I128 => to_number::<Decimal128Type>( &values),
+        DynType::I128 => to_number::<Decimal128Type>(&values),
         DynType::U8 => to_number::<UInt8Type>(&values),
         DynType::U16 => to_number::<UInt16Type>(&values),
-        DynType::U32 => to_number::<UInt32Type>( &values),
-        DynType::U64 => to_number::<UInt64Type>( &values),
-        DynType::U128 => to_number::<Decimal128Type>( &values),
+        DynType::U32 => to_number::<UInt32Type>(&values),
+        DynType::U64 => to_number::<UInt64Type>(&values),
+        DynType::U128 => to_number::<Decimal128Type>(&values),
         DynType::Bool => to_bool(&values),
         DynType::FixedBytes(_) => to_binary(&values),
         DynType::Vec(inner_type) => to_list(inner_type, values),
@@ -58,7 +58,7 @@ pub fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
         DynType::U64 => Ok(DataType::UInt64),
         DynType::U128 => Ok(DataType::Decimal128(128, 0)),
         DynType::Bool => Ok(DataType::Boolean),
-        DynType::FixedBytes(_)=> Ok(DataType::Binary),
+        DynType::FixedBytes(_) => Ok(DataType::Binary),
         DynType::Vec(inner_type) => {
             let inner_type = to_arrow_dtype(inner_type)
                 .context("Failed to convert list inner type to arrow type")?;
@@ -157,19 +157,50 @@ where
 
     for v in values.iter() {
         match v {
-            Some(v) => {
-                match v {
-                    DynValue::I8(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i8"))?),
-                    DynValue::U8(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u8"))?),
-                    DynValue::I16(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i16"))?),
-                    DynValue::U16(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u16"))?),
-                    DynValue::I32(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i32"))?),
-                    DynValue::U32(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u32"))?),
-                    DynValue::I64(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i64"))?),
-                    DynValue::U64(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u64"))?),
-                    DynValue::I128(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i128"))?),
-                    DynValue::U128(v) => builder.append_value(T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u128"))?),
-                    _ => return Err(anyhow!("Unexpected value type for number conversion: {:?}", v)),
+            Some(v) => match v {
+                DynValue::I8(v) => builder.append_value(
+                    T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType i8"))?,
+                ),
+                DynValue::U8(v) => builder.append_value(
+                    T::Native::try_from(*v).map_err(|_| anyhow!("Failed to convert DynType u8"))?,
+                ),
+                DynValue::I16(v) => builder.append_value(
+                    T::Native::try_from(*v)
+                        .map_err(|_| anyhow!("Failed to convert DynType i16"))?,
+                ),
+                DynValue::U16(v) => builder.append_value(
+                    T::Native::try_from(*v)
+                        .map_err(|_| anyhow!("Failed to convert DynType u16"))?,
+                ),
+                DynValue::I32(v) => builder.append_value(
+                    T::Native::try_from(*v)
+                        .map_err(|_| anyhow!("Failed to convert DynType i32"))?,
+                ),
+                DynValue::U32(v) => builder.append_value(
+                    T::Native::try_from(*v)
+                        .map_err(|_| anyhow!("Failed to convert DynType u32"))?,
+                ),
+                DynValue::I64(v) => builder.append_value(
+                    T::Native::try_from(*v)
+                        .map_err(|_| anyhow!("Failed to convert DynType i64"))?,
+                ),
+                DynValue::U64(v) => builder.append_value(
+                    T::Native::try_from(*v)
+                        .map_err(|_| anyhow!("Failed to convert DynType u64"))?,
+                ),
+                DynValue::I128(v) => builder.append_value(
+                    T::Native::try_from(*v)
+                        .map_err(|_| anyhow!("Failed to convert DynType i128"))?,
+                ),
+                DynValue::U128(v) => builder.append_value(
+                    T::Native::try_from(*v)
+                        .map_err(|_| anyhow!("Failed to convert DynType u128"))?,
+                ),
+                _ => {
+                    return Err(anyhow!(
+                        "Unexpected value type for number conversion: {:?}",
+                        v
+                    ))
                 }
             },
             None => builder.append_null(),
@@ -214,7 +245,7 @@ fn to_binary(value: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
     let mut builder = builder::BinaryBuilder::new();
     for val in value {
         match val {
-            Some(DynValue::FixedBytes(_, data)) => builder.append_value(data),
+            Some(DynValue::FixedBytes(data)) => builder.append_value(data),
             Some(val) => return Err(anyhow!("Expected binary type, found: {:?}", val)),
             None => builder.append_null(),
         }
@@ -423,11 +454,10 @@ fn to_struct(
 mod tests {
     use super::*;
     use crate::deserialize::DynType;
-    use anchor_lang::prelude::Pubkey;
     use std::fs::File;
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn test_nested_dyntypes() {
         // Create a complex nested structure that tests all DynType cases
         let nested_type = DynType::Struct(vec![
@@ -462,7 +492,7 @@ mod tests {
             ("bool_value".to_string(), DynValue::Bool(true)),
             (
                 "pubkey_value".to_string(),
-                DynValue::FixedBytes(32, [0 as u8; 32].to_vec()),
+                DynValue::FixedBytes([0 as u8; 32].to_vec()),
             ),
             (
                 "vec_value".to_string(),

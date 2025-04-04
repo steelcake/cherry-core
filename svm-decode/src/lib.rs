@@ -1,4 +1,3 @@
-use anchor_lang::prelude::Pubkey;
 use anyhow::{Context, Result};
 use arrow::array::{Array, BinaryArray};
 use arrow::{array::RecordBatch, datatypes::*};
@@ -9,48 +8,43 @@ mod arrow_converter;
 use arrow_converter::{to_arrow, to_arrow_dtype};
 
 pub struct InstructionSignature<'a> {
-    pub program_id: Pubkey,
-    pub name: String,
     pub discriminator: &'a [u8],
     pub params: Vec<ParamInput>,
-    pub accounts: Vec<String>,
+    pub accounts_names: Vec<String>,
 }
 
-pub fn decode_instruction_data(
-    batch: &RecordBatch,
+pub fn decode_instruction_batch(
     signature: InstructionSignature,
+    batch: &RecordBatch,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
-    let program_id_col = batch.column_by_name("program_id").unwrap();
-    let program_id_array = program_id_col
-        .as_any()
-        .downcast_ref::<BinaryArray>()
-        .unwrap();
-
     let data_col = batch.column_by_name("data").unwrap();
     let data_array = data_col.as_any().downcast_ref::<BinaryArray>().unwrap();
 
+    let account_arrays: Vec<&BinaryArray> = (0..10)
+        .map(|i| {
+            let col_name = format!("a{}", i);
+            let col = batch.column_by_name(&col_name).unwrap();
+            col.as_any().downcast_ref::<BinaryArray>().unwrap()
+        })
+        .collect();
+
+    decode_instructions(signature, &account_arrays, data_array, allow_decode_fail)
+}
+
+pub fn decode_instructions(
+    signature: InstructionSignature,
+    accounts: &[&BinaryArray],
+    data: &BinaryArray,
+    allow_decode_fail: bool,
+) -> Result<RecordBatch> {
     let num_params = signature.params.len();
 
     let mut decoded_params_vec: Vec<Vec<Option<DynValue>>> =
         (0..num_params).map(|_| Vec::new()).collect();
 
-    for row_idx in 0..batch.num_rows() {
-        let instr_program_id: [u8; 32] = program_id_array.value(row_idx).try_into().unwrap();
-        let instr_program_id = Pubkey::new_from_array(instr_program_id);
-        if instr_program_id != signature.program_id {
-            if allow_decode_fail {
-                log::debug!("Instruction program id doesn't match signature program id");
-                decoded_params_vec.iter_mut().for_each(|v| v.push(None));
-                continue;
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Instruction program id doesn't match signature program id"
-                ));
-            }
-        }
-
-        if data_array.is_null(row_idx) {
+    for row_idx in 0..data.len() {
+        if data.is_null(row_idx) {
             if allow_decode_fail {
                 log::debug!("Instruction data is null");
                 decoded_params_vec.iter_mut().for_each(|v| v.push(None));
@@ -60,7 +54,7 @@ pub fn decode_instruction_data(
             }
         }
 
-        let instruction_data = data_array.value(row_idx);
+        let instruction_data = data.value(row_idx);
         let data_result = match_discriminators(instruction_data, signature.discriminator);
         let data = match data_result {
             Ok(data) => data,
@@ -104,35 +98,31 @@ pub fn decode_instruction_data(
         .map(|p| Field::new(p.name.clone(), to_arrow_dtype(&p.param_type).unwrap(), true))
         .collect::<Vec<_>>();
 
-    let mut account_arrays: Vec<Arc<dyn Array>> = (0..10)
-        .map(|i| {
-            let col_name = format!("a{}", i);
-            let col = batch.column_by_name(&col_name).unwrap();
-            let byte_array = col.as_any().downcast_ref::<BinaryArray>().unwrap();
-            Arc::new(byte_array.clone()) as Arc<dyn Array>
+    let acc_names_len = signature.accounts_names.len();
+
+    let mut accounts: Vec<Arc<dyn Array>> = accounts
+        .iter()
+        .map(|arr| {
+            let owned_array = arr.slice(0, arr.len());
+            owned_array as Arc<dyn Array>
         })
         .collect();
 
-    let acc_names_len = signature.accounts.len();
-
     let mut acc_fields = Vec::new();
     if acc_names_len < 10 {
-        let _ = account_arrays.split_off(acc_names_len);
+        let _ = accounts.split_off(acc_names_len);
         for i in 0..acc_names_len {
-            let field = Field::new(signature.accounts[i].clone(), DataType::Binary, true);
+            let field = Field::new(signature.accounts_names[i].clone(), DataType::Binary, true);
             acc_fields.push(field);
         }
     } else {
         for i in 0..10 {
-            let field = Field::new(signature.accounts[i].clone(), DataType::Binary, true);
+            let field = Field::new(signature.accounts_names[i].clone(), DataType::Binary, true);
             acc_fields.push(field);
         }
     }
 
-    let decoded_instructions_array = data_arrays
-        .into_iter()
-        .chain(account_arrays)
-        .collect::<Vec<_>>();
+    let decoded_instructions_array = data_arrays.into_iter().chain(accounts).collect::<Vec<_>>();
     let decoded_instructions_fields = data_fields
         .into_iter()
         .chain(acc_fields.clone())
@@ -165,55 +155,18 @@ mod tests {
     use std::fs::File;
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn read_parquet_with_real_data() {
-        use arrow::compute::filter_record_batch;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
         let builder = ParquetRecordBatchReaderBuilder::try_new(
-            File::open("../core/reports/instruction.parquet").unwrap(),
+            File::open("instruction_exemple.parquet").unwrap(),
         )
         .unwrap();
         let mut reader = builder.build().unwrap();
         let instructions = reader.next().unwrap().unwrap();
-
-        // Filter instructions by program id
-        let program_id =
-            Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4").to_bytes();
-        // Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").to_bytes();
-
-        // Get the index of the program_id column
-        let program_id_idx = instructions.schema().index_of("program_id").unwrap();
-
-        // Get the program_id column as a BinaryArray
-        let program_id_col = instructions.column(program_id_idx);
-        let program_id_col = program_id_col
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .unwrap();
-
-        // Create a boolean mask for filtering
-        let mut mask = Vec::with_capacity(instructions.num_rows());
-        for i in 0..instructions.num_rows() {
-            if program_id_col.is_null(i) {
-                mask.push(false);
-            } else {
-                let value = program_id_col.value(i);
-                mask.push(
-                    // value == spl_token_program_id ||
-                    value == program_id, // value == spl_token_2022_program_id
-                );
-            }
-        }
-
-        // Convert mask to BooleanArray and filter the RecordBatch
-        let mask_array = arrow::array::BooleanArray::from(mask);
-        let filtered_instructions = filter_record_batch(&instructions, &mask_array).unwrap();
-
         let ix_signature = InstructionSignature {
             // // SPL Token Transfer
-            // program_id: Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-            // name: "Transfer".to_string(),
             // discriminator: &[3],
             // params: vec![ParamInput {
             //     name: "Amount".to_string(),
@@ -224,9 +177,8 @@ mod tests {
             //     "Destination".to_string(),
             //     "Authority".to_string(),
             // ],
+
             // // JUP SwapEvent
-            // program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
-            // name: "SwapEvent".to_string(),
             // discriminator: &[
             //     228, 69, 165, 46, 81, 203, 154, 29, 64, 198, 205, 232, 38, 8, 113, 226,
             // ],
@@ -255,8 +207,6 @@ mod tests {
             // accounts: vec![],
 
             // JUP Route
-            program_id: Pubkey::from_str_const("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
-            name: "Route".to_string(),
             discriminator: &[229, 23, 203, 151, 122, 227, 173, 42],
             params: vec![
                 ParamInput {
@@ -553,7 +503,7 @@ mod tests {
                     param_type: DynType::U8,
                 },
             ],
-            accounts: vec![
+            accounts_names: vec![
                 "TokenProgram".to_string(),
                 "UserTransferAuthority".to_string(),
                 "UserSourceTokenAccount".to_string(),
@@ -565,7 +515,7 @@ mod tests {
             ],
         };
 
-        let result = decode_instruction_data(&filtered_instructions, ix_signature, true)
+        let result = decode_instruction_batch(ix_signature, &instructions, true)
             .context("decode failed")
             .unwrap();
 

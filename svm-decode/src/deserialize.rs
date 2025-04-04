@@ -1,4 +1,3 @@
-use anchor_lang::prelude::Pubkey;
 use anyhow::{anyhow, Context, Result};
 
 /// Represents a parameter input with a name and dynamic type
@@ -44,7 +43,7 @@ pub enum DynValue {
     U128(u128),
     Bool(bool),
     /// Complex values
-    FixedBytes(usize, Vec<u8>),
+    FixedBytes(Vec<u8>),
     Vec(Vec<DynValue>),
     Struct(Vec<(String, DynValue)>),
     Enum(String, Option<Box<DynValue>>),
@@ -227,7 +226,7 @@ fn deserialize_value<'a>(param_type: &DynType, data: &'a [u8]) -> Result<(DynVal
                 ));
             }
             let value = data[..*size].to_vec();
-            Ok((DynValue::FixedBytes(*size, value), &data[*size..]))
+            Ok((DynValue::FixedBytes(value), &data[*size..]))
         }
         DynType::Vec(inner_type) => {
             if data.len() < 4 {
