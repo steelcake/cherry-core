@@ -21,8 +21,8 @@ pub enum DynType {
     U128,
     Bool,
     /// Complex types
-    FixedBytes(usize),
-    Vec(Box<DynType>),
+    FixedArray(Box<DynType>, usize),
+    Array(Box<DynType>),
     Struct(Vec<(String, DynType)>),
     Enum(Vec<(String, Option<DynType>)>),
     Option(Box<DynType>),
@@ -43,8 +43,7 @@ pub enum DynValue {
     U128(u128),
     Bool(bool),
     /// Complex values
-    FixedBytes(Vec<u8>),
-    Vec(Vec<DynValue>),
+    Array(Vec<DynValue>),
     Struct(Vec<(String, DynValue)>),
     Enum(String, Option<Box<DynValue>>),
     Option(Option<Box<DynValue>>),
@@ -217,18 +216,28 @@ fn deserialize_value<'a>(param_type: &DynType, data: &'a [u8]) -> Result<(DynVal
             let value = data[0] != 0;
             Ok((DynValue::Bool(value), &data[1..]))
         }
-        DynType::FixedBytes(size) => {
-            if data.len() < *size {
+        DynType::FixedArray(inner_type, size) => {
+            let inner_type_size = check_type_size(inner_type)?;
+            let total_size = inner_type_size * size;
+
+            if data.len() < total_size {
                 return Err(anyhow!(
-                    "Not enough data for pubkey: expected {} bytes, got {}",
-                    *size,
+                    "Not enough data for fixed array: expected {} bytes, got {}",
+                    total_size,
                     data.len()
                 ));
             }
-            let value = data[..*size].to_vec();
-            Ok((DynValue::FixedBytes(value), &data[*size..]))
+            let value = data[..total_size]
+                .to_vec()
+                .chunks(inner_type_size)
+                .map(|chunk| {
+                    let (value, _) = deserialize_value(inner_type, chunk)?;
+                    Ok(value)
+                })
+                .collect::<Result<Vec<DynValue>>>()?;
+            Ok((DynValue::Array(value), &data[total_size..]))
         }
-        DynType::Vec(inner_type) => {
+        DynType::Array(inner_type) => {
             if data.len() < 4 {
                 return Err(anyhow!(
                     "Not enough data for vector length: expected 4 bytes, got {}",
@@ -245,7 +254,7 @@ fn deserialize_value<'a>(param_type: &DynType, data: &'a [u8]) -> Result<(DynVal
                 remaining_data = new_data;
             }
 
-            Ok((DynValue::Vec(values), remaining_data))
+            Ok((DynValue::Array(values), remaining_data))
         }
         DynType::Struct(fields) => {
             let mut values = Vec::new();
@@ -282,5 +291,22 @@ fn deserialize_value<'a>(param_type: &DynType, data: &'a [u8]) -> Result<(DynVal
                 Ok((DynValue::Enum(variant_name.clone(), None), remaining_data))
             }
         }
+    }
+}
+
+fn check_type_size(param_type: &DynType) -> Result<usize> {
+    match param_type {
+        DynType::U8 => Ok(1),
+        DynType::U16 => Ok(2),
+        DynType::U32 => Ok(4),
+        DynType::U64 => Ok(8),
+        DynType::U128 => Ok(16),
+        DynType::I8 => Ok(1),
+        DynType::I16 => Ok(2),
+        DynType::I32 => Ok(4),
+        DynType::I64 => Ok(8),
+        DynType::I128 => Ok(16),
+        DynType::Bool => Ok(1),
+        _ => Err(anyhow!("Unsupported primitive type for fixed array")),
     }
 }

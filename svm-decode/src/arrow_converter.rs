@@ -29,8 +29,8 @@ pub fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<A
         DynType::U64 => to_number::<UInt64Type>(&values),
         DynType::U128 => to_number::<Decimal128Type>(&values),
         DynType::Bool => to_bool(&values),
-        DynType::FixedBytes(_) => to_binary(&values),
-        DynType::Vec(inner_type) => to_list(inner_type, values),
+        DynType::FixedArray(inner_type, size) => to_fixed_array(&values, inner_type, *size),
+        DynType::Array(inner_type) => to_list(inner_type, values),
         DynType::Struct(inner_type) => to_struct(inner_type, values),
         DynType::Enum(inner_type) => to_enum(inner_type, values),
         DynType::Option(inner_type) => to_option(inner_type, values),
@@ -58,8 +58,19 @@ pub fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
         DynType::U64 => Ok(DataType::UInt64),
         DynType::U128 => Ok(DataType::Decimal128(128, 0)),
         DynType::Bool => Ok(DataType::Boolean),
-        DynType::FixedBytes(_) => Ok(DataType::Binary),
-        DynType::Vec(inner_type) => {
+        DynType::FixedArray(inner_type, size) => {
+            if **inner_type == DynType::U8 {
+                Ok(DataType::Binary)
+            } else {
+                let inner_type = to_arrow_dtype(inner_type)
+                    .context("Failed to convert fixed array inner type to arrow type")?;
+                Ok(DataType::FixedSizeList(
+                    Arc::new(Field::new("", inner_type, true)),
+                    *size as i32,
+                ))
+            }
+        }
+        DynType::Array(inner_type) => {
             let inner_type = to_arrow_dtype(inner_type)
                 .context("Failed to convert list inner type to arrow type")?;
             Ok(DataType::List(Arc::new(Field::new("", inner_type, true))))
@@ -234,6 +245,18 @@ fn to_bool(values: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
     Ok(Arc::new(builder.finish()))
 }
 
+fn to_fixed_array(
+    values: &[Option<DynValue>],
+    inner_type: &DynType,
+    _size: usize,
+) -> Result<Arc<dyn Array>> {
+    if inner_type == &DynType::U8 {
+        to_binary(values)
+    } else {
+        Err(anyhow!("Unsupported fixed array type: {:?}", inner_type))
+    }
+}
+
 /// Converts a vector of binary values (pubkeys) into an Arrow array.
 ///
 /// # Arguments
@@ -245,7 +268,19 @@ fn to_binary(value: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
     let mut builder = builder::BinaryBuilder::new();
     for val in value {
         match val {
-            Some(DynValue::FixedBytes(data)) => builder.append_value(data),
+            Some(DynValue::Array(data)) => {
+                // Collect all u8 values into a Vec<u8>
+                let bytes: Result<Vec<u8>> = data
+                    .iter()
+                    .map(|v| match v {
+                        DynValue::U8(v) => Ok(*v),
+                        _ => Err(anyhow!("Expected binary type, found: {:?}", v)),
+                    })
+                    .collect();
+
+                // Append the collected bytes as a single binary value
+                builder.append_value(&bytes?);
+            }
             Some(val) => return Err(anyhow!("Expected binary type, found: {:?}", val)),
             None => builder.append_null(),
         }
@@ -271,7 +306,7 @@ fn to_list(param_type: &DynType, param_values: Vec<Option<DynValue>>) -> Result<
     for val in param_values {
         match val {
             Some(val) => match val {
-                DynValue::Vec(inner_vals) => {
+                DynValue::Array(inner_vals) => {
                     lengths.push(inner_vals.len());
                     inner_values.extend(inner_vals.into_iter().map(Some));
                     validity.push(true);
@@ -463,8 +498,14 @@ mod tests {
         let nested_type = DynType::Struct(vec![
             ("i8_value".to_string(), DynType::I8),
             ("bool_value".to_string(), DynType::Bool),
-            ("pubkey_value".to_string(), DynType::FixedBytes(32)),
-            ("vec_value".to_string(), DynType::Vec(Box::new(DynType::I8))),
+            (
+                "pubkey_value".to_string(),
+                DynType::FixedArray(Box::new(DynType::U8), 32),
+            ),
+            (
+                "vec_value".to_string(),
+                DynType::Array(Box::new(DynType::I8)),
+            ),
             (
                 "nested_struct".to_string(),
                 DynType::Struct(vec![
@@ -492,11 +533,11 @@ mod tests {
             ("bool_value".to_string(), DynValue::Bool(true)),
             (
                 "pubkey_value".to_string(),
-                DynValue::FixedBytes([0 as u8; 32].to_vec()),
+                DynValue::Array([0u8; 32].into_iter().map(DynValue::U8).collect()),
             ),
             (
                 "vec_value".to_string(),
-                DynValue::Vec(vec![DynValue::I8(1), DynValue::I8(2), DynValue::I8(3)]),
+                DynValue::Array(vec![DynValue::I8(1), DynValue::I8(2), DynValue::I8(3)]),
             ),
             (
                 "nested_struct".to_string(),

@@ -211,7 +211,7 @@ mod tests {
             params: vec![
                 ParamInput {
                     name: "RoutePlan".to_string(),
-                    param_type: DynType::Vec(Box::new(DynType::Struct(vec![
+                    param_type: DynType::Array(Box::new(DynType::Struct(vec![
                         (
                             "Swap".to_string(),
                             DynType::Enum(vec![
@@ -408,7 +408,7 @@ mod tests {
                                             "remaining_accounts_info".to_string(),
                                             DynType::Struct(vec![(
                                                 "slices".to_string(),
-                                                DynType::Vec(Box::new(DynType::Struct(vec![(
+                                                DynType::Array(Box::new(DynType::Struct(vec![(
                                                     "remaining_accounts_slice".to_string(),
                                                     DynType::Struct(vec![
                                                         ("accounts_type".to_string(), DynType::U8),
