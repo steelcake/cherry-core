@@ -3,7 +3,7 @@ use arrow::array::{Array, BinaryArray};
 use arrow::{array::RecordBatch, datatypes::*};
 use std::sync::Arc;
 mod deserialize;
-use deserialize::{deserialize_data, DynValue, ParamInput};
+pub use deserialize::{deserialize_data, DynValue, ParamInput, DynType};
 mod arrow_converter;
 use arrow_converter::{to_arrow, to_arrow_dtype};
 
@@ -11,6 +11,15 @@ pub struct InstructionSignature<'a> {
     pub discriminator: &'a [u8],
     pub params: Vec<ParamInput>,
     pub accounts_names: Vec<String>,
+}
+
+#[cfg(feature = "pyo3")]
+impl<'a> pyo3::FromPyObject<'a> for InstructionSignature<'a> {
+    fn extract_bound(ob: &pyo3::Bound<'a, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        let out: &str = ob.extract().context("read as string")?;
+        println!("{}", out);
+        todo!()
+    }
 }
 
 pub fn decode_instruction_batch(

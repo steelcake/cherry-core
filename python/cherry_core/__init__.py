@@ -79,6 +79,12 @@ def u256_column_to_binary(col: pyarrow.Array) -> pyarrow.Array:
 def u256_to_binary(data: pyarrow.RecordBatch) -> pyarrow.RecordBatch:
     return cc.u256_to_binary(data)
 
+def decode_instruction_batch(
+    signature: cc.svm_decode.InstructionSignature,
+    batch: pyarrow.RecordBatch,
+    allow_decode_fail: bool = False
+) -> pyarrow.RecordBatch:
+    return cc.decode_instruction_batch(signature, batch, allow_decode_fail)
 
 def evm_decode_call_inputs(
     signature: str, data: pyarrow.Array, allow_decode_fail: bool = False

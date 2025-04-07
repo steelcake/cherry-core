@@ -6,6 +6,15 @@ pub struct ParamInput {
     pub param_type: DynType,
 }
 
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for ParamInput {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        let name: &str = ob.extract().context("read as string")?;
+        println!("{}", name);
+        todo!()
+    }
+}
+
 /// Represents a dynamic type that can be deserialized from binary data
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynType {
@@ -26,6 +35,27 @@ pub enum DynType {
     Struct(Vec<(String, DynType)>),
     Enum(Vec<(String, Option<DynType>)>),
     Option(Box<DynType>),
+}
+
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for DynType {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        let out: &str = ob.extract().context("read as string")?;
+        match out {
+            "i8" => Ok(DynType::I8),
+            "i16" => Ok(DynType::I16),
+            "i32" => Ok(DynType::I32),
+            "i64" => Ok(DynType::I64),
+            "i128" => Ok(DynType::I128),
+            "u8" => Ok(DynType::U8),
+            "u16" => Ok(DynType::U16),
+            "u32" => Ok(DynType::U32),
+            "u64" => Ok(DynType::U64),
+            "u128" => Ok(DynType::U128),
+            "bool" => Ok(DynType::Bool),            
+            _ => Err(anyhow!("Not yet implemented type: {}", out).into()),
+        }
+    }
 }
 
 /// Represents a dynamically deserialized value
