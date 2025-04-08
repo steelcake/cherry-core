@@ -44,10 +44,10 @@ pub enum DynType {
 impl<'py> pyo3::FromPyObject<'py> for DynType {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
         use pyo3::types::PyAnyMethods;
-        
-        let out: &str = ob.extract().context("Failed to extract DynType as string in the python binding")?;
-        println!("DynType binding: {}", out);
-        match out {
+
+        let variant_str: String = ob.to_string();
+        let variant_str: &str = variant_str.as_str();
+        match variant_str {
             "i8" => Ok(DynType::I8),
             "i16" => Ok(DynType::I16),
             "i32" => Ok(DynType::I32),
@@ -58,8 +58,99 @@ impl<'py> pyo3::FromPyObject<'py> for DynType {
             "u32" => Ok(DynType::U32),
             "u64" => Ok(DynType::U64),
             "u128" => Ok(DynType::U128),
-            "bool" => Ok(DynType::Bool),            
-            _ => Err(anyhow!("Not yet implemented type: {}", out).into()),
+            "bool" => Ok(DynType::Bool),
+            "FixedArray" => {
+                let inner_bound = ob
+                    .getattr("element_type")
+                    .context("Failed to retrieve FixedArray element type")?;
+                let size: usize = ob
+                    .getattr("size")
+                    .context("Failed to retrieve size")?
+                    .extract::<usize>()?;
+                let inner_type = inner_bound.extract::<DynType>()?;
+                Ok(DynType::FixedArray(Box::new(inner_type), size))
+            }
+            "Array" => {
+                let inner_bound = ob
+                    .getattr("element_type")
+                    .context("Failed to retrieve Array element type")?;
+                let inner_type = inner_bound.extract::<DynType>()?;
+                Ok(DynType::Array(Box::new(inner_type)))
+            }
+            "Struct" => {
+                let py_fields = ob
+                    .getattr("fields")
+                    .context("Failed to retrieve Struct fields")?;
+                let mut fields: Vec<(String, DynType)> = Vec::new();
+                for field in py_fields.try_iter()? {
+                    match field {
+                        Ok(field) => {
+                            let name = field
+                                .getattr("name")
+                                .context("Failed to retrieve Struct field name")?
+                                .to_string();
+                            let param_type = field
+                                .getattr("element_type")
+                                .context("Failed to retrieve Struct field type")?
+                                .extract::<DynType>()?;
+                            fields.push((name, param_type));
+                        }
+                        Err(e) => {
+                            return Err(anyhow!(
+                                "Could not convert Struct fields into an iterator. Error: {:?}",
+                                e
+                            )
+                            .into())
+                        }
+                    }
+                }
+                Ok(DynType::Struct(fields))
+            }
+            "Enum" => {
+                let py_variants = ob
+                    .getattr("variants")
+                    .context("Failed to retrieve Enum variants")?;
+                let mut variants: Vec<(String, Option<DynType>)> = Vec::new();
+                for variant in py_variants.try_iter()? {
+                    match variant {
+                        Ok(variant) => {
+                            let name = variant
+                                .getattr("name")
+                                .context("Failed to retrieve Enum variant name")?
+                                .to_string();
+                            let param_type = variant
+                                .getattr("element_type")
+                                .context("Failed to retrieve Enum variant type")?;
+                            match param_type.to_string().as_str() {
+                                "None" => variants.push((name, None)),
+                                _ => {
+                                    let param_type = param_type.extract::<DynType>()?;
+                                    variants.push((name, Some(param_type)));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            return Err(anyhow!(
+                                "Could not convert Enum variants into an iterator. Error: {:?}",
+                                e
+                            )
+                            .into())
+                        }
+                    }
+                }
+                Ok(DynType::Enum(variants))
+            }
+            "Option" => {
+                let inner_bound = ob
+                    .getattr("element_type")
+                    .context("Failed to retrieve Option element type")?;
+                let inner_type = inner_bound.extract::<DynType>()?;
+                Ok(DynType::Option(Box::new(inner_type)))
+            }
+            _ => {
+                let inner_type: String = ob.getattr("element_type")?.extract::<String>()?;
+                Err(anyhow!("Not yet implemented type: {}", inner_type).into())
+            }
         }
     }
 }

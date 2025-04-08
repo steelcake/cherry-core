@@ -4,8 +4,8 @@ use anyhow::{anyhow, Context};
 use arrow::array::{Array, ArrayData, BinaryArray, Decimal256Array, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Schema};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
-use pyo3::prelude::*;
 use baselib::svm_decode::InstructionSignature;
+use pyo3::prelude::*;
 
 mod ingest;
 
@@ -363,10 +363,14 @@ fn decode_instruction_batch(
     py: Python<'_>,
 ) -> PyResult<PyObject> {
     let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
-    
+
     let instruction_signature = signature.extract::<InstructionSignature>()?;
-    let batch = baselib::svm_decode::decode_instruction_batch(instruction_signature, &batch, allow_decode_fail)
-        .context("decode instruction batch")?;
+    let batch = baselib::svm_decode::decode_instruction_batch(
+        instruction_signature,
+        &batch,
+        allow_decode_fail,
+    )
+    .context("decode instruction batch")?;
 
     Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
 }

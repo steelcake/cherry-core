@@ -3,12 +3,12 @@ use arrow::array::{Array, BinaryArray};
 use arrow::{array::RecordBatch, datatypes::*};
 use std::sync::Arc;
 mod deserialize;
-pub use deserialize::{deserialize_data, DynValue, ParamInput, DynType};
+pub use deserialize::{deserialize_data, DynType, DynValue, ParamInput};
 mod arrow_converter;
 use arrow_converter::{to_arrow, to_arrow_dtype};
 
 #[derive(Debug, Clone)]
-pub struct InstructionSignature{
+pub struct InstructionSignature {
     pub discriminator: Vec<u8>,
     pub params: Vec<ParamInput>,
     pub accounts_names: Vec<String>,
@@ -22,9 +22,9 @@ impl<'py> pyo3::FromPyObject<'py> for InstructionSignature {
         let discriminator = ob.getattr("discriminator")?.extract::<Vec<u8>>()?;
         let params = ob.getattr("params")?.extract::<Vec<ParamInput>>()?;
         let accounts_names = ob.getattr("accounts_names")?.extract::<Vec<String>>()?;
-        
+
         Ok(InstructionSignature {
-            discriminator: discriminator,
+            discriminator,
             params,
             accounts_names,
         })
