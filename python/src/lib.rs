@@ -5,7 +5,7 @@ use arrow::array::{Array, ArrayData, BinaryArray, Decimal256Array, RecordBatch, 
 use arrow::datatypes::{DataType, Schema};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use pyo3::prelude::*;
-use baselib::svm_decode::{InstructionSignature, ParamInput, DynType};
+use baselib::svm_decode::InstructionSignature;
 
 mod ingest;
 
@@ -364,46 +364,7 @@ fn decode_instruction_batch(
 ) -> PyResult<PyObject> {
     let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
     
-    // Extract discriminator from Python signature
-    let discriminator = signature.getattr("discriminator")?.extract::<Vec<u8>>()?;
-    
-    // Extract params from Python signature
-    let py_params = signature.getattr("params")?.extract::<Vec<Bound<'_, PyAny>>>()?;
-    let mut params = Vec::new();
-    for py_param in py_params {
-        let name = py_param.getattr("name")?.extract::<String>()?;
-        let param_type_str = py_param.getattr("param_type")?.extract::<String>()?;
-        let param_type = match param_type_str.as_str() {
-            "i8" => DynType::I8,
-            "i16" => DynType::I16,
-            "i32" => DynType::I32,
-            "i64" => DynType::I64,
-            "i128" => DynType::I128,
-            "u8" => DynType::U8,
-            "u16" => DynType::U16,
-            "u32" => DynType::U32,
-            "u64" => DynType::U64,
-            "u128" => DynType::U128,
-            "bool" => DynType::Bool,
-            "FixedArray" => DynType::FixedArray(Box::new(DynType::U8), 0), // Default size, will need to be updated
-            "Array" => DynType::Array(Box::new(DynType::U8)), // Default type, will need to be updated
-            "Struct" => DynType::Struct(Vec::new()), // Empty struct, will need to be updated
-            "Enum" => DynType::Enum(Vec::new()), // Empty enum, will need to be updated
-            "Option" => DynType::Option(Box::new(DynType::U8)), // Default type, will need to be updated
-            _ => return Err(anyhow!("Invalid param type: {}", param_type_str).into()),
-        };
-        params.push(ParamInput { name, param_type });
-    }
-    
-    // Extract accounts_names from Python signature
-    let accounts_names = signature.getattr("accounts_names")?.extract::<Vec<String>>()?;
-    
-    let instruction_signature = InstructionSignature {
-        discriminator: &discriminator,
-        params,
-        accounts_names,
-    };
-
+    let instruction_signature = signature.extract::<InstructionSignature>()?;
     let batch = baselib::svm_decode::decode_instruction_batch(instruction_signature, &batch, allow_decode_fail)
         .context("decode instruction batch")?;
 

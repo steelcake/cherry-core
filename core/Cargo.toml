@@ -28,4 +28,4 @@ futures-lite = "2"
 faster-hex = { workspace = true }
 
 [features]
-pyo3 = ["cherry-ingest/pyo3"]
+pyo3 = ["cherry-ingest/pyo3", "cherry-svm-decode/pyo3"]

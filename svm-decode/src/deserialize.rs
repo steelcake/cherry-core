@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 
 /// Represents a parameter input with a name and dynamic type
+#[derive(Debug, Clone)]
 pub struct ParamInput {
     pub name: String,
     pub param_type: DynType,
@@ -9,9 +10,11 @@ pub struct ParamInput {
 #[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for ParamInput {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-        let name: &str = ob.extract().context("read as string")?;
-        println!("{}", name);
-        todo!()
+        use pyo3::types::PyAnyMethods;
+
+        let name = ob.getattr("name")?.extract::<String>()?;
+        let param_type = ob.getattr("param_type")?.extract::<DynType>()?;
+        Ok(ParamInput { name, param_type })
     }
 }
 
@@ -40,7 +43,10 @@ pub enum DynType {
 #[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for DynType {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-        let out: &str = ob.extract().context("read as string")?;
+        use pyo3::types::PyAnyMethods;
+        
+        let out: &str = ob.extract().context("Failed to extract DynType as string in the python binding")?;
+        println!("DynType binding: {}", out);
         match out {
             "i8" => Ok(DynType::I8),
             "i16" => Ok(DynType::I16),

@@ -24,7 +24,6 @@ try:
     # Create the instruction signature using the new classes
     # For SPL Token Transfer
     
-    
     signature = InstructionSignature(
         discriminator=bytes([3]),  # SPL Token Transfer discriminator
         params=[

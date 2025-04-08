@@ -1,4 +1,5 @@
 from . import cherry_core as cc
+from . import svm_decode
 from typing import Tuple
 import pyarrow
 
@@ -80,7 +81,7 @@ def u256_to_binary(data: pyarrow.RecordBatch) -> pyarrow.RecordBatch:
     return cc.u256_to_binary(data)
 
 def decode_instruction_batch(
-    signature: cc.svm_decode.InstructionSignature,
+    signature: svm_decode.InstructionSignature,
     batch: pyarrow.RecordBatch,
     allow_decode_fail: bool = False
 ) -> pyarrow.RecordBatch:
