@@ -1,6 +1,6 @@
 [package]
 name = "cherry-svm-decode"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 description = "SVM decoding implementations in Arrow format"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -12,6 +12,11 @@ license = "MIT OR Apache-2.0"
 arrow = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
+pyo3 = { workspace = true, features = ["anyhow"], optional = true }
+bs58 = { workspace = true }
+
+[features]
+pyo3 = ["dep:pyo3"]
 
 [dev-dependencies]
 parquet = "54"

@@ -3,17 +3,36 @@ use arrow::array::{Array, BinaryArray};
 use arrow::{array::RecordBatch, datatypes::*};
 use std::sync::Arc;
 mod deserialize;
-use deserialize::{deserialize_data, DynValue, ParamInput};
+pub use deserialize::{deserialize_data, DynType, DynValue, ParamInput};
 mod arrow_converter;
 use arrow_converter::{to_arrow, to_arrow_dtype};
 
-pub struct InstructionSignature<'a> {
-    pub discriminator: &'a [u8],
+#[derive(Debug, Clone)]
+pub struct InstructionSignature {
+    pub discriminator: Vec<u8>,
     pub params: Vec<ParamInput>,
     pub accounts_names: Vec<String>,
 }
 
-pub fn decode_instruction_batch(
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for InstructionSignature {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        use pyo3::types::PyAnyMethods;
+
+        let discriminator = ob.getattr("discriminator")?;
+        let discriminator = extract_base58(&discriminator)?;
+        let params = ob.getattr("params")?.extract::<Vec<ParamInput>>()?;
+        let accounts_names = ob.getattr("accounts_names")?.extract::<Vec<String>>()?;
+
+        Ok(InstructionSignature {
+            discriminator,
+            params,
+            accounts_names,
+        })
+    }
+}
+
+pub fn svm_decode_instructions(
     signature: InstructionSignature,
     batch: &RecordBatch,
     allow_decode_fail: bool,
@@ -54,8 +73,8 @@ pub fn decode_instructions(
             }
         }
 
-        let instruction_data = data.value(row_idx);
-        let data_result = match_discriminators(instruction_data, signature.discriminator);
+        let instruction_data = data.value(row_idx).to_vec();
+        let data_result = match_discriminators(&instruction_data, &signature.discriminator);
         let data = match data_result {
             Ok(data) => data,
             Err(e) if allow_decode_fail => {
@@ -136,9 +155,9 @@ pub fn decode_instructions(
     Ok(batch)
 }
 
-pub fn match_discriminators(instr_data: &[u8], discriminator: &[u8]) -> Result<Vec<u8>> {
+pub fn match_discriminators(instr_data: &Vec<u8>, discriminator: &Vec<u8>) -> Result<Vec<u8>> {
     let discriminator_len = discriminator.len();
-    let disc = &instr_data[..discriminator_len];
+    let disc = &instr_data[..discriminator_len].to_vec();
     let ix_data = &instr_data[discriminator_len..];
     if !disc.eq(discriminator) {
         return Err(anyhow::anyhow!(
@@ -146,6 +165,19 @@ pub fn match_discriminators(instr_data: &[u8], discriminator: &[u8]) -> Result<V
         ));
     }
     Ok(ix_data.to_vec())
+}
+
+#[cfg(feature = "pyo3")]
+fn extract_base58(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyResult<Vec<u8>> {
+    use pyo3::types::PyAnyMethods;
+
+    let s: &str = ob.extract()?;
+    let out = bs58::decode(s)
+        .with_alphabet(bs58::Alphabet::BITCOIN)
+        .into_vec()
+        .context("bs58 decode")?;
+
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -207,7 +239,7 @@ mod tests {
             // accounts: vec![],
 
             // JUP Route
-            discriminator: &[229, 23, 203, 151, 122, 227, 173, 42],
+            discriminator: vec![229, 23, 203, 151, 122, 227, 173, 42],
             params: vec![
                 ParamInput {
                     name: "RoutePlan".to_string(),
@@ -515,7 +547,7 @@ mod tests {
             ],
         };
 
-        let result = decode_instruction_batch(ix_signature, &instructions, true)
+        let result = svm_decode_instructions(ix_signature, &instructions, true)
             .context("decode failed")
             .unwrap();
 
