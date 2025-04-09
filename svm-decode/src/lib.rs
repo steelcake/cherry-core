@@ -176,7 +176,7 @@ fn extract_base58(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyResult<Vec<u8>> 
         .with_alphabet(bs58::Alphabet::BITCOIN)
         .into_vec()
         .context("bs58 decode")?;
-    
+
     Ok(out)
 }
 
