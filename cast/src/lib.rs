@@ -1,3 +1,5 @@
+#![allow(clippy::manual_div_ceil)]
+
 use std::sync::Arc;
 
 use anyhow::{Context, Result};

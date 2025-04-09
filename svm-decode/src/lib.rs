@@ -155,7 +155,7 @@ pub fn decode_instructions(
     Ok(batch)
 }
 
-pub fn match_discriminators(instr_data: &Vec<u8>, discriminator: &Vec<u8>) -> Result<Vec<u8>> {
+pub fn match_discriminators(instr_data: &[u8], discriminator: &[u8]) -> Result<Vec<u8>> {
     let discriminator_len = discriminator.len();
     let disc = &instr_data[..discriminator_len].to_vec();
     let ix_data = &instr_data[discriminator_len..];
