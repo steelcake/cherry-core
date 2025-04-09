@@ -19,7 +19,8 @@ impl<'py> pyo3::FromPyObject<'py> for InstructionSignature {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
         use pyo3::types::PyAnyMethods;
 
-        let discriminator = ob.getattr("discriminator")?.extract::<Vec<u8>>()?;
+        let discriminator = ob.getattr("discriminator")?;
+        let discriminator = extract_base58(&discriminator)?;
         let params = ob.getattr("params")?.extract::<Vec<ParamInput>>()?;
         let accounts_names = ob.getattr("accounts_names")?.extract::<Vec<String>>()?;
 
@@ -31,7 +32,7 @@ impl<'py> pyo3::FromPyObject<'py> for InstructionSignature {
     }
 }
 
-pub fn decode_instruction_batch(
+pub fn svm_decode_instructions(
     signature: InstructionSignature,
     batch: &RecordBatch,
     allow_decode_fail: bool,
@@ -72,8 +73,8 @@ pub fn decode_instructions(
             }
         }
 
-        let instruction_data = data.value(row_idx);
-        let data_result = match_discriminators(instruction_data, &signature.discriminator);
+        let instruction_data = data.value(row_idx).to_vec();
+        let data_result = match_discriminators(&instruction_data, &signature.discriminator);
         let data = match data_result {
             Ok(data) => data,
             Err(e) if allow_decode_fail => {
@@ -154,7 +155,7 @@ pub fn decode_instructions(
     Ok(batch)
 }
 
-pub fn match_discriminators(instr_data: &[u8], discriminator: &Vec<u8>) -> Result<Vec<u8>> {
+pub fn match_discriminators(instr_data: &Vec<u8>, discriminator: &Vec<u8>) -> Result<Vec<u8>> {
     let discriminator_len = discriminator.len();
     let disc = &instr_data[..discriminator_len].to_vec();
     let ix_data = &instr_data[discriminator_len..];
@@ -164,6 +165,19 @@ pub fn match_discriminators(instr_data: &[u8], discriminator: &Vec<u8>) -> Resul
         ));
     }
     Ok(ix_data.to_vec())
+}
+
+#[cfg(feature = "pyo3")]
+fn extract_base58(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyResult<Vec<u8>> {
+    use pyo3::types::PyAnyMethods;
+
+    let s: &str = ob.extract()?;
+    let out = bs58::decode(s)
+        .with_alphabet(bs58::Alphabet::BITCOIN)
+        .into_vec()
+        .context("bs58 decode")?;
+    
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -533,7 +547,7 @@ mod tests {
             ],
         };
 
-        let result = decode_instruction_batch(ix_signature, &instructions, true)
+        let result = svm_decode_instructions(ix_signature, &instructions, true)
             .context("decode failed")
             .unwrap();
 

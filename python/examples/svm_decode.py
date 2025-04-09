@@ -4,7 +4,7 @@ import os
 from typing import List
 from pathlib import Path
 from cherry_core.svm_decode import *
-from cherry_core import decode_instruction_batch
+from cherry_core import svm_decode_instructions
 
 # Define input and output file paths
 current_dir = Path(__file__).parent
@@ -25,7 +25,7 @@ try:
     # For SPL Token Transfer
     
     signature = InstructionSignature(
-        discriminator = bytes([229, 23, 203, 151, 122, 227, 173, 42]),
+        discriminator = "fKVLd548UPT",
         params = [
             ParamInput(
                 name="RoutePlan",
@@ -237,7 +237,7 @@ try:
     
     # Decode the instruction batch
     print("Decoding instruction batch...")
-    decoded_batch = decode_instruction_batch(signature, batch, False)
+    decoded_batch = svm_decode_instructions(signature, batch, True)
     
     # Convert RecordBatch to Table before writing
     decoded_table = pa.Table.from_batches([decoded_batch])

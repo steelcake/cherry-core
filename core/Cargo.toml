@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 cherry-evm-validate = { path = "../evm-validate", version = "0.1.0" }
 cherry-evm-decode = { path = "../evm-decode", version = "0.1.0" }
 cherry-cast = { path = "../cast", version = "0.1.0" }
-cherry-svm-decode = { path = "../svm-decode", version = "0.0.1" }
+cherry-svm-decode = { path = "../svm-decode", version = "0.1.0" }
 cherry-evm-schema = { path = "../evm-schema", version = "0.1.0" }
 cherry-svm-schema = { path = "../svm-schema", version = "0.1.0" }
 cherry-ingest = { path = "../ingest", version ="0.3.0" }

@@ -1,54 +1,44 @@
-from typing import List, Optional, Union
+from typing import List, Optional, Union, TypeAlias
 from dataclasses import dataclass
 from enum import Enum
 
+ElementType: TypeAlias = Union['DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']
+
 @dataclass
 class FixedArray:
-    element_type: Union['DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']
+    element_type: ElementType
     size: int
-
-    def __str__(self):
-        return "FixedArray"
 
 @dataclass
 class Array:
-    element_type: Union['DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']
-
-    def __str__(self):
-        return "Array"
+    element_type: ElementType
 
 @dataclass
 class Field:
     name: str
-    element_type: Union['DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']
+    element_type: ElementType
 
 @dataclass
 class Struct:
     fields: List[Field]
 
-    def __str__(self):
-        return "Struct"
-
 @dataclass
 class Variant:
     name: str
-    element_type: Optional[Union['DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']]
+    element_type: Optional[ElementType]
 
 @dataclass
 class Enum:
     variants: List[Variant]
 
-    def __str__(self):
-        return "Enum"
-
 @dataclass
 class Option:
-    element_type: Union['DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']
+    element_type: ElementType
    
 @dataclass
 class ParamInput:
     name: str
-    param_type: Union['DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']
+    param_type: ElementType
 
 @dataclass
 class InstructionSignature:

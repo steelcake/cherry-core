@@ -36,7 +36,7 @@ fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(u256_column_from_binary, m)?)?;
     m.add_function(wrap_pyfunction!(u256_column_to_binary, m)?)?;
     m.add_function(wrap_pyfunction!(u256_to_binary, m)?)?;
-    m.add_function(wrap_pyfunction!(decode_instruction_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(svm_decode_instructions, m)?)?;
     m.add_function(wrap_pyfunction!(evm_decode_call_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(evm_decode_call_outputs, m)?)?;
     m.add_function(wrap_pyfunction!(evm_decode_events, m)?)?;
@@ -356,7 +356,7 @@ fn u256_column_to_binary(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyO
 }
 
 #[pyfunction]
-fn decode_instruction_batch(
+fn svm_decode_instructions(
     signature: &Bound<'_, PyAny>,
     batch: &Bound<'_, PyAny>,
     allow_decode_fail: bool,
@@ -365,7 +365,7 @@ fn decode_instruction_batch(
     let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
 
     let instruction_signature = signature.extract::<InstructionSignature>()?;
-    let batch = baselib::svm_decode::decode_instruction_batch(
+    let batch = baselib::svm_decode::svm_decode_instructions(
         instruction_signature,
         &batch,
         allow_decode_fail,

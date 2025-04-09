@@ -44,10 +44,17 @@ pub enum DynType {
 impl<'py> pyo3::FromPyObject<'py> for DynType {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
         use pyo3::types::PyAnyMethods;
+        use pyo3::types::PyTypeMethods;
+        
+        let variant_str: String = ob.get_type().name()?.to_string();
+        // If the type name is str, it means it's a custom type, and we need to get the actual DynType value
+        let variant_str = if variant_str == "str" {
+            ob.to_string()
+        } else {
+            variant_str
+        };
 
-        let variant_str: String = ob.to_string();
-        let variant_str: &str = variant_str.as_str();
-        match variant_str {
+        match variant_str.as_str() {
             "i8" => Ok(DynType::I8),
             "i16" => Ok(DynType::I16),
             "i32" => Ok(DynType::I32),
@@ -148,8 +155,7 @@ impl<'py> pyo3::FromPyObject<'py> for DynType {
                 Ok(DynType::Option(Box::new(inner_type)))
             }
             _ => {
-                let inner_type: String = ob.getattr("element_type")?.extract::<String>()?;
-                Err(anyhow!("Not yet implemented type: {}", inner_type).into())
+                Err(anyhow!("Not yet implemented type: {}", variant_str).into())
             }
         }
     }
