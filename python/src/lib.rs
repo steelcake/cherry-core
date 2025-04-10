@@ -37,6 +37,7 @@ fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(u256_column_to_binary, m)?)?;
     m.add_function(wrap_pyfunction!(u256_to_binary, m)?)?;
     m.add_function(wrap_pyfunction!(svm_decode_instructions, m)?)?;
+    m.add_function(wrap_pyfunction!(instruction_signature_to_arrow_schema, m)?)?;
     m.add_function(wrap_pyfunction!(evm_decode_call_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(evm_decode_call_outputs, m)?)?;
     m.add_function(wrap_pyfunction!(evm_decode_events, m)?)?;
@@ -373,6 +374,18 @@ fn svm_decode_instructions(
     .context("decode instruction batch")?;
 
     Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
+}
+
+#[pyfunction]
+fn instruction_signature_to_arrow_schema(
+    signature: &Bound<'_, PyAny>,
+    py: Python<'_>,
+) -> PyResult<PyObject> {
+    let signature = signature.extract::<InstructionSignature>()?;
+    let schema = baselib::svm_decode::instruction_signature_to_arrow_schema(&signature)
+        .context("signature to schema")?;
+
+    Ok(schema.to_pyarrow(py).context("map result back to pyarrow")?)
 }
 
 #[pyfunction]
