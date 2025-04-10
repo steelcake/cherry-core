@@ -385,7 +385,9 @@ fn instruction_signature_to_arrow_schema(
     let schema = baselib::svm_decode::instruction_signature_to_arrow_schema(&signature)
         .context("signature to schema")?;
 
-    Ok(schema.to_pyarrow(py).context("map result back to pyarrow")?)
+    Ok(schema
+        .to_pyarrow(py)
+        .context("map result back to pyarrow")?)
 }
 
 #[pyfunction]

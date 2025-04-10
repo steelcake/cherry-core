@@ -180,13 +180,15 @@ fn extract_base58(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyResult<Vec<u8>> 
     Ok(out)
 }
 
-pub fn instruction_signature_to_arrow_schema(
-    signature: &InstructionSignature,
-) -> Result<Schema> {
+pub fn instruction_signature_to_arrow_schema(signature: &InstructionSignature) -> Result<Schema> {
     let mut fields = Vec::new();
 
     for param in &signature.params {
-        let field = Field::new(param.name.clone(), to_arrow_dtype(&param.param_type).unwrap(), true);
+        let field = Field::new(
+            param.name.clone(),
+            to_arrow_dtype(&param.param_type).unwrap(),
+            true,
+        );
         fields.push(field);
     }
 
@@ -610,7 +612,7 @@ mod tests {
         let amount_field = schema.field_with_name("amount").unwrap();
         assert_eq!(amount_field.name(), "amount");
         assert!(amount_field.is_nullable());
-        
+
         let is_valid_field = schema.field_with_name("is_valid").unwrap();
         assert_eq!(is_valid_field.name(), "is_valid");
         assert!(is_valid_field.is_nullable());
