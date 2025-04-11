@@ -19,15 +19,24 @@ async def run(provider: ingest.ProviderConfig, query: ingest.Query):
 query = ingest.Query(
     kind=ingest.QueryKind.SVM,
     params=ingest.svm.Query(
-        from_block=317617480,
-        to_block=317617500,
+        from_block=332557468,
+        to_block=332557469,
         include_all_blocks=True,
         fields=ingest.svm.Fields(
             block=ingest.svm.BlockFields(
                 slot=True,
                 hash=True,
-            )
+            ),
+            instruction=ingest.svm.InstructionFields(
+                program_id=True,
+                data=True,
+            ),
         ),
+        instructions=[
+            ingest.svm.InstructionRequest(
+                program_id=["11111111111111111111111111111111"],
+            )
+        ],
     ),
 )
 

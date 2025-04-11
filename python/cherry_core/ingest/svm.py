@@ -149,7 +149,7 @@ class InstructionRequest:
     include_transactions: bool = False
     include_transaction_token_balances: bool = False
     include_logs: bool = False
-    include_transaction_instructions: bool = False
+    include_inner_instructions: bool = False
     include_blocks: bool = True
 
 
