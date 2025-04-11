@@ -157,6 +157,13 @@ pub fn decode_instructions(
 
 pub fn match_discriminators(instr_data: &[u8], discriminator: &[u8]) -> Result<Vec<u8>> {
     let discriminator_len = discriminator.len();
+    if instr_data.len() < discriminator_len {
+        return Err(anyhow::anyhow!(
+            "Instruction data is too short to contain discriminator. Expected at least {} bytes, got {} bytes",
+            discriminator_len,
+            instr_data.len()
+        ));
+    }
     let disc = &instr_data[..discriminator_len].to_vec();
     let ix_data = &instr_data[discriminator_len..];
     if !disc.eq(discriminator) {
