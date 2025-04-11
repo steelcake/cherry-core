@@ -180,6 +180,26 @@ fn extract_base58(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyResult<Vec<u8>> 
     Ok(out)
 }
 
+pub fn instruction_signature_to_arrow_schema(signature: &InstructionSignature) -> Result<Schema> {
+    let mut fields = Vec::new();
+
+    for param in &signature.params {
+        let field = Field::new(
+            param.name.clone(),
+            to_arrow_dtype(&param.param_type).unwrap(),
+            true,
+        );
+        fields.push(field);
+    }
+
+    for account in &signature.accounts_names {
+        let field = Field::new(account.clone(), DataType::Binary, true);
+        fields.push(field);
+    }
+
+    Ok(Schema::new(fields))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,5 +577,59 @@ mod tests {
             parquet::arrow::ArrowWriter::try_new(&mut file, result.schema(), None).unwrap();
         writer.write(&result).unwrap();
         writer.close().unwrap();
+    }
+
+    #[test]
+    // #[ignore]
+    fn test_instruction_signature_to_arrow_schema() {
+        // Create a test instruction signature
+        let signature = InstructionSignature {
+            discriminator: vec![],
+            params: vec![
+                ParamInput {
+                    name: "amount".to_string(),
+                    param_type: DynType::U64,
+                },
+                ParamInput {
+                    name: "is_valid".to_string(),
+                    param_type: DynType::Bool,
+                },
+                ParamInput {
+                    name: "amm".to_string(),
+                    param_type: DynType::FixedArray(Box::new(DynType::U8), 32),
+                },
+            ],
+            accounts_names: vec!["source".to_string(), "destination".to_string()],
+        };
+
+        // Convert to schema
+        let schema = instruction_signature_to_arrow_schema(&signature).unwrap();
+
+        // Verify the schema has the correct number of fields
+        assert_eq!(schema.fields().len(), 5); // 2 params + 2 accounts
+
+        // Verify param fields
+        let amount_field = schema.field_with_name("amount").unwrap();
+        assert_eq!(amount_field.name(), "amount");
+        assert!(amount_field.is_nullable());
+
+        let is_valid_field = schema.field_with_name("is_valid").unwrap();
+        assert_eq!(is_valid_field.name(), "is_valid");
+        assert!(is_valid_field.is_nullable());
+
+        let amm_field = schema.field_with_name("amm").unwrap();
+        assert_eq!(amm_field.name(), "amm");
+        assert!(amm_field.is_nullable());
+
+        // Verify account fields
+        let source_field = schema.field_with_name("source").unwrap();
+        assert_eq!(source_field.name(), "source");
+        assert_eq!(source_field.data_type(), &DataType::Binary);
+        assert!(source_field.is_nullable());
+
+        let dest_field = schema.field_with_name("destination").unwrap();
+        assert_eq!(dest_field.name(), "destination");
+        assert_eq!(dest_field.data_type(), &DataType::Binary);
+        assert!(dest_field.is_nullable());
     }
 }
