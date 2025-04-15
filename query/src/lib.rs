@@ -446,15 +446,14 @@ pub fn select_fields(
             .get(table_name)
             .with_context(|| format!("get data for table {}", table_name))?;
 
-        let indices = field_names
+        let indices = table_data
+            .schema_ref()
+            .fields()
             .iter()
-            .map(|n| {
-                table_data
-                    .schema_ref()
-                    .index_of(n)
-                    .with_context(|| format!("find index of field {} in table {}", n, table_name))
-            })
-            .collect::<Result<Vec<usize>>>()?;
+            .enumerate()
+            .filter(|(_, field)| field_names.contains(field.name()))
+            .map(|(i, _)| i)
+            .collect::<Vec<usize>>();
 
         let table_data = table_data
             .project(&indices)
