@@ -1,6 +1,5 @@
 from typing import List, Optional, Union, TypeAlias, Literal
 from dataclasses import dataclass
-from enum import Enum as PyEnum
 
 PrimitiveType: TypeAlias = Literal["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "bool"]
 ElementType: TypeAlias = Union[PrimitiveType, 'DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']
