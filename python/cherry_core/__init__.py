@@ -80,17 +80,20 @@ def u256_column_to_binary(col: pyarrow.Array) -> pyarrow.Array:
 def u256_to_binary(data: pyarrow.RecordBatch) -> pyarrow.RecordBatch:
     return cc.u256_to_binary(data)
 
+
 def svm_decode_instructions(
     signature: svm_decode.InstructionSignature,
     batch: pyarrow.RecordBatch,
-    allow_decode_fail: bool = False
+    allow_decode_fail: bool = False,
 ) -> pyarrow.RecordBatch:
     return cc.svm_decode_instructions(signature, batch, allow_decode_fail)
+
 
 def instruction_signature_to_arrow_schema(
     signature: svm_decode.InstructionSignature,
 ) -> pyarrow.Schema:
     return cc.instruction_signature_to_arrow_schema(signature)
+
 
 def evm_decode_call_inputs(
     signature: str, data: pyarrow.Array, allow_decode_fail: bool = False

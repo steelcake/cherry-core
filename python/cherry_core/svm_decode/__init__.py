@@ -1,50 +1,64 @@
 from typing import List, Optional, Union, TypeAlias, Literal
 from dataclasses import dataclass
 
-PrimitiveType: TypeAlias = Literal["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "bool"]
-ElementType: TypeAlias = Union[PrimitiveType, 'DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']
+PrimitiveType: TypeAlias = Literal[
+    "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "bool"
+]
+ElementType: TypeAlias = Union[
+    PrimitiveType, "DynType", "FixedArray", "Array", "Struct", "Enum", "Option"
+]
+
 
 @dataclass
 class FixedArray:
     element_type: ElementType
     size: int
 
+
 @dataclass
 class Array:
     element_type: ElementType
+
 
 @dataclass
 class Field:
     name: str
     element_type: ElementType
 
+
 @dataclass
 class Struct:
     fields: List[Field]
+
 
 @dataclass
 class Variant:
     name: str
     element_type: Optional[ElementType]
 
+
 @dataclass
 class Enum:
     variants: List[Variant]
 
+
 @dataclass
 class Option:
     element_type: ElementType
-   
+
+
 @dataclass
 class ParamInput:
     name: str
     param_type: ElementType
+
 
 @dataclass
 class InstructionSignature:
     discriminator: str
     params: List[ParamInput]
     accounts_names: List[str]
+
 
 class DynType:
     I8: PrimitiveType = "i8"
