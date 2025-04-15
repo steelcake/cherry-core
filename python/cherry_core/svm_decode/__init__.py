@@ -1,8 +1,9 @@
-from typing import List, Optional, Union, TypeAlias
+from typing import List, Optional, Union, TypeAlias, Literal
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum as PyEnum
 
-ElementType: TypeAlias = Union['DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']
+PrimitiveType: TypeAlias = Literal["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "bool"]
+ElementType: TypeAlias = Union[PrimitiveType, 'DynType', 'FixedArray', 'Array', 'Struct', 'Enum', 'Option']
 
 @dataclass
 class FixedArray:
@@ -42,22 +43,22 @@ class ParamInput:
 
 @dataclass
 class InstructionSignature:
-    discriminator: bytes
+    discriminator: str
     params: List[ParamInput]
     accounts_names: List[str]
 
 class DynType:
-    I8 = "i8"
-    I16 = "i16"
-    I32 = "i32"
-    I64 = "i64"
-    I128 = "i128"
-    U8 = "u8"
-    U16 = "u16"
-    U32 = "u32"
-    U64 = "u64"
-    U128 = "u128"
-    Bool = "bool"
+    I8: PrimitiveType = "i8"
+    I16: PrimitiveType = "i16"
+    I32: PrimitiveType = "i32"
+    I64: PrimitiveType = "i64"
+    I128: PrimitiveType = "i128"
+    U8: PrimitiveType = "u8"
+    U16: PrimitiveType = "u16"
+    U32: PrimitiveType = "u32"
+    U64: PrimitiveType = "u64"
+    U128: PrimitiveType = "u128"
+    Bool: PrimitiveType = "bool"
     FixedArray = FixedArray
     Array = Array
     Struct = Struct

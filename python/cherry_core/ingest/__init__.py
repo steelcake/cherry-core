@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import pyarrow
 from enum import Enum
 from . import evm, svm
-from .. import cc
+import cherry_core.cherry_core as cc
 
 
 class ProviderKind(str, Enum):
