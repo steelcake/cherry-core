@@ -121,7 +121,7 @@ pub fn base58_encode(data: &RecordBatch) -> Result<RecordBatch> {
     let mut columns = Vec::<Arc<dyn Array>>::with_capacity(data.columns().len());
 
     for col in data.columns().iter() {
-        if col.data_type() == &DataType::Binary || col.data_type() == &DataType::LargeBinary {
+        if col.data_type() == &DataType::Binary {
             columns.push(Arc::new(base58_encode_column(
                 col.as_any().downcast_ref::<BinaryArray>().unwrap(),
             )));
@@ -157,7 +157,7 @@ pub fn hex_encode<const PREFIXED: bool>(data: &RecordBatch) -> Result<RecordBatc
     let mut columns = Vec::<Arc<dyn Array>>::with_capacity(data.columns().len());
 
     for col in data.columns().iter() {
-        if col.data_type() == &DataType::Binary || col.data_type() == &DataType::LargeBinary {
+        if col.data_type() == &DataType::Binary {
             columns.push(Arc::new(hex_encode_column::<PREFIXED>(
                 col.as_any().downcast_ref::<BinaryArray>().unwrap(),
             )));
@@ -200,7 +200,7 @@ pub fn schema_binary_to_string(schema: &Schema) -> Schema {
     let mut fields = Vec::<Arc<Field>>::with_capacity(schema.fields().len());
 
     for f in schema.fields().iter() {
-        if f.data_type() == &DataType::Binary || f.data_type() == &DataType::LargeBinary {
+        if f.data_type() == &DataType::Binary {
             fields.push(Arc::new(Field::new(
                 f.name().clone(),
                 DataType::Utf8,
