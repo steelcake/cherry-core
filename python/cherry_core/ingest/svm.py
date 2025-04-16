@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -130,11 +130,12 @@ class Fields:
 @dataclass
 class InstructionRequest:
     program_id: list[str] = field(default_factory=list)
-    d1: list[str] = field(default_factory=list)
-    d2: list[str] = field(default_factory=list)
-    d3: list[str] = field(default_factory=list)
-    d4: list[str] = field(default_factory=list)
-    d8: list[str] = field(default_factory=list)
+    data: list[Union[bytes, str]] = field(default_factory=list)
+    d1: list[Union[bytes, str]] = field(default_factory=list)
+    d2: list[Union[bytes, str]] = field(default_factory=list)
+    d3: list[Union[bytes, str]] = field(default_factory=list)
+    d4: list[Union[bytes, str]] = field(default_factory=list)
+    d8: list[Union[bytes, str]] = field(default_factory=list)
     a0: list[str] = field(default_factory=list)
     a1: list[str] = field(default_factory=list)
     a2: list[str] = field(default_factory=list)

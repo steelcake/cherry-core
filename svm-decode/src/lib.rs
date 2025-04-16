@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use arrow::array::{Array, BinaryArray};
 use arrow::{array::RecordBatch, datatypes::*};
 use std::sync::Arc;
@@ -18,9 +18,20 @@ pub struct InstructionSignature {
 impl<'py> pyo3::FromPyObject<'py> for InstructionSignature {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
         use pyo3::types::PyAnyMethods;
+        use pyo3::types::PyTypeMethods;
 
-        let discriminator = ob.getattr("discriminator")?;
-        let discriminator = extract_base58(&discriminator)?;
+        let discriminator_ob = ob.getattr("discriminator")?;
+
+        let discriminator_ob_type: String = discriminator_ob.get_type().name()?.to_string();
+        let discriminator = match discriminator_ob_type.as_str() {
+            "str" => {
+                let s: &str = discriminator_ob.extract()?;
+                hex_to_bytes(s).context("failed to decode hex")?
+            }
+            "bytes" => discriminator_ob.extract()?,
+            _ => return Err(anyhow!("unknown type: {}", discriminator_ob_type).into()),
+        };
+
         let params = ob.getattr("params")?.extract::<Vec<ParamInput>>()?;
         let accounts_names = ob.getattr("accounts_names")?.extract::<Vec<String>>()?;
 
@@ -30,6 +41,24 @@ impl<'py> pyo3::FromPyObject<'py> for InstructionSignature {
             accounts_names,
         })
     }
+}
+
+fn hex_to_bytes(hex_string: &str) -> Result<Vec<u8>> {
+    let hex_string = hex_string.strip_prefix("0x").unwrap_or(hex_string);
+    let hex_string = if hex_string.len() % 2 == 1 {
+        format!("0{}", hex_string)
+    } else {
+        hex_string.to_string()
+    };
+    let out = (0..hex_string.len())
+        .step_by(2)
+        .map(|i| {
+            u8::from_str_radix(&hex_string[i..i + 2], 16)
+                .context("failed to parse hexstring to bytes")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(out)
 }
 
 pub fn svm_decode_instructions(
@@ -172,19 +201,6 @@ pub fn match_discriminators(instr_data: &[u8], discriminator: &[u8]) -> Result<V
         ));
     }
     Ok(ix_data.to_vec())
-}
-
-#[cfg(feature = "pyo3")]
-fn extract_base58(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyResult<Vec<u8>> {
-    use pyo3::types::PyAnyMethods;
-
-    let s: &str = ob.extract()?;
-    let out = bs58::decode(s)
-        .with_alphabet(bs58::Alphabet::BITCOIN)
-        .into_vec()
-        .context("bs58 decode")?;
-
-    Ok(out)
 }
 
 pub fn instruction_signature_to_arrow_schema(signature: &InstructionSignature) -> Result<Schema> {
