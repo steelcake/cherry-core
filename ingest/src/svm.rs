@@ -50,6 +50,49 @@ fn extract_base58<const N: usize>(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::Py
 }
 
 #[cfg(feature = "pyo3")]
+fn extract_data<const N: usize>(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyResult<[u8; N]> {
+    use pyo3::types::PyAnyMethods;
+    use pyo3::types::PyTypeMethods;
+
+    let ob_type: String = ob.get_type().name()?.to_string();
+    match ob_type.as_str() {
+        "str" => {
+            let s: &str = ob.extract()?;
+            let out = hex_to_bytes(s).context("failed to decode hex")?;
+            if out.len() != N {
+                return Err(anyhow!("expected length {}, got {}", N, out.len()).into());
+            }
+            let out: [u8; N] = out.try_into().map_err(|e| anyhow!("failed to convert to array: {:?}", e))?;
+            Ok(out)
+        }
+        "bytes" => {
+            let out: Vec<u8> = ob.extract()?;
+            if out.len() != N {
+                return Err(anyhow!("expected length {}, got {}", N, out.len()).into());
+            }
+            let out: [u8; N] = out.try_into().map_err(|e| anyhow!("failed to convert to array: {:?}", e))?;
+            Ok(out)
+        }
+        _ => Err(anyhow!("unknown type: {}", ob_type).into()),
+    }
+}
+
+fn hex_to_bytes(hex_string: &str) -> Result<Vec<u8>> {
+    let hex_string = hex_string.strip_prefix("0x").unwrap_or(hex_string);
+    let hex_string = if hex_string.len() % 2 == 1 {
+        format!("0{}", hex_string)
+    } else {
+        hex_string.to_string()
+    };
+    let out = (0..hex_string.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex_string[i..i + 2], 16).context("failed to parse hexstring to bytes"))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(out)
+}
+
+#[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for Address {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
         let out = extract_base58(ob)?;
@@ -60,7 +103,7 @@ impl<'py> pyo3::FromPyObject<'py> for Address {
 #[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for D1 {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-        let out = extract_base58(ob)?;
+        let out = extract_data(ob)?;
         Ok(Self(out))
     }
 }
@@ -68,7 +111,7 @@ impl<'py> pyo3::FromPyObject<'py> for D1 {
 #[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for D2 {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-        let out = extract_base58(ob)?;
+        let out = extract_data(ob)?;
         Ok(Self(out))
     }
 }
@@ -76,7 +119,7 @@ impl<'py> pyo3::FromPyObject<'py> for D2 {
 #[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for D3 {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-        let out = extract_base58(ob)?;
+        let out = extract_data(ob)?;
         Ok(Self(out))
     }
 }
@@ -84,7 +127,7 @@ impl<'py> pyo3::FromPyObject<'py> for D3 {
 #[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for D4 {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-        let out = extract_base58(ob)?;
+        let out = extract_data(ob)?;
         Ok(Self(out))
     }
 }
@@ -92,7 +135,7 @@ impl<'py> pyo3::FromPyObject<'py> for D4 {
 #[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for D8 {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-        let out = extract_base58(ob)?;
+        let out = extract_data(ob)?;
         Ok(Self(out))
     }
 }
