@@ -62,7 +62,9 @@ fn extract_data<const N: usize>(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyRe
             if out.len() != N {
                 return Err(anyhow!("expected length {}, got {}", N, out.len()).into());
             }
-            let out: [u8; N] = out.try_into().map_err(|e| anyhow!("failed to convert to array: {:?}", e))?;
+            let out: [u8; N] = out
+                .try_into()
+                .map_err(|e| anyhow!("failed to convert to array: {:?}", e))?;
             Ok(out)
         }
         "bytes" => {
@@ -70,7 +72,9 @@ fn extract_data<const N: usize>(ob: &pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyRe
             if out.len() != N {
                 return Err(anyhow!("expected length {}, got {}", N, out.len()).into());
             }
-            let out: [u8; N] = out.try_into().map_err(|e| anyhow!("failed to convert to array: {:?}", e))?;
+            let out: [u8; N] = out
+                .try_into()
+                .map_err(|e| anyhow!("failed to convert to array: {:?}", e))?;
             Ok(out)
         }
         _ => Err(anyhow!("unknown type: {}", ob_type).into()),
@@ -86,7 +90,10 @@ fn hex_to_bytes(hex_string: &str) -> Result<Vec<u8>> {
     };
     let out = (0..hex_string.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&hex_string[i..i + 2], 16).context("failed to parse hexstring to bytes"))
+        .map(|i| {
+            u8::from_str_radix(&hex_string[i..i + 2], 16)
+                .context("failed to parse hexstring to bytes")
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(out)

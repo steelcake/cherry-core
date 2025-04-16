@@ -55,7 +55,7 @@ class ParamInput:
 
 @dataclass
 class InstructionSignature:
-    discriminator: str
+    discriminator: Union[bytes, str]
     params: List[ParamInput]
     accounts_names: List[str]
 
