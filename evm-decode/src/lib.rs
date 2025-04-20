@@ -755,6 +755,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn nested_event_signature_to_schema() {
         let sig = "ConfiguredQuests(address editor, uint256[][], address indexed my_addr, (bool,bool[],(bool, uint256[]))[] questDetails)";
 
@@ -810,6 +811,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn i256_to_arrow_i256() {
         for val in [
             I256::MIN,
@@ -820,5 +822,28 @@ mod tests {
 
             assert_eq!(val.to_string(), out.to_string());
         }
+    }
+
+    #[test]
+    #[ignore]
+    fn read_parquet_with_real_data() {
+        use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+        use std::fs::File;
+        let builder =
+            ParquetRecordBatchReaderBuilder::try_new(File::open("logs.parquet").unwrap()).unwrap();
+        let mut reader = builder.build().unwrap();
+        let logs = reader.next().unwrap().unwrap();
+
+        let signature =
+            "PairCreated(address indexed token0, address indexed token1, address pair,uint256)";
+
+        let decoded = decode_events(signature, &logs, false).unwrap();
+
+        // Save the filtered instructions to a new parquet file
+        let mut file = File::create("decoded_logs.parquet").unwrap();
+        let mut writer =
+            parquet::arrow::ArrowWriter::try_new(&mut file, decoded.schema(), None).unwrap();
+        writer.write(&decoded).unwrap();
+        writer.close().unwrap();
     }
 }

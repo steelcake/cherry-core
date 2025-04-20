@@ -17,3 +17,5 @@ ruint = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace =  true }
 
+[dev-dependencies]
+parquet = "54"
