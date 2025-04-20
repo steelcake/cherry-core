@@ -22,12 +22,12 @@ pub fn to_arrow(param_type: &DynType, values: Vec<Option<DynValue>>) -> Result<A
         DynType::I16 => to_number::<Int16Type>(&values),
         DynType::I32 => to_number::<Int32Type>(&values),
         DynType::I64 => to_number::<Int64Type>(&values),
-        DynType::I128 => to_number::<Decimal128Type>(&values),
+        DynType::I128 => to_decimal128(&values),
         DynType::U8 => to_number::<UInt8Type>(&values),
         DynType::U16 => to_number::<UInt16Type>(&values),
         DynType::U32 => to_number::<UInt32Type>(&values),
         DynType::U64 => to_number::<UInt64Type>(&values),
-        DynType::U128 => to_number::<Decimal128Type>(&values),
+        DynType::U128 => to_decimal128(&values),
         DynType::Bool => to_bool(&values),
         DynType::FixedArray(inner_type, size) => to_fixed_array(&values, inner_type, *size),
         DynType::Array(inner_type) => to_list(inner_type, values),
@@ -51,12 +51,12 @@ pub fn to_arrow_dtype(param_type: &DynType) -> Result<DataType> {
         DynType::I16 => Ok(DataType::Int16),
         DynType::I32 => Ok(DataType::Int32),
         DynType::I64 => Ok(DataType::Int64),
-        DynType::I128 => Ok(DataType::Decimal128(128, 0)),
+        DynType::I128 => Ok(DataType::Decimal128(38, 0)),
         DynType::U8 => Ok(DataType::UInt8),
         DynType::U16 => Ok(DataType::UInt16),
         DynType::U32 => Ok(DataType::UInt32),
         DynType::U64 => Ok(DataType::UInt64),
-        DynType::U128 => Ok(DataType::Decimal128(128, 0)),
+        DynType::U128 => Ok(DataType::Decimal128(38, 0)),
         DynType::Bool => Ok(DataType::Boolean),
         DynType::FixedArray(inner_type, size) => {
             if **inner_type == DynType::U8 {
@@ -145,7 +145,6 @@ fn to_option(inner_type: &DynType, values: Vec<Option<DynValue>>) -> Result<Arc<
 /// * `T` - The Arrow primitive type to convert to
 ///
 /// # Arguments
-/// * `num_bits` - The expected bit width of the values
 /// * `values` - Slice of optional dynamic values to convert
 ///
 /// # Returns
@@ -210,6 +209,40 @@ where
                 _ => {
                     return Err(anyhow!(
                         "Unexpected value type for number conversion: {:?}",
+                        v
+                    ))
+                }
+            },
+            None => builder.append_null(),
+        }
+    }
+
+    Ok(Arc::new(builder.finish()))
+}
+
+/// Converts a vector of numeric values of type i128 or u128 into an Arrow array with precision 38 and scale 0.
+///
+/// # Type Parameters
+/// * `T` - The Arrow primitive type to convert to
+///
+/// # Arguments
+/// * `values` - Slice of optional dynamic values to convert
+///
+/// # Returns
+/// * `Result<Arc<dyn Array>>` - The converted Arrow array
+fn to_decimal128(values: &[Option<DynValue>]) -> Result<Arc<dyn Array>> {
+    let mut builder = builder::PrimitiveBuilder::<Decimal128Type>::with_capacity(values.len())
+        .with_precision_and_scale(38, 0)
+        .map_err(|_| anyhow!("Failed to configure Decimal128 builder"))?;
+
+    for v in values.iter() {
+        match v {
+            Some(v) => match v {
+                DynValue::I128(v) => builder.append_value(*v),
+                DynValue::U128(v) => builder.append_value(*v as i128),
+                _ => {
+                    return Err(anyhow!(
+                        "Unexpected value type for decimal conversion: {:?}",
                         v
                     ))
                 }

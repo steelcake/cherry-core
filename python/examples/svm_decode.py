@@ -1,9 +1,13 @@
 import pyarrow as pa
 import pyarrow.parquet as pq
-import os
-from typing import List
 from pathlib import Path
-from cherry_core.svm_decode import *
+from cherry_core.svm_decode import (
+    InstructionSignature,
+    ParamInput,
+    DynType,
+    Field,
+    Variant,
+)
 from cherry_core import svm_decode_instructions
 
 # Define input and output file paths
