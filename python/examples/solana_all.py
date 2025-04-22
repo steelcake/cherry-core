@@ -21,7 +21,7 @@ async def run(provider: ingest.ProviderConfig, query: ingest.Query):
 
 
 start_block = 317617480
-end_block =   317617580
+end_block = 317617580
 url = "https://portal.sqd.dev/datasets/solana-mainnet"
 
 query = ingest.Query(
@@ -130,26 +130,13 @@ query = ingest.Query(
                 reward_type=True,
                 commission=True,
             ),
-
         ),
-        instructions=[
-            ingest.svm.InstructionRequest()
-        ],
-        transactions=[
-            ingest.svm.TransactionRequest()
-        ],
-        logs=[
-            ingest.svm.LogRequest()
-        ],
-        balances=[
-            ingest.svm.BalanceRequest()
-        ],
-        token_balances=[
-            ingest.svm.TokenBalanceRequest()
-        ],
-        rewards=[
-            ingest.svm.RewardRequest()
-        ],
+        instructions=[ingest.svm.InstructionRequest()],
+        transactions=[ingest.svm.TransactionRequest()],
+        logs=[ingest.svm.LogRequest()],
+        balances=[ingest.svm.BalanceRequest()],
+        token_balances=[ingest.svm.TokenBalanceRequest()],
+        rewards=[ingest.svm.RewardRequest()],
     ),
 )
 

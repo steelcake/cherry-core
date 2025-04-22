@@ -29,7 +29,6 @@ try:
     # For SPL Token Transfer
 
     signature = InstructionSignature(
-        # discriminator=bytes([229, 23, 203, 151, 122, 227, 173, 42]),
         discriminator="e517cb977ae3ad2a",
         params=[
             ParamInput(

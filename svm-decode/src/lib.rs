@@ -67,6 +67,17 @@ fn hex_to_bytes(hex_string: &str) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+#[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for LogSignature {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        use pyo3::types::PyAnyMethods;
+
+        let params = ob.getattr("params")?.extract::<Vec<ParamInput>>()?;
+
+        Ok(LogSignature { params })
+    }
+}
+
 pub fn svm_decode_instructions(
     signature: InstructionSignature,
     batch: &RecordBatch,
@@ -104,7 +115,10 @@ pub fn decode_instructions(
                 decoded_params_vec.iter_mut().for_each(|v| v.push(None));
                 continue;
             } else {
-                return Err(anyhow::anyhow!("Instruction data is null in row {}", row_idx));
+                return Err(anyhow::anyhow!(
+                    "Instruction data is null in row {}",
+                    row_idx
+                ));
             }
         }
 
@@ -118,7 +132,11 @@ pub fn decode_instructions(
                 continue;
             }
             Err(e) => {
-                return Err(anyhow::anyhow!("Error matching discriminators in row {}: {:?}", row_idx, e));
+                return Err(anyhow::anyhow!(
+                    "Error matching discriminators in row {}: {:?}",
+                    row_idx,
+                    e
+                ));
             }
         };
 
@@ -126,12 +144,20 @@ pub fn decode_instructions(
         let decoded_ix = match decoded_ix_result {
             Ok(ix) => ix,
             Err(e) if allow_decode_fail => {
-                log::debug!("Error deserializing instruction in row {}: {:?}", row_idx, e);
+                log::debug!(
+                    "Error deserializing instruction in row {}: {:?}",
+                    row_idx,
+                    e
+                );
                 decoded_params_vec.iter_mut().for_each(|v| v.push(None));
                 continue;
             }
             Err(e) => {
-                return Err(anyhow::anyhow!("Error deserializing instruction in row {}: {:?}", row_idx, e));
+                return Err(anyhow::anyhow!(
+                    "Error deserializing instruction in row {}: {:?}",
+                    row_idx,
+                    e
+                ));
             }
         };
 
@@ -227,12 +253,20 @@ pub fn decode_logs(
         let log_data = match log_data {
             Ok(log_data) => log_data,
             Err(e) if allow_decode_fail => {
-                log::debug!("Error base 64 decoding log data in row {}: {:?}", row_idx, e);
+                log::debug!(
+                    "Error base 64 decoding log data in row {}: {:?}",
+                    row_idx,
+                    e
+                );
                 decoded_params_vec.iter_mut().for_each(|v| v.push(None));
                 continue;
             }
             Err(e) => {
-                return Err(anyhow::anyhow!("Error base 64 decoding log data in row {}: {:?}", row_idx, e));
+                return Err(anyhow::anyhow!(
+                    "Error base 64 decoding log data in row {}: {:?}",
+                    row_idx,
+                    e
+                ));
             }
         };
 
@@ -245,7 +279,11 @@ pub fn decode_logs(
                 continue;
             }
             Err(e) => {
-                return Err(anyhow::anyhow!("Error deserializing log in row {}: {:?}", row_idx, e));
+                return Err(anyhow::anyhow!(
+                    "Error deserializing log in row {}: {:?}",
+                    row_idx,
+                    e
+                ));
             }
         };
 
