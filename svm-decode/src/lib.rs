@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{Array, BinaryArray};
+use arrow::array::{Array, BinaryArray, StringArray};
 use arrow::{array::RecordBatch, datatypes::*};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::sync::Arc;
 mod deserialize;
 pub use deserialize::{deserialize_data, DynType, DynValue, ParamInput};
@@ -12,6 +13,11 @@ pub struct InstructionSignature {
     pub discriminator: Vec<u8>,
     pub params: Vec<ParamInput>,
     pub accounts_names: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LogSignature {
+    pub params: Vec<ParamInput>,
 }
 
 #[cfg(feature = "pyo3")]
@@ -94,11 +100,11 @@ pub fn decode_instructions(
     for row_idx in 0..data.len() {
         if data.is_null(row_idx) {
             if allow_decode_fail {
-                log::debug!("Instruction data is null");
+                log::debug!("Instruction data is null in row {}", row_idx);
                 decoded_params_vec.iter_mut().for_each(|v| v.push(None));
                 continue;
             } else {
-                return Err(anyhow::anyhow!("Instruction data is null"));
+                return Err(anyhow::anyhow!("Instruction data is null in row {}", row_idx));
             }
         }
 
@@ -107,12 +113,12 @@ pub fn decode_instructions(
         let data = match data_result {
             Ok(data) => data,
             Err(e) if allow_decode_fail => {
-                log::debug!("Error matching discriminators: {:?}", e);
+                log::debug!("Error matching discriminators in row {}: {:?}", row_idx, e);
                 decoded_params_vec.iter_mut().for_each(|v| v.push(None));
                 continue;
             }
             Err(e) => {
-                return Err(anyhow::anyhow!("Error matching discriminators: {:?}", e));
+                return Err(anyhow::anyhow!("Error matching discriminators in row {}: {:?}", row_idx, e));
             }
         };
 
@@ -120,12 +126,12 @@ pub fn decode_instructions(
         let decoded_ix = match decoded_ix_result {
             Ok(ix) => ix,
             Err(e) if allow_decode_fail => {
-                log::debug!("Error deserializing instruction: {:?}", e);
+                log::debug!("Error deserializing instruction in row {}: {:?}", row_idx, e);
                 decoded_params_vec.iter_mut().for_each(|v| v.push(None));
                 continue;
             }
             Err(e) => {
-                return Err(anyhow::anyhow!("Error deserializing instruction: {:?}", e));
+                return Err(anyhow::anyhow!("Error deserializing instruction in row {}: {:?}", row_idx, e));
             }
         };
 
@@ -184,6 +190,90 @@ pub fn decode_instructions(
     Ok(batch)
 }
 
+pub fn svm_decode_logs(
+    signature: LogSignature,
+    batch: &RecordBatch,
+    allow_decode_fail: bool,
+) -> Result<RecordBatch> {
+    let message_col = batch.column_by_name("message").unwrap();
+    let data = message_col.as_any().downcast_ref::<StringArray>().unwrap();
+
+    decode_logs(signature, data, allow_decode_fail)
+}
+
+pub fn decode_logs(
+    signature: LogSignature,
+    data: &StringArray,
+    allow_decode_fail: bool,
+) -> Result<RecordBatch> {
+    let num_params = signature.params.len();
+
+    let mut decoded_params_vec: Vec<Vec<Option<DynValue>>> =
+        (0..num_params).map(|_| Vec::new()).collect();
+
+    for row_idx in 0..data.len() {
+        if data.is_null(row_idx) {
+            if allow_decode_fail {
+                log::debug!("Log data is null in row {}", row_idx);
+                decoded_params_vec.iter_mut().for_each(|v| v.push(None));
+                continue;
+            } else {
+                return Err(anyhow::anyhow!("Log data is null in row {}", row_idx));
+            }
+        }
+
+        let log_data = data.value(row_idx);
+        let log_data = STANDARD.decode(log_data);
+        let log_data = match log_data {
+            Ok(log_data) => log_data,
+            Err(e) if allow_decode_fail => {
+                log::debug!("Error base 64 decoding log data in row {}: {:?}", row_idx, e);
+                decoded_params_vec.iter_mut().for_each(|v| v.push(None));
+                continue;
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Error base 64 decoding log data in row {}: {:?}", row_idx, e));
+            }
+        };
+
+        let decoded_log_result = deserialize_data(&log_data, &signature.params);
+        let decoded_log = match decoded_log_result {
+            Ok(log) => log,
+            Err(e) if allow_decode_fail => {
+                log::debug!("Error deserializing log in row {}: {:?}", row_idx, e);
+                decoded_params_vec.iter_mut().for_each(|v| v.push(None));
+                continue;
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Error deserializing log in row {}: {:?}", row_idx, e));
+            }
+        };
+
+        for (i, value) in decoded_log.into_iter().enumerate() {
+            decoded_params_vec[i].push(Some(value));
+        }
+    }
+
+    let data_arrays: Vec<Arc<dyn Array>> = decoded_params_vec
+        .iter()
+        .enumerate()
+        .map(|(i, v)| to_arrow(&signature.params[i].param_type, v.clone()).unwrap())
+        .collect::<Vec<_>>();
+
+    let data_fields = signature
+        .params
+        .iter()
+        .map(|p| Field::new(p.name.clone(), to_arrow_dtype(&p.param_type).unwrap(), true))
+        .collect::<Vec<_>>();
+
+    let schema = Arc::new(Schema::new(data_fields));
+    let batch = RecordBatch::try_new(schema, data_arrays)
+        .context("Failed to create record batch from data arrays")
+        .unwrap();
+
+    Ok(batch)
+}
+
 pub fn match_discriminators(instr_data: &[u8], discriminator: &[u8]) -> Result<Vec<u8>> {
     let discriminator_len = discriminator.len();
     if instr_data.len() < discriminator_len {
@@ -231,7 +321,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn read_parquet_with_real_data() {
+    fn test_instructions_with_real_data() {
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
         let builder = ParquetRecordBatchReaderBuilder::try_new(
@@ -603,7 +693,78 @@ mod tests {
     }
 
     #[test]
-    // #[ignore]
+    #[ignore]
+    fn test_decode_logs_with_real_data() {
+        use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+        let builder =
+            ParquetRecordBatchReaderBuilder::try_new(File::open("logs.parquet").unwrap()).unwrap();
+        let mut reader = builder.build().unwrap();
+        let logs = reader.next().unwrap().unwrap();
+
+        let signature = LogSignature {
+            params: vec![
+                ParamInput {
+                    name: "whirlpool".to_string(),
+                    param_type: DynType::FixedArray(Box::new(DynType::U8), 32),
+                },
+                ParamInput {
+                    name: "a_to_b".to_string(),
+                    param_type: DynType::Bool,
+                },
+                ParamInput {
+                    name: "pre_sqrt_price".to_string(),
+                    param_type: DynType::U128,
+                },
+                ParamInput {
+                    name: "post_sqrt_price".to_string(),
+                    param_type: DynType::U128,
+                },
+                ParamInput {
+                    name: "x".to_string(),
+                    param_type: DynType::U64,
+                },
+                ParamInput {
+                    name: "input_amount".to_string(),
+                    param_type: DynType::U64,
+                },
+                ParamInput {
+                    name: "output_amount".to_string(),
+                    param_type: DynType::U64,
+                },
+                ParamInput {
+                    name: "input_transfer_fee".to_string(),
+                    param_type: DynType::U64,
+                },
+                ParamInput {
+                    name: "output_transfer_fee".to_string(),
+                    param_type: DynType::U64,
+                },
+                ParamInput {
+                    name: "lp_fee".to_string(),
+                    param_type: DynType::U64,
+                },
+                ParamInput {
+                    name: "protocol_fee".to_string(),
+                    param_type: DynType::U64,
+                },
+            ],
+        };
+
+        let result = svm_decode_logs(signature, &logs, true)
+            .context("decode failed")
+            .unwrap();
+
+        // Save the filtered instructions to a new parquet file
+        let mut file = File::create("decoded_logs.parquet").unwrap();
+        let mut writer =
+            parquet::arrow::ArrowWriter::try_new(&mut file, result.schema(), None).unwrap();
+        writer.write(&result).unwrap();
+        writer.close().unwrap();
+    }
+
+    #[test]
+    #[ignore]
     fn test_instruction_signature_to_arrow_schema() {
         // Create a test instruction signature
         let signature = InstructionSignature {
