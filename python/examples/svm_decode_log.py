@@ -8,7 +8,6 @@ from cherry_core.svm_decode import (
 )
 from cherry_core import svm_decode_logs
 
-# Define input and output file paths
 current_dir = Path(__file__).parent
 input_file = current_dir / "logs.parquet"
 output_file = current_dir / "decoded_logs.parquet"
@@ -17,14 +16,9 @@ print(f"Reading input file: {input_file}")
 print(f"Will save output to: {output_file}")
 
 try:
-    # Read the input Parquet file
     table = pq.read_table(str(input_file))
 
-    # Convert to RecordBatch
     batch = table.to_batches()[0]
-
-    # Create the instruction signature using the new classes
-    # For SPL Token Transfer
 
     signature = LogSignature(
         params=[
@@ -75,14 +69,11 @@ try:
         ],
     )
 
-    # Decode the instruction batch
     print("Decoding instruction batch...")
     decoded_batch = svm_decode_logs(signature, batch, True)
 
-    # Convert RecordBatch to Table before writing
     decoded_table = pa.Table.from_batches([decoded_batch])
 
-    # Save the decoded result to a new Parquet file
     print("Saving decoded result...")
     pq.write_table(decoded_table, str(output_file))
 
