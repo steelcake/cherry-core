@@ -1,6 +1,6 @@
 [package]
 name = "cherry-svm-decode"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "SVM decoding implementations in Arrow format"
 homepage = "https://github.com/steelcake/cherry-core"
