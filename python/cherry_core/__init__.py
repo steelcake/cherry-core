@@ -89,6 +89,14 @@ def svm_decode_instructions(
     return cc.svm_decode_instructions(signature, batch, allow_decode_fail)
 
 
+def svm_decode_logs(
+    signature: svm_decode.LogSignature,
+    batch: pyarrow.RecordBatch,
+    allow_decode_fail: bool = False,
+) -> pyarrow.RecordBatch:
+    return cc.svm_decode_logs(signature, batch, allow_decode_fail)
+
+
 def instruction_signature_to_arrow_schema(
     signature: svm_decode.InstructionSignature,
 ) -> pyarrow.Schema:

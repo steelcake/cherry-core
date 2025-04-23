@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context};
 use arrow::array::{Array, ArrayData, BinaryArray, Decimal256Array, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Schema};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
-use baselib::svm_decode::InstructionSignature;
+use baselib::svm_decode::{InstructionSignature, LogSignature};
 use pyo3::prelude::*;
 
 mod ingest;
@@ -37,6 +37,7 @@ fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(u256_column_to_binary, m)?)?;
     m.add_function(wrap_pyfunction!(u256_to_binary, m)?)?;
     m.add_function(wrap_pyfunction!(svm_decode_instructions, m)?)?;
+    m.add_function(wrap_pyfunction!(svm_decode_logs, m)?)?;
     m.add_function(wrap_pyfunction!(instruction_signature_to_arrow_schema, m)?)?;
     m.add_function(wrap_pyfunction!(evm_decode_call_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(evm_decode_call_outputs, m)?)?;
@@ -372,6 +373,23 @@ fn svm_decode_instructions(
         allow_decode_fail,
     )
     .context("decode instruction batch")?;
+
+    Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
+}
+
+#[pyfunction]
+fn svm_decode_logs(
+    signature: &Bound<'_, PyAny>,
+    batch: &Bound<'_, PyAny>,
+    allow_decode_fail: bool,
+    py: Python<'_>,
+) -> PyResult<PyObject> {
+    let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
+
+    let log_signature = signature.extract::<LogSignature>()?;
+
+    let batch = baselib::svm_decode::svm_decode_logs(log_signature, &batch, allow_decode_fail)
+        .context("decode log batch")?;
 
     Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
 }

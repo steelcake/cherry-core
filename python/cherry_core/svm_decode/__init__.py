@@ -60,6 +60,11 @@ class InstructionSignature:
     accounts_names: List[str]
 
 
+@dataclass
+class LogSignature:
+    params: List[ParamInput]
+
+
 class DynType:
     I8: PrimitiveType = "i8"
     I16: PrimitiveType = "i16"
