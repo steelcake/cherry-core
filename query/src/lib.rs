@@ -392,7 +392,6 @@ impl StartsWith {
             }
         };
 
-
         if let Some(nulls) = arr.nulls() {
             if nulls.null_count() > 0 {
                 let nulls = BooleanArray::from(nulls.inner().clone());
@@ -812,9 +811,12 @@ mod tests {
         .unwrap();
 
         let query = Query {
-            fields: [("data".to_owned(), vec!["name".to_owned(), "binary".to_owned()])]
-                .into_iter()
-                .collect(),
+            fields: [(
+                "data".to_owned(),
+                vec!["name".to_owned(), "binary".to_owned()],
+            )]
+            .into_iter()
+            .collect(),
             selection: Arc::new(
                 [(
                     "data".to_owned(),

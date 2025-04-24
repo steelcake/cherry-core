@@ -113,10 +113,9 @@ impl<'py> pyo3::FromPyObject<'py> for Address {
 #[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for Data {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-
         use pyo3::types::PyAnyMethods;
         use pyo3::types::PyTypeMethods;
-    
+
         let ob_type: String = ob.get_type().name()?.to_string();
         match ob_type.as_str() {
             "str" => {
