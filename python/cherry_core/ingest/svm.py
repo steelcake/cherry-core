@@ -131,6 +131,7 @@ class Fields:
 class InstructionRequest:
     program_id: list[str] = field(default_factory=list)
     data: list[Union[bytes, str]] = field(default_factory=list)
+    discriminator: list[Union[bytes, str]] = field(default_factory=list)
     d1: list[Union[bytes, str]] = field(default_factory=list)
     d2: list[Union[bytes, str]] = field(default_factory=list)
     d3: list[Union[bytes, str]] = field(default_factory=list)

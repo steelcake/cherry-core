@@ -71,12 +71,17 @@ pub struct Include {
 
 pub enum Filter {
     Contains(Contains),
+    StartsWith(StartsWith),
     Bool(bool),
 }
 
 impl Filter {
     pub fn contains(arr: Arc<dyn Array>) -> Result<Self> {
         Ok(Self::Contains(Contains::new(arr)?))
+    }
+
+    pub fn starts_with(arr: Arc<dyn Array>) -> Result<Self> {
+        Ok(Self::StartsWith(StartsWith::new(arr)?))
     }
 
     pub fn bool(b: bool) -> Self {
@@ -86,6 +91,7 @@ impl Filter {
     fn check(&self, arr: &dyn Array) -> Result<BooleanArray> {
         match self {
             Self::Contains(ct) => ct.contains(arr),
+            Self::StartsWith(sw) => sw.starts_with(arr),
             Self::Bool(b) => {
                 let arr = arr
                     .as_any()
@@ -339,6 +345,81 @@ impl Contains {
             for v in iter_byte_array_without_validity(other_arr) {
                 filter.append_value(iter_byte_array_without_validity(self_arr).any(|x| x == v));
             }
+        }
+
+        filter.finish()
+    }
+}
+
+pub struct StartsWith {
+    array: Arc<dyn Array>,
+}
+
+impl StartsWith {
+    pub fn new(array: Arc<dyn Array>) -> Result<Self> {
+        if array.is_nullable() {
+            return Err(anyhow!(
+                "cannot construct starts_with filter with a nullable array"
+            ));
+        }
+
+        Ok(Self { array })
+    }
+
+    fn starts_with(&self, arr: &dyn Array) -> Result<BooleanArray> {
+        if arr.data_type() != self.array.data_type() {
+            return Err(anyhow!(
+                "filter array is of type {} but array to be filtered is of type {}",
+                self.array.data_type(),
+                arr.data_type(),
+            ));
+        }
+        assert!(!self.array.is_nullable());
+
+        let mut filter = match *arr.data_type() {
+            DataType::Binary => {
+                let self_arr = self.array.as_any().downcast_ref::<BinaryArray>().unwrap();
+                let other_arr = arr.as_any().downcast_ref().unwrap();
+                self.starts_with_bytes(self_arr, other_arr)
+            }
+            DataType::Utf8 => {
+                let self_arr = self.array.as_any().downcast_ref::<StringArray>().unwrap();
+                let other_arr = arr.as_any().downcast_ref().unwrap();
+                self.starts_with_bytes(self_arr, other_arr)
+            }
+            _ => {
+                return Err(anyhow!("unsupported data type: {}", arr.data_type()));
+            }
+        };
+
+
+        if let Some(nulls) = arr.nulls() {
+            if nulls.null_count() > 0 {
+                let nulls = BooleanArray::from(nulls.inner().clone());
+                filter = compute::and(&filter, &nulls).unwrap();
+            }
+        }
+
+        Ok(filter)
+    }
+
+    fn starts_with_bytes<T: ByteArrayType<Offset = i32>>(
+        &self,
+        self_arr: &GenericByteArray<T>,
+        other_arr: &GenericByteArray<T>,
+    ) -> BooleanArray {
+        let mut filter = BooleanBuilder::with_capacity(other_arr.len());
+
+        // For each value in other_arr, check if it starts with any value in self_arr
+        for v in iter_byte_array_without_validity(other_arr) {
+            let mut found = false;
+            for prefix in iter_byte_array_without_validity(self_arr) {
+                if v.starts_with(prefix) {
+                    found = true;
+                    break;
+                }
+            }
+            filter.append_value(found);
         }
 
         filter.finish()
@@ -710,5 +791,80 @@ mod tests {
             &StringArray::from_iter_values(["kamil", "mahmut", "kazim"])
         );
         assert_eq!(name2.as_string(), &StringArray::from_iter_values(["yusuf"]));
+    }
+
+    #[test]
+    fn test_starts_with_filter() {
+        let data = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Arc::new(Field::new("name", DataType::Utf8, true)),
+                Arc::new(Field::new("binary", DataType::Binary, true)),
+            ])),
+            vec![
+                Arc::new(StringArray::from_iter_values(
+                    vec!["hello", "world", "helloworld", "goodbye", "hell"].into_iter(),
+                )),
+                Arc::new(BinaryArray::from_iter_values(
+                    vec![b"hello", b"world", b"hepto", b"grace", b"heheh"].into_iter(),
+                )),
+            ],
+        )
+        .unwrap();
+
+        let query = Query {
+            fields: [("data".to_owned(), vec!["name".to_owned(), "binary".to_owned()])]
+                .into_iter()
+                .collect(),
+            selection: Arc::new(
+                [(
+                    "data".to_owned(),
+                    vec![TableSelection {
+                        filters: [
+                            (
+                                "name".to_owned(),
+                                Filter::StartsWith(
+                                    StartsWith::new(Arc::new(StringArray::from_iter_values(
+                                        vec!["he"].into_iter(),
+                                    )))
+                                    .unwrap(),
+                                ),
+                            ),
+                            (
+                                "binary".to_owned(),
+                                Filter::StartsWith(
+                                    StartsWith::new(Arc::new(BinaryArray::from_iter_values(
+                                        vec![b"he"].into_iter(),
+                                    )))
+                                    .unwrap(),
+                                ),
+                            ),
+                        ]
+                        .into_iter()
+                        .collect(),
+                        include: vec![],
+                    }],
+                )]
+                .into_iter()
+                .collect(),
+            ),
+        };
+
+        let data = [("data".to_owned(), data)]
+            .into_iter()
+            .collect::<BTreeMap<_, _>>();
+
+        let res = run_query(&data, &query).unwrap();
+        let filtered = res.get("data").unwrap();
+
+        let name = filtered.column_by_name("name").unwrap();
+        let binary = filtered.column_by_name("binary").unwrap();
+        assert_eq!(
+            name.as_string(),
+            &StringArray::from_iter_values(["hello", "helloworld", "hell"])
+        );
+        assert_eq!(
+            binary.as_binary::<i32>(),
+            &BinaryArray::from_iter_values([b"hello", b"hepto", b"heheh"].into_iter())
+        );
     }
 }
