@@ -217,11 +217,11 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                         .iter()
                         .map(|v| base58_encode(v.0.as_slice()))
                         .collect(),
-                    d1: d1,
-                    d2: d2,
-                    d3: d3,
-                    d4: d4,
-                    d8: d8,
+                    d1,
+                    d2,
+                    d3,
+                    d4,
+                    d8,
                     is_committed: inst.is_committed,
                     inner_instructions: inst.include_inner_instructions,
                     logs: inst.include_logs,
