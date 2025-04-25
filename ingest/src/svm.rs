@@ -176,7 +176,6 @@ impl<'py> pyo3::FromPyObject<'py> for D8 {
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct InstructionRequest {
     pub program_id: Vec<Address>,
-    pub data: Vec<Data>,
     pub discriminator: Vec<Data>,
     pub d1: Vec<D1>,
     pub d2: Vec<D2>,

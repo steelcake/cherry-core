@@ -447,9 +447,6 @@ fn svm_instruction_selection_to_generic(selection: &svm::InstructionRequest) -> 
     let program_id = Arc::new(BinaryArray::from_iter_values(
         selection.program_id.iter().map(|x| x.0.as_slice()),
     ));
-    let data = Arc::new(BinaryArray::from_iter_values(
-        selection.data.iter().map(|x| x.0.as_slice()),
-    ));
     let discriminator = Arc::new(BinaryArray::from_iter_values(
         selection.discriminator.iter().map(|x| x.0.as_slice()),
     ));
@@ -499,9 +496,8 @@ fn svm_instruction_selection_to_generic(selection: &svm::InstructionRequest) -> 
         selection.a9.iter().map(|x| x.0.as_slice()),
     ));
 
-    let filters: [(&str, Arc<dyn Array>); 18] = [
+    let filters: [(&str, Arc<dyn Array>); 17] = [
         ("program_id", program_id),
-        ("data", data),
         ("data", discriminator),
         ("d1", d1),
         ("d2", d2),

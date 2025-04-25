@@ -35,7 +35,6 @@ query = ingest.Query(
         instructions=[
             ingest.svm.InstructionRequest(
                 program_id=["11111111111111111111111111111111"],
-                # data=["0x0200000001000000"],
                 discriminator=[bytes([2, 0, 0, 0, 1, 0, 0, 0])],
             )
         ],
