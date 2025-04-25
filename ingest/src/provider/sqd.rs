@@ -124,72 +124,110 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
         instructions: query
             .instructions
             .iter()
-            .map(|inst| sqd_portal_client::svm::InstructionRequest {
-                program_id: inst
-                    .program_id
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                a0: inst
-                    .a0
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                a1: inst
-                    .a1
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                a2: inst
-                    .a2
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                a3: inst
-                    .a3
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                a4: inst
-                    .a4
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                a5: inst
-                    .a5
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                a6: inst
-                    .a6
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                a7: inst
-                    .a7
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                a8: inst
-                    .a8
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                a9: inst
-                    .a9
-                    .iter()
-                    .map(|v| base58_encode(v.0.as_slice()))
-                    .collect(),
-                d1: inst.d1.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
-                d2: inst.d2.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
-                d3: inst.d3.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
-                d4: inst.d4.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
-                d8: inst.d8.iter().map(|v| hex_encode(v.0.as_slice())).collect(),
-                is_committed: inst.is_committed,
-                inner_instructions: inst.include_inner_instructions,
-                logs: inst.include_logs,
-                transaction: inst.include_transactions,
-                transaction_token_balances: inst.include_transaction_token_balances,
+            .map(|inst| {
+                let mut d1: Vec<String> =
+                    inst.d1.iter().map(|v| hex_encode(v.0.as_slice())).collect();
+                let mut d2: Vec<String> =
+                    inst.d2.iter().map(|v| hex_encode(v.0.as_slice())).collect();
+                let mut d3: Vec<String> =
+                    inst.d3.iter().map(|v| hex_encode(v.0.as_slice())).collect();
+                let mut d4: Vec<String> =
+                    inst.d4.iter().map(|v| hex_encode(v.0.as_slice())).collect();
+                let mut d8: Vec<String> =
+                    inst.d8.iter().map(|v| hex_encode(v.0.as_slice())).collect();
+                inst.discriminator.iter().for_each(|d| {
+                    match d.0.len() {
+                        0 => {}
+                        1 => {
+                            d1.push(hex_encode(d.0.as_slice()));
+                        }
+                        2 => {
+                            d2.push(hex_encode(d.0.as_slice()));
+                        }
+                        3 => {
+                            d3.push(hex_encode(d.0.as_slice()));
+                        }
+                        4 => {
+                            d4.push(hex_encode(d.0.as_slice()));
+                        }
+                        5..=7 => {
+                            let slice = &d.0[..4.min(d.0.len())];
+                            d4.push(hex_encode(slice));
+                        }
+                        _ => {
+                            let slice = &d.0[..8.min(d.0.len())];
+                            d8.push(hex_encode(slice));
+                        }
+                    };
+                });
+
+                sqd_portal_client::svm::InstructionRequest {
+                    program_id: inst
+                        .program_id
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    a0: inst
+                        .a0
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    a1: inst
+                        .a1
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    a2: inst
+                        .a2
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    a3: inst
+                        .a3
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    a4: inst
+                        .a4
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    a5: inst
+                        .a5
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    a6: inst
+                        .a6
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    a7: inst
+                        .a7
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    a8: inst
+                        .a8
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    a9: inst
+                        .a9
+                        .iter()
+                        .map(|v| base58_encode(v.0.as_slice()))
+                        .collect(),
+                    d1: d1,
+                    d2: d2,
+                    d3: d3,
+                    d4: d4,
+                    d8: d8,
+                    is_committed: inst.is_committed,
+                    inner_instructions: inst.include_inner_instructions,
+                    logs: inst.include_logs,
+                    transaction: inst.include_transactions,
+                    transaction_token_balances: inst.include_transaction_token_balances,
+                }
             })
             .collect(),
         transactions: query

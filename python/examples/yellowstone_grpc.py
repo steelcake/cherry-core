@@ -4,9 +4,6 @@ import polars
 from typing import cast
 import pyarrow as pa
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 
 async def run(provider: ingest.ProviderConfig, query: ingest.Query):

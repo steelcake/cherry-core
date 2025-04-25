@@ -209,7 +209,7 @@ mod tests {
                 // InstructionRequest::default() ,
                 InstructionRequest {
                     program_id: vec![program_id],
-                    discriminator: vec![Data(vec![3 as u8])],
+                    discriminator: vec![Data(vec![12, 96, 49, 128, 22])],
                     ..Default::default()
                 },
             ],
