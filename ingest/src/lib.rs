@@ -169,3 +169,63 @@ pub async fn start_stream(provider_config: ProviderConfig, mut query: Query) -> 
 
     Ok(Box::pin(stream))
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::svm::*;
+    use parquet::arrow::ArrowWriter;
+    use std::fs::File;
+
+    #[tokio::test]
+    #[ignore]
+    async fn simple_svm_start_stream() {
+        let mut provider_config = ProviderConfig::new(ProviderKind::Sqd);
+        provider_config.url = Some("https://portal.sqd.dev/datasets/solana-mainnet".to_string());
+
+        let program_id = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        let program_id: [u8; 32] = bs58::decode(program_id)
+            .into_vec()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let program_id = Address(program_id);
+
+        let query = crate::Query::Svm(svm::Query {
+            from_block: 329443000,
+            to_block: Some(329443000),
+            include_all_blocks: false,
+            fields: Fields {
+                instruction: InstructionFields::all(),
+                transaction: TransactionFields::default(),
+                log: LogFields::default(),
+                balance: BalanceFields::default(),
+                token_balance: TokenBalanceFields::default(),
+                reward: RewardFields::default(),
+                block: BlockFields::default(),
+            },
+            instructions: vec![
+                // InstructionRequest::default() ,
+                InstructionRequest {
+                    program_id: vec![program_id],
+                    discriminator: vec![Data(vec![3 as u8])],
+                    ..Default::default()
+                },
+            ],
+            transactions: vec![],
+            logs: vec![],
+            balances: vec![],
+            token_balances: vec![],
+            rewards: vec![],
+        });
+        let mut stream = start_stream(provider_config, query).await.unwrap();
+        let data = stream.next().await.unwrap().unwrap();
+        for (k, v) in data.into_iter() {
+            let mut file = File::create(format!("{}.parquet", k)).unwrap();
+            let mut writer = ArrowWriter::try_new(&mut file, v.schema(), None).unwrap();
+            writer.write(&v).unwrap();
+            writer.close().unwrap();
+        }
+    }
+}

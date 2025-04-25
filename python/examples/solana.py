@@ -13,7 +13,7 @@ async def run(provider: ingest.ProviderConfig, query: ingest.Query):
         print(res)
 
         print(res["blocks"].column("slot"))
-        print(res["blocks"].column("hash"))
+        print(res["instructions"].column("data"))
 
 
 query = ingest.Query(
@@ -35,8 +35,7 @@ query = ingest.Query(
         instructions=[
             ingest.svm.InstructionRequest(
                 program_id=["11111111111111111111111111111111"],
-                # d8=["0x0200000001000000"],
-                # d8=[bytes([2,0,0,0,1,0,0,0])],
+                discriminator=[bytes([2, 0, 0, 0, 1, 0, 0, 0])],
             )
         ],
     ),

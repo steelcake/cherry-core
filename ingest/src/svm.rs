@@ -19,6 +19,9 @@ pub struct Query {
 #[derive(Debug, Clone, Copy)]
 pub struct Address(pub [u8; 32]);
 
+#[derive(Debug, Clone)]
+pub struct Data(pub Vec<u8>);
+
 #[derive(Debug, Clone, Copy)]
 pub struct D1(pub [u8; 1]);
 
@@ -108,6 +111,28 @@ impl<'py> pyo3::FromPyObject<'py> for Address {
 }
 
 #[cfg(feature = "pyo3")]
+impl<'py> pyo3::FromPyObject<'py> for Data {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        use pyo3::types::PyAnyMethods;
+        use pyo3::types::PyTypeMethods;
+
+        let ob_type: String = ob.get_type().name()?.to_string();
+        match ob_type.as_str() {
+            "str" => {
+                let s: &str = ob.extract()?;
+                let out = hex_to_bytes(s).context("failed to decode hex")?;
+                Ok(Self(out))
+            }
+            "bytes" => {
+                let out: Vec<u8> = ob.extract()?;
+                Ok(Self(out))
+            }
+            _ => Err(anyhow!("unknown type: {}", ob_type).into()),
+        }
+    }
+}
+
+#[cfg(feature = "pyo3")]
 impl<'py> pyo3::FromPyObject<'py> for D1 {
     fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
         let out = extract_data(ob)?;
@@ -151,6 +176,7 @@ impl<'py> pyo3::FromPyObject<'py> for D8 {
 #[cfg_attr(feature = "pyo3", derive(pyo3::FromPyObject))]
 pub struct InstructionRequest {
     pub program_id: Vec<Address>,
+    pub discriminator: Vec<Data>,
     pub d1: Vec<D1>,
     pub d2: Vec<D2>,
     pub d3: Vec<D3>,
