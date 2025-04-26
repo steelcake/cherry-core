@@ -14,8 +14,8 @@ data = cryo_collect(
     blocks=["-10:"],
     rpc="https://eth.rpc.hypersync.xyz",
     output_format="polars",
-    contract=[contract_address],
-    topic0=[topic0],
+    contract=[contract_address],  # type: ignore[arg-type]
+    topic0=[topic0],  # type: ignore[arg-type]
     hex=False,
 )
 
@@ -51,7 +51,11 @@ decoded = cherry_core.prefix_hex_encode(decoded)
 
 decoded = polars.from_arrow(decoded)
 decoded = typing.cast(polars.DataFrame, decoded)
-decoded = decoded.hstack(polars.from_arrow(cherry_core.prefix_hex_encode(batch)))
+encoded_batch = polars.from_arrow(cherry_core.prefix_hex_encode(batch))
+if isinstance(encoded_batch, polars.DataFrame):
+    decoded = decoded.hstack(encoded_batch)
+else:
+    raise ValueError("encoded_batch is not a polars.DataFrame")
 
 print(decoded)
 
