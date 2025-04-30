@@ -117,6 +117,10 @@ pub fn svm_decode_instructions(
         for i in 10..signature.accounts_names.len() {
             let mut builder = BinaryBuilder::with_capacity(rest_of_acc_arrays.len(), data_size);
             if signature.accounts_names[i].is_empty() {
+                for _ in 0..rest_of_acc_arrays.len() {
+                    builder.append_null();
+                }
+                account_arrays.push(Some(builder.finish()));
                 continue;
             }
 
@@ -250,27 +254,26 @@ pub fn decode_instructions(
     let mut accounts_arrays = Vec::new();
     let mut acc_fields = Vec::new();
 
-    let mut null_count = 0;
     for i in 0..acc_names_len {
-        if signature.accounts_names[i].is_empty() {
-            null_count += 1;
-            continue;
-        }
-        let arr = accounts.get(i - null_count).context(format!(
-            "Account a{} not found during decoding",
-            i - null_count
-        ))?;
+        let arr = accounts
+            .get(i)
+            .context(format!("Account a{} not found during decoding", i))?;
         if let Some(arr) = arr {
             let owned_array = arr.slice(0, arr.len());
             accounts_arrays.push(Arc::new(owned_array) as Arc<dyn Array>);
         } else {
             return Err(anyhow::anyhow!(
                 "Account a{} is Null, but required by the signature",
-                i - null_count
+                i
             ));
         }
-        let field = Field::new(signature.accounts_names[i].clone(), DataType::Binary, true);
-        acc_fields.push(field);
+        if signature.accounts_names[i].is_empty() {
+            let field = Field::new(format!("a{}", i), DataType::Binary, true);
+            acc_fields.push(field);
+        } else {
+            let field = Field::new(signature.accounts_names[i].clone(), DataType::Binary, true);
+            acc_fields.push(field);
+        }
     }
 
     let decoded_instructions_array = data_arrays
