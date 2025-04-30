@@ -85,9 +85,11 @@ pub fn svm_decode_instructions(
 ) -> Result<RecordBatch> {
     let data_col = batch
         .column_by_name("data")
-        .context("data column not found in instructions batch")
-        .unwrap();
-    let data_array = data_col.as_any().downcast_ref::<BinaryArray>().unwrap();
+        .context("data column not found in instructions batch")?;
+    let data_array = data_col
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .context("unable to downcast data to a binary array")?;
 
     let mut account_arrays: Vec<Option<BinaryArray>> = Vec::with_capacity(10);
 
@@ -105,13 +107,11 @@ pub fn svm_decode_instructions(
     if signature.accounts_names.len() > 10 {
         let rest_of_acc_col = batch
             .column_by_name("rest_of_accounts")
-            .context("rest_of_accounts column not found in instructions batch")
-            .unwrap();
+            .context("rest_of_accounts column not found in instructions batch")?;
         let rest_of_acc_arrays: &GenericListArray<i32> = rest_of_acc_col
             .as_any()
             .downcast_ref::<GenericListArray<i32>>()
-            .context("unable to downcast rest_of_accounts to a list array")
-            .unwrap();
+            .context("unable to downcast rest_of_accounts to a list array")?;
         // Unpack the rest_of_accounts list array into individual arrays
         let data_size = rest_of_acc_arrays.len() * 32;
         for i in 10..signature.accounts_names.len() {
@@ -139,8 +139,7 @@ pub fn svm_decode_instructions(
                     let binary_array = list_value
                         .as_any()
                         .downcast_ref::<BinaryArray>()
-                        .context("unable to downcast list value to binary array")
-                        .unwrap();
+                        .context("unable to downcast list value to binary array")?;
                     if binary_array.is_null(i - 10) {
                         builder.append_null();
                     } else {
@@ -226,29 +225,23 @@ pub fn decode_instructions(
         }
     }
 
-    let data_arrays: Vec<Arc<dyn Array>> = decoded_params_vec
-        .iter()
-        .enumerate()
-        .map(|(i, v)| {
-            to_arrow(&signature.params[i].param_type, v.clone())
-                .context("unable to convert instruction value to a arrow format value")
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
+    let mut data_arrays: Vec<Arc<dyn Array>> = Vec::with_capacity(decoded_params_vec.len());
+    for (i, v) in decoded_params_vec.iter().enumerate() {
+        let array = to_arrow(&signature.params[i].param_type, v.clone())
+            .context("unable to convert instruction value to a arrow format value")?;
+        data_arrays.push(array);
+    }
 
-    let data_fields = signature
-        .params
-        .iter()
-        .map(|p| {
-            Field::new(
-                p.name.clone(),
-                to_arrow_dtype(&p.param_type)
-                    .context("unable to convert instruction param type to arrow dtype")
-                    .unwrap(),
-                true,
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut data_fields = Vec::with_capacity(signature.params.len());
+    for param in &signature.params {
+        let field = Field::new(
+            param.name.clone(),
+            to_arrow_dtype(&param.param_type)
+                .context("unable to convert instruction param type to arrow dtype")?,
+            true,
+        );
+        data_fields.push(field);
+    }
 
     let acc_names_len = signature.accounts_names.len();
     let mut accounts_arrays = Vec::new();
@@ -287,8 +280,7 @@ pub fn decode_instructions(
 
     let schema = Arc::new(Schema::new(decoded_instructions_fields));
     let batch = RecordBatch::try_new(schema, decoded_instructions_array)
-        .context("Failed to create record batch from data arrays")
-        .unwrap();
+        .context("Failed to create record batch from data arrays")?;
 
     Ok(batch)
 }
@@ -300,13 +292,11 @@ pub fn svm_decode_logs(
 ) -> Result<RecordBatch> {
     let message_col = batch
         .column_by_name("message")
-        .context("message column not found in logs batch")
-        .unwrap();
+        .context("message column not found in logs batch")?;
     let data = message_col
         .as_any()
         .downcast_ref::<StringArray>()
-        .context("unable to downcast message to a string array")
-        .unwrap();
+        .context("unable to downcast message to a string array")?;
 
     decode_logs(signature, data, allow_decode_fail)
 }
@@ -376,34 +366,27 @@ pub fn decode_logs(
         }
     }
 
-    let data_arrays: Vec<Arc<dyn Array>> = decoded_params_vec
-        .iter()
-        .enumerate()
-        .map(|(i, v)| {
-            to_arrow(&signature.params[i].param_type, v.clone())
-                .context("unable to convert log value to a arrow format value")
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
+    let mut data_arrays: Vec<Arc<dyn Array>> = Vec::with_capacity(decoded_params_vec.len());
+    for (i, v) in decoded_params_vec.iter().enumerate() {
+        let array = to_arrow(&signature.params[i].param_type, v.clone())
+            .context("unable to convert log value to a arrow format value")?;
+        data_arrays.push(array);
+    }
 
-    let data_fields = signature
-        .params
-        .iter()
-        .map(|p| {
-            Field::new(
-                p.name.clone(),
-                to_arrow_dtype(&p.param_type)
-                    .context("unable to convert log param type to arrow dtype")
-                    .unwrap(),
-                true,
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut data_fields = Vec::with_capacity(signature.params.len());
+    for param in &signature.params {
+        let field = Field::new(
+            param.name.clone(),
+            to_arrow_dtype(&param.param_type)
+                .context("unable to convert log param type to arrow dtype")?,
+            true,
+        );
+        data_fields.push(field);
+    }
 
     let schema = Arc::new(Schema::new(data_fields));
     let batch = RecordBatch::try_new(schema, data_arrays)
-        .context("Failed to create record batch from data arrays")
-        .unwrap();
+        .context("Failed to create record batch from data arrays")?;
 
     Ok(batch)
 }
@@ -434,8 +417,7 @@ pub fn instruction_signature_to_arrow_schema(signature: &InstructionSignature) -
         let field = Field::new(
             param.name.clone(),
             to_arrow_dtype(&param.param_type)
-                .context("unable to convert instruction param type to arrow dtype")
-                .unwrap(),
+                .context("unable to convert instruction param type to arrow dtype")?,
             true,
         );
         fields.push(field);
@@ -813,8 +795,6 @@ mod tests {
                 "Program".to_string(),
                 "test8".to_string(),
                 "test9".to_string(),
-                "".to_string(),
-                "test11".to_string(),
             ],
         };
 
