@@ -33,17 +33,44 @@ pub fn cast<S: AsRef<str>>(
         let col = match cast_target {
             Some(tgt) => {
                 // allow precision loss for decimal types into floating point types
-                if matches!(col.data_type(), DataType::Decimal256(..) | DataType::Decimal128(..)) && tgt.1.is_floating() {
-                    let string_col = arrow::compute::cast_with_options(col, &DataType::Utf8, &cast_opt)
-                        .with_context(|| format!("Failed when casting column '{}' to string as intermediate step", field.name()))?;
+                if matches!(
+                    col.data_type(),
+                    DataType::Decimal256(..) | DataType::Decimal128(..)
+                ) && tgt.1.is_floating()
+                {
+                    let string_col = arrow::compute::cast_with_options(
+                        col,
+                        &DataType::Utf8,
+                        &cast_opt,
+                    )
+                    .with_context(|| {
+                        format!(
+                            "Failed when casting column '{}' to string as intermediate step",
+                            field.name()
+                        )
+                    })?;
                     Arc::new(
                         arrow::compute::cast_with_options(&string_col, &tgt.1, &cast_opt)
-                            .with_context(|| format!("Failed when casting column '{}' to {:?}", field.name(), tgt.1))?,
+                            .with_context(|| {
+                                format!(
+                                    "Failed when casting column '{}' to {:?}",
+                                    field.name(),
+                                    tgt.1
+                                )
+                            })?,
                     )
                 } else {
                     Arc::new(
-                        arrow::compute::cast_with_options(col, &tgt.1, &cast_opt)
-                            .with_context(|| format!("Failed when casting column '{}' from {:?} to {:?}", field.name(), col.data_type(), tgt.1))?,
+                        arrow::compute::cast_with_options(col, &tgt.1, &cast_opt).with_context(
+                            || {
+                                format!(
+                                    "Failed when casting column '{}' from {:?} to {:?}",
+                                    field.name(),
+                                    col.data_type(),
+                                    tgt.1
+                                )
+                            },
+                        )?,
                     )
                 }
             }
@@ -353,22 +380,19 @@ pub fn u256_to_binary(data: &RecordBatch) -> Result<RecordBatch> {
     RecordBatch::try_new(Arc::new(schema), columns).context("construct arrow batch")
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
     use arrow::datatypes::DataType;
+    use std::fs::File;
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn test_cast() {
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
-        let builder = ParquetRecordBatchReaderBuilder::try_new(
-            File::open("data.parquet").unwrap(),
-        )
-        .unwrap();
+        let builder =
+            ParquetRecordBatchReaderBuilder::try_new(File::open("data.parquet").unwrap()).unwrap();
         let mut reader = builder.build().unwrap();
         let table = reader.next().unwrap().unwrap();
 

@@ -1,7 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{
-    Array, BinaryArray, BinaryBuilder, GenericListArray, StringArray,
-};
+use arrow::array::{Array, BinaryArray, BinaryBuilder, GenericListArray, StringArray};
 use arrow::{array::RecordBatch, datatypes::*};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::sync::Arc;
