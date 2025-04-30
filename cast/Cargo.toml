@@ -15,3 +15,6 @@ anyhow = { workspace = true }
 faster-hex = { workspace = true }
 bs58 = { workspace = true }
 alloy-primitives = { workspace = true }
+
+[dev-dependencies]
+parquet = "54"
