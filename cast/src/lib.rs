@@ -38,17 +38,14 @@ pub fn cast<S: AsRef<str>>(
                     DataType::Decimal256(..) | DataType::Decimal128(..)
                 ) && tgt.1.is_floating()
                 {
-                    let string_col = arrow::compute::cast_with_options(
-                        col,
-                        &DataType::Utf8,
-                        &cast_opt,
-                    )
-                    .with_context(|| {
-                        format!(
+                    let string_col =
+                        arrow::compute::cast_with_options(col, &DataType::Utf8, &cast_opt)
+                            .with_context(|| {
+                                format!(
                             "Failed when casting column '{}' to string as intermediate step",
                             field.name()
                         )
-                    })?;
+                            })?;
                     Arc::new(
                         arrow::compute::cast_with_options(&string_col, &tgt.1, &cast_opt)
                             .with_context(|| {

@@ -453,7 +453,7 @@ mod tests {
     use std::fs::File;
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn test_instructions_with_real_data() {
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
