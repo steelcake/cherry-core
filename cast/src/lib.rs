@@ -31,10 +31,46 @@ pub fn cast<S: AsRef<str>>(
         let cast_target = map.iter().find(|x| x.0.as_ref() == field.name());
 
         let col = match cast_target {
-            Some(tgt) => Arc::new(
-                arrow::compute::cast_with_options(col, &tgt.1, &cast_opt)
-                    .with_context(|| format!("Failed when casting column '{}'", field.name()))?,
-            ),
+            Some(tgt) => {
+                // allow precision loss for decimal types into floating point types
+                if matches!(
+                    col.data_type(),
+                    DataType::Decimal256(..) | DataType::Decimal128(..)
+                ) && tgt.1.is_floating()
+                {
+                    let string_col =
+                        arrow::compute::cast_with_options(col, &DataType::Utf8, &cast_opt)
+                            .with_context(|| {
+                                format!(
+                            "Failed when casting column '{}' to string as intermediate step",
+                            field.name()
+                        )
+                            })?;
+                    Arc::new(
+                        arrow::compute::cast_with_options(&string_col, &tgt.1, &cast_opt)
+                            .with_context(|| {
+                                format!(
+                                    "Failed when casting column '{}' to {:?}",
+                                    field.name(),
+                                    tgt.1
+                                )
+                            })?,
+                    )
+                } else {
+                    Arc::new(
+                        arrow::compute::cast_with_options(col, &tgt.1, &cast_opt).with_context(
+                            || {
+                                format!(
+                                    "Failed when casting column '{}' from {:?} to {:?}",
+                                    field.name(),
+                                    col.data_type(),
+                                    tgt.1
+                                )
+                            },
+                        )?,
+                    )
+                }
+            }
             None => col.clone(),
         };
 
@@ -339,4 +375,39 @@ pub fn u256_to_binary(data: &RecordBatch) -> Result<RecordBatch> {
     }
 
     RecordBatch::try_new(Arc::new(schema), columns).context("construct arrow batch")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow::datatypes::DataType;
+    use std::fs::File;
+
+    #[test]
+    #[ignore]
+    fn test_cast() {
+        use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+        let builder =
+            ParquetRecordBatchReaderBuilder::try_new(File::open("data.parquet").unwrap()).unwrap();
+        let mut reader = builder.build().unwrap();
+        let table = reader.next().unwrap().unwrap();
+
+        let type_mappings = vec![
+            ("amount0In", DataType::Decimal128(15, 0)),
+            ("amount1In", DataType::Float32),
+            ("amount0Out", DataType::Float64),
+            ("amount1Out", DataType::Decimal128(38, 0)),
+            ("timestamp", DataType::Int64),
+        ];
+
+        let result = cast(&type_mappings, &table, true).unwrap();
+
+        // Save the filtered instructions to a new parquet file
+        let mut file = File::create("result.parquet").unwrap();
+        let mut writer =
+            parquet::arrow::ArrowWriter::try_new(&mut file, result.schema(), None).unwrap();
+        writer.write(&result).unwrap();
+        writer.close().unwrap();
+    }
 }
