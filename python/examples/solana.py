@@ -1,4 +1,4 @@
-from cherry_core import ingest
+from cherry_core import ingest, base58_encode_bytes
 import asyncio
 
 
@@ -10,17 +10,22 @@ async def run(provider: ingest.ProviderConfig, query: ingest.Query):
         if res is None:
             break
 
-        print(res)
+        # print(res)
 
         print(res["blocks"].column("slot"))
-        print(res["instructions"].column("data"))
+
+        for x in res["transactions"].column("signature"):
+            print(base58_encode_bytes(x.as_py()))
+
+        print(res["instructions"].column("instruction_address"))
+        print(res["instructions"].column("transaction_index"))
 
 
 query = ingest.Query(
     kind=ingest.QueryKind.SVM,
     params=ingest.svm.Query(
-        from_block=332557468,
-        to_block=332557469,
+        from_block=332557668,
+        to_block=332557668,
         include_all_blocks=True,
         fields=ingest.svm.Fields(
             block=ingest.svm.BlockFields(
@@ -30,12 +35,23 @@ query = ingest.Query(
             instruction=ingest.svm.InstructionFields(
                 program_id=True,
                 data=True,
+                instruction_address=True,
+                transaction_index=True,
+            ),
+            transaction=ingest.svm.TransactionFields(
+                signature=True,
+                transaction_index=True,
             ),
         ),
         instructions=[
             ingest.svm.InstructionRequest(
-                program_id=["11111111111111111111111111111111"],
-                discriminator=[bytes([2, 0, 0, 0, 1, 0, 0, 0])],
+                program_id=["whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"],
+                discriminator=["0xf8c6"],
+                a1=["EV5Xoy9TQc4zXtqRHpjDefrxsQTi4Lm12KAE8axyBsdp"],
+                # discriminator=[bytes([2, 0, 0, 0, 1, 0, 0, 0])],
+                include_inner_instructions=True,
+                include_transactions=True,
+                is_committed=True,
             )
         ],
     ),

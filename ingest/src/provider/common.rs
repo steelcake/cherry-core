@@ -567,6 +567,33 @@ fn svm_instruction_selection_to_generic(selection: &svm::InstructionRequest) -> 
         });
     }
 
+    if selection.include_inner_instructions {
+        include.push(Include {
+            other_table_name: "instructions".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+        });
+    }
+
+    if selection.include_logs {
+        include.push(Include {
+            other_table_name: "instructions".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "instruction_address".to_owned()],
+            other_table_field_names: vec![
+                "block_slot".to_owned(),
+                "instruction_address".to_owned(),
+            ],
+        });
+    }
+
+    if selection.include_transaction_token_balances {
+        include.push(Include {
+            other_table_name: "token_balances".to_owned(),
+            field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+            other_table_field_names: vec!["block_slot".to_owned(), "transaction_index".to_owned()],
+        });
+    }
+
     TableSelection { filters, include }
 }
 
