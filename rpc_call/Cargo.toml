@@ -1,0 +1,20 @@
+[package]
+name = "cherry-rpc-call"
+version = "0.1.0"
+edition = "2021"
+description = "RPC call executor for cherry"
+homepage = "https://github.com/steelcake/cherry-core"
+repository = "https://github.com/steelcake/cherry-core"
+authors = ["Yule Andrade <yule@steelcake.com>"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+arrow = { workspace = true }
+alloy-multicall = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+alloy-dyn-abi = { workspace = true }
+alloy-provider = { workspace = true }
+alloy-json-abi = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
