@@ -133,7 +133,7 @@ pub fn cast_by_type(
                         )
                     })?;
                 Arc::new(
-                    arrow::compute::cast_with_options(&string_col, &to_type, &cast_opt)
+                    arrow::compute::cast_with_options(&string_col, to_type, &cast_opt)
                         .with_context(|| {
                             format!(
                                 "Failed when casting_by_type column '{}' to {:?}",
