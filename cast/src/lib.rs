@@ -119,10 +119,42 @@ pub fn cast_by_type(
 
     for (col, field) in data.columns().iter().zip(data.schema_ref().fields().iter()) {
         let col = if col.data_type() == from_type {
-            Arc::new(
-                arrow::compute::cast_with_options(col, to_type, &cast_opt)
-                    .with_context(|| format!("Failed when casting column '{}'", field.name()))?,
-            )
+            // allow precision loss for decimal types into floating point types
+            if matches!(
+                col.data_type(),
+                DataType::Decimal256(..) | DataType::Decimal128(..)
+            ) && to_type.is_floating()
+            {
+                let string_col = arrow::compute::cast_with_options(col, &DataType::Utf8, &cast_opt)
+                    .with_context(|| {
+                        format!(
+                            "Failed when casting_by_type column '{}' to string as intermediate step",
+                            field.name()
+                        )
+                    })?;
+                Arc::new(
+                    arrow::compute::cast_with_options(&string_col, to_type, &cast_opt)
+                        .with_context(|| {
+                            format!(
+                                "Failed when casting_by_type column '{}' to {:?}",
+                                field.name(),
+                                to_type
+                            )
+                        })?,
+                )
+            } else {
+                Arc::new(
+                    arrow::compute::cast_with_options(col, to_type, &cast_opt).with_context(
+                        || {
+                            format!(
+                                "Failed when casting_by_type column '{}' to {:?}",
+                                field.name(),
+                                to_type
+                            )
+                        },
+                    )?,
+                )
+            }
         } else {
             col.clone()
         };
