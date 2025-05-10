@@ -150,3 +150,11 @@ def base58_encode_bytes(b: bytes) -> str:
 
 def base58_decode_string(s: str) -> bytes:
     return cc.base58_decode_string(s)
+
+
+def get_token_metadata(rpc_url: str, addresses: list[str]) -> list[dict]:
+    return cc.get_token_metadata(rpc_url, addresses)
+
+
+def get_token_metadata_as_table(rpc_url: str, addresses: list[str]) -> pyarrow.Table:
+    return cc.get_token_metadata_as_table(rpc_url, addresses)
