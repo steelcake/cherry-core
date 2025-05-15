@@ -5,14 +5,10 @@ use arrow::array::{Array, ArrayData, BinaryArray, Decimal256Array, RecordBatch, 
 use arrow::datatypes::{DataType, Schema};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use baselib::svm_decode::{InstructionSignature, LogSignature};
-use mimalloc::MiMalloc;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
 mod ingest;
-
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
 
 static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
