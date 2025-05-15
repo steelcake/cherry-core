@@ -1,6 +1,6 @@
 [package]
 name = "cherry-ingest"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 description = "Library for ingesting evm data using common a query/response format"
 homepage = "https://github.com/steelcake/cherry-core"

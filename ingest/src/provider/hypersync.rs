@@ -137,7 +137,7 @@ pub async fn start_stream(cfg: ProviderConfig, query: crate::Query) -> Result<Da
             let chain_id = client.get_chain_id().await.context("get chain id")?;
             let rollback_offset = make_rollback_offset(chain_id);
 
-            let (tx, rx) = mpsc::channel(cfg.buffer_size.unwrap_or(10));
+            let (tx, rx) = mpsc::channel(1);
 
             let height = client.get_height().await.context("get height")?;
 
