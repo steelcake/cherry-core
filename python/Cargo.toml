@@ -1,6 +1,6 @@
 [package]
 name = "cherry-core-python"
-version = "0.5.9"
+version = "0.5.10"
 edition = "2021"
 description = "Core library for cherry blockchain data framework"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -24,3 +24,4 @@ tokio = { workspace = true, features = ["full"] }
 env_logger = "0.11"
 bs58 = { workspace = true }
 openssl = { version = "0.10", features = ["vendored"] }
+tikv-jemallocator = { version = "0.6", features = ["disable_initial_exec_tls", "unprefixed_malloc_on_supported_platforms"] }

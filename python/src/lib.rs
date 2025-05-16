@@ -7,8 +7,12 @@ use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use baselib::svm_decode::{InstructionSignature, LogSignature};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use tikv_jemallocator::Jemalloc;
 
 mod ingest;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
