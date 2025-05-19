@@ -199,7 +199,13 @@ pub fn decode_instructions(
             }
         };
 
-        let decoded_ix_result = deserialize_data(&data, &signature.params);
+        // Don't error on remaining data because this is the behavior implemented by anchor.
+        // Note that borsh does error if there is remaining data after deserialization but anchor
+        // doesn't.
+        //
+        // Might be a good idea to extract this to a parameter to this function as well
+        let error_on_remanining = false;
+        let decoded_ix_result = deserialize_data(&data, &signature.params, error_on_remanining);
         let decoded_ix = match decoded_ix_result {
             Ok(ix) => ix,
             Err(e) if allow_decode_fail => {
@@ -344,7 +350,7 @@ pub fn decode_logs(
             }
         };
 
-        let decoded_log_result = deserialize_data(&log_data, &signature.params);
+        let decoded_log_result = deserialize_data(&log_data, &signature.params, false);
         let decoded_log = match decoded_log_result {
             Ok(log) => log,
             Err(e) if allow_decode_fail => {

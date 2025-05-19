@@ -185,16 +185,22 @@ pub enum DynValue {
 /// # Arguments
 /// * `data` - The binary data to deserialize
 /// * `params` - The parameter types that define the structure of the data
+/// * `error_on_remaining` - Weather to error if there is remaining data in the buffer after parsing
+/// * given params.
 ///
 /// # Returns
 /// A vector of deserialized values matching the parameter types
 ///
 /// # Errors
 /// Returns an error if:
-/// * There is not enough data to deserialize all parameters
+/// * `error_on_remaining` is `true` and there is not enough data to deserialize all parameters
 /// * The data format doesn't match the expected parameter types
 /// * There is remaining data after deserializing all parameters
-pub fn deserialize_data(data: &[u8], params: &[ParamInput]) -> Result<Vec<DynValue>> {
+pub fn deserialize_data(
+    data: &[u8],
+    params: &[ParamInput],
+    error_on_remaining: bool,
+) -> Result<Vec<DynValue>> {
     let mut ix_values = Vec::with_capacity(params.len());
     let mut remaining_data = data;
 
@@ -205,7 +211,7 @@ pub fn deserialize_data(data: &[u8], params: &[ParamInput]) -> Result<Vec<DynVal
         remaining_data = new_data;
     }
 
-    if !remaining_data.is_empty() {
+    if error_on_remaining && !remaining_data.is_empty() {
         return Err(anyhow!(
             "Remaining data after deserialization: {:?}",
             remaining_data

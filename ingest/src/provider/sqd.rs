@@ -1,5 +1,5 @@
 use crate::{evm, svm, DataStream, ProviderConfig, Query};
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use futures_lite::StreamExt;
 use std::collections::BTreeMap;
 
@@ -135,33 +135,41 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     inst.d4.iter().map(|v| hex_encode(v.0.as_slice())).collect();
                 let mut d8: Vec<String> =
                     inst.d8.iter().map(|v| hex_encode(v.0.as_slice())).collect();
-                inst.discriminator.iter().for_each(|d| {
-                    match d.0.len() {
-                        0 => {}
-                        1 => {
-                            d1.push(hex_encode(d.0.as_slice()));
-                        }
-                        2 => {
-                            d2.push(hex_encode(d.0.as_slice()));
-                        }
-                        3 => {
-                            d3.push(hex_encode(d.0.as_slice()));
-                        }
-                        4 => {
-                            d4.push(hex_encode(d.0.as_slice()));
-                        }
-                        5..=7 => {
-                            let slice = &d.0[..4.min(d.0.len())];
-                            d4.push(hex_encode(slice));
-                        }
-                        _ => {
-                            let slice = &d.0[..8.min(d.0.len())];
-                            d8.push(hex_encode(slice));
-                        }
-                    };
-                });
 
-                sqd_portal_client::svm::InstructionRequest {
+                if !inst.discriminator.is_empty() {
+                    let len = inst.discriminator[0].0.len();
+
+                    for d in inst.discriminator.iter() {
+                        if d.0.len() != len {
+                            return Err(anyhow!("all values in instruction_request.discriminator should have the same length. Expected {} but got {}", len, d.0.len()));
+                        }
+                        match len {
+                            0 => return Err(anyhow!("zero length instruction_request.discriminator isn't supported.")),
+                            1 => {
+                                d1.push(hex_encode(d.0.as_slice()));
+                            }
+                            2 => {
+                                d2.push(hex_encode(d.0.as_slice()));
+                            }
+                            3 => {
+                                d3.push(hex_encode(d.0.as_slice()));
+                            }
+                            4 => {
+                                d4.push(hex_encode(d.0.as_slice()));
+                            }
+                            5..=7 => {
+                                let slice = &d.0[..4.min(d.0.len())];
+                                d4.push(hex_encode(slice));
+                            }
+                            _ => {
+                                let slice = &d.0[..8.min(d.0.len())];
+                                d8.push(hex_encode(slice));
+                            }
+                        }
+                    }
+                }
+
+                Ok(sqd_portal_client::svm::InstructionRequest {
                     program_id: inst
                         .program_id
                         .iter()
@@ -227,9 +235,9 @@ fn svm_query_to_sqd(query: &svm::Query) -> Result<sqd_portal_client::svm::Query>
                     logs: inst.include_logs,
                     transaction: inst.include_transactions,
                     transaction_token_balances: inst.include_transaction_token_balances,
-                }
+                })
             })
-            .collect(),
+            .collect::<Result<_>>().context("map instruction_request")?,
         transactions: query
             .transactions
             .iter()
