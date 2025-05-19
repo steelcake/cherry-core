@@ -1,6 +1,6 @@
 [package]
 name = "cherry-core"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 description = "Core library for cherry blockchain data framework"
 homepage = "https://github.com/steelcake/cherry-core"
@@ -17,7 +17,7 @@ cherry-evm-schema = { path = "../evm-schema", version = "0.1.0" }
 cherry-svm-schema = { path = "../svm-schema", version = "0.1.0" }
 cherry-ingest = { path = "../ingest", version ="0.4.0" }
 cherry-query = { path = "../query", version = "0.2.0" }
-cherry-rpc-call = { path = "../rpc_call", version = "0.1.0" }
+cherry-rpc-call = { path = "../rpc_call", version = "0.2.0" }
 
 [dev-dependencies]
 hypersync-client = { workspace = true } 
@@ -29,4 +29,4 @@ futures-lite = "2"
 faster-hex = { workspace = true }
 
 [features]
-pyo3 = ["cherry-ingest/pyo3", "cherry-svm-decode/pyo3"]
+pyo3 = ["cherry-ingest/pyo3", "cherry-svm-decode/pyo3", "cherry-rpc-call/pyo3"]

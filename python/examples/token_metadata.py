@@ -25,9 +25,15 @@ def main():
     # Test get_token_metadata_as_table
     print("Testing get_token_metadata_as_table:")
     token_metadata_table = cherry_core.get_token_metadata_as_table(
-        "https://ethereum-rpc.publicnode.com", addresses
+        "https://ethereum-rpc.publicnode.com",
+        addresses,
+        {
+            "decimals": True,
+            "symbol": False,
+            "name": True,
+            "total_supply": True,
+        },
     )
-
     # Convert to pandas DataFrame for better display
     df = pl.from_arrow(token_metadata_table)
     print("Token metadata as table:")
