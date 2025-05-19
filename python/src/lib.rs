@@ -560,10 +560,16 @@ fn base58_decode_string(s: &str) -> PyResult<Vec<u8>> {
 }
 
 #[pyfunction]
-fn get_token_metadata(rpc_url: &str, addresses: Vec<String>, py: Python<'_>) -> PyResult<PyObject> {
-    let token_metadata = TOKIO_RUNTIME
-        .block_on(async { baselib::rpc_call::get_token_metadata(rpc_url, addresses).await })?;
-
+fn get_token_metadata(
+    rpc_url: &str,
+    addresses: Vec<String>,
+    selector: &Bound<'_, PyAny>,
+    py: Python<'_>,
+) -> PyResult<PyObject> {
+    let selector = selector.extract::<baselib::rpc_call::TokenMetadataSelector>()?;
+    let token_metadata = TOKIO_RUNTIME.block_on(async {
+        baselib::rpc_call::get_token_metadata(rpc_url, addresses, &selector).await
+    })?;
     let py_list = PyList::empty(py);
 
     for metadata in token_metadata {
@@ -574,24 +580,32 @@ fn get_token_metadata(rpc_url: &str, addresses: Vec<String>, py: Python<'_>) -> 
             None => dict.set_item("address", py.None())?,
         }
 
-        match metadata.decimals {
-            Some(decimals) => dict.set_item("decimals", decimals)?,
-            None => dict.set_item("decimals", py.None())?,
+        if selector.decimals {
+            match metadata.decimals {
+                Some(decimals) => dict.set_item("decimals", decimals)?,
+                None => dict.set_item("decimals", py.None())?,
+            }
         }
 
-        match metadata.symbol {
-            Some(symbol) => dict.set_item("symbol", symbol)?,
-            None => dict.set_item("symbol", py.None())?,
+        if selector.symbol {
+            match metadata.symbol {
+                Some(symbol) => dict.set_item("symbol", symbol)?,
+                None => dict.set_item("symbol", py.None())?,
+            }
         }
 
-        match metadata.name {
-            Some(name) => dict.set_item("name", name)?,
-            None => dict.set_item("name", py.None())?,
+        if selector.name {
+            match metadata.name {
+                Some(name) => dict.set_item("name", name)?,
+                None => dict.set_item("name", py.None())?,
+            }
         }
 
-        match metadata.total_supply {
-            Some(total_supply) => dict.set_item("total_supply", total_supply.to_string())?,
-            None => dict.set_item("total_supply", py.None())?,
+        if selector.total_supply {
+            match metadata.total_supply {
+                Some(total_supply) => dict.set_item("total_supply", total_supply.to_string())?,
+                None => dict.set_item("total_supply", py.None())?,
+            }
         }
 
         py_list.append(dict)?;
@@ -604,12 +618,21 @@ fn get_token_metadata(rpc_url: &str, addresses: Vec<String>, py: Python<'_>) -> 
 fn get_token_metadata_as_table(
     rpc_url: &str,
     addresses: Vec<String>,
+    selector: &Bound<'_, PyAny>,
     py: Python<'_>,
 ) -> PyResult<PyObject> {
-    let token_metadata = TOKIO_RUNTIME
-        .block_on(async { baselib::rpc_call::get_token_metadata(rpc_url, addresses).await })?;
-
-    let batch = baselib::rpc_call::token_metadata_to_table(token_metadata)?;
+    let token_metadata = TOKIO_RUNTIME.block_on(async {
+        baselib::rpc_call::get_token_metadata(
+            rpc_url,
+            addresses,
+            &selector.extract::<baselib::rpc_call::TokenMetadataSelector>()?,
+        )
+        .await
+    })?;
+    let batch = baselib::rpc_call::token_metadata_to_table(
+        token_metadata,
+        &selector.extract::<baselib::rpc_call::TokenMetadataSelector>()?,
+    )?;
 
     Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
 }
