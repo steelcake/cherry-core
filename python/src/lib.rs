@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use anyhow::{anyhow, Context};
-use arrow::array::{Array, ArrayData, BinaryArray, Decimal256Array, RecordBatch, StringArray};
+use arrow::array::{Array, ArrayData, BinaryArray, Decimal256Array, LargeBinaryArray, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Schema};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use baselib::svm_decode::{InstructionSignature, LogSignature};
@@ -235,17 +235,23 @@ fn hex_encode_column_impl<const PREFIXED: bool>(
     // https://github.com/apache/arrow-rs/blob/764b34af4abf39e46575b1e8e3eaf0a36976cafb/arrow/src/pyarrow.rs#L374
     col.align_buffers();
 
-    if col.data_type() != &DataType::Binary {
-        return Err(anyhow!("unexpected data type {}. Expected Binary", col.data_type()).into());
+    if col.data_type() == &DataType::Binary {
+        let col = BinaryArray::from(col);
+        let col = baselib::cast::hex_encode_column::<PREFIXED, i32>(&col);
+        Ok(col
+            .into_data()
+            .to_pyarrow(py)
+            .context("map result back to pyarrow")?)
+    } else if col.data_type() == &DataType::LargeBinary {
+        let col = LargeBinaryArray::from(col);
+        let col = baselib::cast::hex_encode_column::<PREFIXED, i64>(&col);
+        Ok(col
+            .into_data()
+            .to_pyarrow(py)
+            .context("map result back to pyarrow")?)
+    } else {
+        Err(anyhow!("unexpected data type {}. Expected Binary or LargeBinary", col.data_type()).into())
     }
-    let col = BinaryArray::from(col);
-
-    let col = baselib::cast::hex_encode_column::<PREFIXED>(&col);
-
-    Ok(col
-        .into_data()
-        .to_pyarrow(py)
-        .context("map result back to pyarrow")?)
 }
 
 #[pyfunction]

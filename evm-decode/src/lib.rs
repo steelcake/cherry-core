@@ -4,7 +4,10 @@ use alloy_dyn_abi::{DynSolCall, DynSolEvent, DynSolType, DynSolValue, Specifier}
 use alloy_primitives::{I256, U256};
 use anyhow::{anyhow, Context, Result};
 use arrow::{
-    array::{builder, Array, ArrowPrimitiveType, BinaryArray, ListArray, RecordBatch, StructArray},
+    array::{
+        builder, Array, ArrowPrimitiveType, GenericBinaryArray, ListArray, OffsetSizeTrait,
+        RecordBatch, StructArray,
+    },
     buffer::{NullBuffer, OffsetBuffer},
     datatypes::{
         DataType, Field, Fields, Int16Type, Int32Type, Int64Type, Int8Type, Schema, UInt16Type,
@@ -24,12 +27,12 @@ pub fn signature_to_topic0(signature: &str) -> Result<[u8; 32]> {
 ///
 /// Writes `null` for data rows that fail to decode if `allow_decode_fail` is set to `true`.
 /// Errors when a row fails to decode if `allow_decode_fail` is set to `false`.
-pub fn decode_call_inputs(
+pub fn decode_call_inputs<I: OffsetSizeTrait>(
     signature: &str,
-    data: &BinaryArray,
+    data: &GenericBinaryArray<I>,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
-    decode_call_impl::<true>(signature, data, allow_decode_fail)
+    decode_call_impl::<true, I>(signature, data, allow_decode_fail)
 }
 
 /// Decodes given call output data in arrow format to arrow format.
@@ -38,19 +41,19 @@ pub fn decode_call_inputs(
 ///
 /// Writes `null` for data rows that fail to decode if `allow_decode_fail` is set to `true`.
 /// Errors when a row fails to decode if `allow_decode_fail` is set to `false`.
-pub fn decode_call_outputs(
+pub fn decode_call_outputs<I: OffsetSizeTrait>(
     signature: &str,
-    data: &BinaryArray,
+    data: &GenericBinaryArray<I>,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
-    decode_call_impl::<false>(signature, data, allow_decode_fail)
+    decode_call_impl::<false, I>(signature, data, allow_decode_fail)
 }
 
 // IS_INPUT: true means we are decoding inputs
 // false means we are decoding outputs
-fn decode_call_impl<const IS_INPUT: bool>(
+fn decode_call_impl<const IS_INPUT: bool, I: OffsetSizeTrait>(
     signature: &str,
-    data: &BinaryArray,
+    data: &GenericBinaryArray<I>,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
     let (call, resolved) = resolve_function_signature(signature)?;
@@ -162,7 +165,7 @@ fn resolve_function_signature(signature: &str) -> Result<(alloy_json_abi::Functi
 ///
 /// Writes `null` for event data rows that fail to decode if `allow_decode_fail` is set to `true`.
 /// Errors when a row fails to decode if `allow_decode_fail` is set to `false`.
-pub fn decode_events(
+pub fn decode_events<I: OffsetSizeTrait>(
     signature: &str,
     data: &RecordBatch,
     allow_decode_fail: bool,
@@ -183,7 +186,7 @@ pub fn decode_events(
             .column_by_name(topic_name)
             .context("get topic column")?
             .as_any()
-            .downcast_ref::<BinaryArray>()
+            .downcast_ref::<GenericBinaryArray<I>>()
             .context("get topic column as binary")?;
 
         let mut decoded = Vec::<Option<DynSolValue>>::with_capacity(col.len());
@@ -211,7 +214,7 @@ pub fn decode_events(
         .column_by_name("data")
         .context("get data column")?
         .as_any()
-        .downcast_ref::<BinaryArray>()
+        .downcast_ref::<GenericBinaryArray<I>>()
         .context("get data column as binary")?;
     let body_sol_type = DynSolType::Tuple(resolved.body().to_vec());
 
@@ -837,7 +840,7 @@ mod tests {
         let signature =
             "PairCreated(address indexed token0, address indexed token1, address pair,uint256)";
 
-        let decoded = decode_events(signature, &logs, false).unwrap();
+        let decoded = decode_events::<i32>(signature, &logs, false).unwrap();
 
         // Save the filtered instructions to a new parquet file
         let mut file = File::create("decoded_logs.parquet").unwrap();

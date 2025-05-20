@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{Array, BinaryArray, BinaryBuilder, GenericListArray, StringArray};
+use arrow::array::{builder, Array, BinaryArray, GenericBinaryArray, GenericListArray, GenericStringArray, OffsetSizeTrait};
 use arrow::{array::RecordBatch, datatypes::*};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::sync::Arc;
@@ -78,7 +78,7 @@ impl<'py> pyo3::FromPyObject<'py> for LogSignature {
     }
 }
 
-pub fn svm_decode_instructions(
+pub fn svm_decode_instructions<I: OffsetSizeTrait>(
     signature: InstructionSignature,
     batch: &RecordBatch,
     allow_decode_fail: bool,
@@ -88,15 +88,15 @@ pub fn svm_decode_instructions(
         .context("data column not found in instructions batch")?;
     let data_array = data_col
         .as_any()
-        .downcast_ref::<BinaryArray>()
+        .downcast_ref::<GenericBinaryArray<I>>()
         .context("unable to downcast data to a binary array")?;
 
-    let mut account_arrays: Vec<Option<BinaryArray>> = Vec::with_capacity(10);
+    let mut account_arrays: Vec<Option<GenericBinaryArray<I>>> = Vec::with_capacity(10);
 
     for i in 0..10 {
         let col_name = format!("a{}", i);
         if let Some(col) = batch.column_by_name(&col_name) {
-            if let Some(binary_array) = col.as_any().downcast_ref::<BinaryArray>() {
+            if let Some(binary_array) = col.as_any().downcast_ref::<GenericBinaryArray<I>>() {
                 account_arrays.push(Some(binary_array.clone()));
             } else {
                 account_arrays.push(None);
@@ -108,21 +108,15 @@ pub fn svm_decode_instructions(
         let rest_of_acc_col = batch
             .column_by_name("rest_of_accounts")
             .context("rest_of_accounts column not found in instructions batch")?;
-        let rest_of_acc_arrays: &GenericListArray<i32> = rest_of_acc_col
+        let rest_of_acc_arrays: &GenericListArray<I> = rest_of_acc_col
             .as_any()
-            .downcast_ref::<GenericListArray<i32>>()
+            .downcast_ref::<GenericListArray<I>>()
             .context("unable to downcast rest_of_accounts to a list array")?;
+
         // Unpack the rest_of_accounts list array into individual arrays
         let data_size = rest_of_acc_arrays.len() * 32;
         for i in 10..signature.accounts_names.len() {
-            let mut builder = BinaryBuilder::with_capacity(rest_of_acc_arrays.len(), data_size);
-            if signature.accounts_names[i].is_empty() {
-                for _ in 0..rest_of_acc_arrays.len() {
-                    builder.append_null();
-                }
-                account_arrays.push(Some(builder.finish()));
-                continue;
-            }
+            let mut builder = builder::GenericBinaryBuilder::<I>::with_capacity(rest_of_acc_arrays.len(), data_size);
 
             // For each row in the batch
             for row_idx in 0..rest_of_acc_arrays.len() {
@@ -153,13 +147,13 @@ pub fn svm_decode_instructions(
         }
     }
 
-    decode_instructions(signature, &account_arrays, data_array, allow_decode_fail)
+    decode_instructions::<I>(signature, &account_arrays, data_array, allow_decode_fail)
 }
 
-pub fn decode_instructions(
+pub fn decode_instructions<I: OffsetSizeTrait>(
     signature: InstructionSignature,
-    accounts: &[Option<BinaryArray>],
-    data: &BinaryArray,
+    accounts: &[Option<GenericBinaryArray<I>>],
+    data: &GenericBinaryArray<I>,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
     let num_params = signature.params.len();
@@ -256,16 +250,16 @@ pub fn decode_instructions(
     for i in 0..acc_names_len {
         let arr = accounts
             .get(i)
-            .context(format!("Account a{} not found during decoding", i))?;
-        if let Some(arr) = arr {
-            let owned_array = arr.slice(0, arr.len());
-            accounts_arrays.push(Arc::new(owned_array) as Arc<dyn Array>);
+            .context(format!("Account a{} not found during decoding", i))?
+            .as_ref()
+            .context(format!("Account a{} is null but reqired by the signature", i))?;
+
+        if arr.data_type() == &DataType::LargeBinary {
+            accounts_arrays.push(arrow::compute::cast(arr, &DataType::Binary).unwrap());
         } else {
-            return Err(anyhow::anyhow!(
-                "Account a{} is Null, but required by the signature",
-                i
-            ));
+            accounts_arrays.push(Arc::new(arr.clone()) as Arc<dyn Array>);
         }
+
         if signature.accounts_names[i].is_empty() {
             let field = Field::new(format!("a{}", i), DataType::Binary, true);
             acc_fields.push(field);
@@ -291,7 +285,7 @@ pub fn decode_instructions(
     Ok(batch)
 }
 
-pub fn svm_decode_logs(
+pub fn svm_decode_logs<I: OffsetSizeTrait>(
     signature: LogSignature,
     batch: &RecordBatch,
     allow_decode_fail: bool,
@@ -301,15 +295,15 @@ pub fn svm_decode_logs(
         .context("message column not found in logs batch")?;
     let data = message_col
         .as_any()
-        .downcast_ref::<StringArray>()
+        .downcast_ref::<GenericStringArray<I>>()
         .context("unable to downcast message to a string array")?;
 
-    decode_logs(signature, data, allow_decode_fail)
+    decode_logs::<I>(signature, data, allow_decode_fail)
 }
 
-pub fn decode_logs(
+pub fn decode_logs<I: OffsetSizeTrait>(
     signature: LogSignature,
-    data: &StringArray,
+    data: &GenericStringArray<I>,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
     let num_params = signature.params.len();
