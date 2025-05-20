@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use arrow::{
-    array::{builder, Array, BinaryArray, Decimal256Array, RecordBatch, StringArray},
+    array::{
+        builder, Array, BinaryArray, Decimal256Array, GenericBinaryArray, GenericStringArray,
+        LargeBinaryArray, OffsetSizeTrait, RecordBatch,
+    },
     compute::CastOptions,
     datatypes::{DataType, Field, Schema},
 };
@@ -193,6 +196,10 @@ pub fn base58_encode(data: &RecordBatch) -> Result<RecordBatch> {
             columns.push(Arc::new(base58_encode_column(
                 col.as_any().downcast_ref::<BinaryArray>().unwrap(),
             )));
+        } else if col.data_type() == &DataType::LargeBinary {
+            columns.push(Arc::new(base58_encode_column(
+                col.as_any().downcast_ref::<LargeBinaryArray>().unwrap(),
+            )));
         } else {
             columns.push(col.clone());
         }
@@ -201,9 +208,13 @@ pub fn base58_encode(data: &RecordBatch) -> Result<RecordBatch> {
     RecordBatch::try_new(Arc::new(schema), columns).context("construct arrow batch")
 }
 
-pub fn base58_encode_column(col: &BinaryArray) -> StringArray {
-    let mut arr =
-        builder::StringBuilder::with_capacity(col.len(), (col.value_data().len() + 2) * 2);
+pub fn base58_encode_column<I: OffsetSizeTrait>(
+    col: &GenericBinaryArray<I>,
+) -> GenericStringArray<I> {
+    let mut arr = builder::GenericStringBuilder::<I>::with_capacity(
+        col.len(),
+        (col.value_data().len() + 2) * 2,
+    );
 
     for v in col.iter() {
         match v {
@@ -226,8 +237,12 @@ pub fn hex_encode<const PREFIXED: bool>(data: &RecordBatch) -> Result<RecordBatc
 
     for col in data.columns().iter() {
         if col.data_type() == &DataType::Binary {
-            columns.push(Arc::new(hex_encode_column::<PREFIXED>(
+            columns.push(Arc::new(hex_encode_column::<PREFIXED, i32>(
                 col.as_any().downcast_ref::<BinaryArray>().unwrap(),
+            )));
+        } else if col.data_type() == &DataType::LargeBinary {
+            columns.push(Arc::new(hex_encode_column::<PREFIXED, i64>(
+                col.as_any().downcast_ref::<LargeBinaryArray>().unwrap(),
             )));
         } else {
             columns.push(col.clone());
@@ -237,9 +252,13 @@ pub fn hex_encode<const PREFIXED: bool>(data: &RecordBatch) -> Result<RecordBatc
     RecordBatch::try_new(Arc::new(schema), columns).context("construct arrow batch")
 }
 
-pub fn hex_encode_column<const PREFIXED: bool>(col: &BinaryArray) -> StringArray {
-    let mut arr =
-        builder::StringBuilder::with_capacity(col.len(), (col.value_data().len() + 2) * 2);
+pub fn hex_encode_column<const PREFIXED: bool, I: OffsetSizeTrait>(
+    col: &GenericBinaryArray<I>,
+) -> GenericStringArray<I> {
+    let mut arr = builder::GenericStringBuilder::<I>::with_capacity(
+        col.len(),
+        (col.value_data().len() + 2) * 2,
+    );
 
     for v in col.iter() {
         match v {
@@ -274,6 +293,12 @@ pub fn schema_binary_to_string(schema: &Schema) -> Schema {
                 DataType::Utf8,
                 f.is_nullable(),
             )));
+        } else if f.data_type() == &DataType::LargeBinary {
+            fields.push(Arc::new(Field::new(
+                f.name().clone(),
+                DataType::LargeUtf8,
+                f.is_nullable(),
+            )));
         } else {
             fields.push(f.clone());
         }
@@ -303,8 +328,11 @@ pub fn schema_decimal256_to_binary(schema: &Schema) -> Schema {
     Schema::new(fields)
 }
 
-pub fn base58_decode_column(col: &StringArray) -> Result<BinaryArray> {
-    let mut arr = builder::BinaryBuilder::with_capacity(col.len(), col.value_data().len() / 2);
+pub fn base58_decode_column<I: OffsetSizeTrait>(
+    col: &GenericStringArray<I>,
+) -> Result<GenericBinaryArray<I>> {
+    let mut arr =
+        builder::GenericBinaryBuilder::<I>::with_capacity(col.len(), col.value_data().len() / 2);
 
     for v in col.iter() {
         match v {
@@ -323,8 +351,11 @@ pub fn base58_decode_column(col: &StringArray) -> Result<BinaryArray> {
     Ok(arr.finish())
 }
 
-pub fn hex_decode_column<const PREFIXED: bool>(col: &StringArray) -> Result<BinaryArray> {
-    let mut arr = builder::BinaryBuilder::with_capacity(col.len(), col.value_data().len() / 2);
+pub fn hex_decode_column<const PREFIXED: bool, I: OffsetSizeTrait>(
+    col: &GenericStringArray<I>,
+) -> Result<GenericBinaryArray<I>> {
+    let mut arr =
+        builder::GenericBinaryBuilder::<I>::with_capacity(col.len(), col.value_data().len() / 2);
 
     for v in col.iter() {
         match v {
@@ -351,7 +382,9 @@ pub fn hex_decode_column<const PREFIXED: bool>(col: &StringArray) -> Result<Bina
     Ok(arr.finish())
 }
 
-pub fn u256_column_from_binary(col: &BinaryArray) -> Result<Decimal256Array> {
+pub fn u256_column_from_binary<I: OffsetSizeTrait>(
+    col: &GenericBinaryArray<I>,
+) -> Result<Decimal256Array> {
     let mut arr = builder::Decimal256Builder::with_capacity(col.len());
 
     for v in col.iter() {

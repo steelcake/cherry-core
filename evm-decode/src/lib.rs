@@ -4,7 +4,10 @@ use alloy_dyn_abi::{DynSolCall, DynSolEvent, DynSolType, DynSolValue, Specifier}
 use alloy_primitives::{I256, U256};
 use anyhow::{anyhow, Context, Result};
 use arrow::{
-    array::{builder, Array, ArrowPrimitiveType, BinaryArray, ListArray, RecordBatch, StructArray},
+    array::{
+        builder, Array, ArrowPrimitiveType, BinaryArray, GenericBinaryArray, LargeBinaryArray,
+        ListArray, OffsetSizeTrait, RecordBatch, StructArray,
+    },
     buffer::{NullBuffer, OffsetBuffer},
     datatypes::{
         DataType, Field, Fields, Int16Type, Int32Type, Int64Type, Int8Type, Schema, UInt16Type,
@@ -24,12 +27,12 @@ pub fn signature_to_topic0(signature: &str) -> Result<[u8; 32]> {
 ///
 /// Writes `null` for data rows that fail to decode if `allow_decode_fail` is set to `true`.
 /// Errors when a row fails to decode if `allow_decode_fail` is set to `false`.
-pub fn decode_call_inputs(
+pub fn decode_call_inputs<I: OffsetSizeTrait>(
     signature: &str,
-    data: &BinaryArray,
+    data: &GenericBinaryArray<I>,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
-    decode_call_impl::<true>(signature, data, allow_decode_fail)
+    decode_call_impl::<true, I>(signature, data, allow_decode_fail)
 }
 
 /// Decodes given call output data in arrow format to arrow format.
@@ -38,19 +41,19 @@ pub fn decode_call_inputs(
 ///
 /// Writes `null` for data rows that fail to decode if `allow_decode_fail` is set to `true`.
 /// Errors when a row fails to decode if `allow_decode_fail` is set to `false`.
-pub fn decode_call_outputs(
+pub fn decode_call_outputs<I: OffsetSizeTrait>(
     signature: &str,
-    data: &BinaryArray,
+    data: &GenericBinaryArray<I>,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
-    decode_call_impl::<false>(signature, data, allow_decode_fail)
+    decode_call_impl::<false, I>(signature, data, allow_decode_fail)
 }
 
 // IS_INPUT: true means we are decoding inputs
 // false means we are decoding outputs
-fn decode_call_impl<const IS_INPUT: bool>(
+fn decode_call_impl<const IS_INPUT: bool, I: OffsetSizeTrait>(
     signature: &str,
-    data: &BinaryArray,
+    data: &GenericBinaryArray<I>,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
     let (call, resolved) = resolve_function_signature(signature)?;
@@ -181,40 +184,61 @@ pub fn decode_events(
     {
         let col = data
             .column_by_name(topic_name)
-            .context("get topic column")?
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .context("get topic column as binary")?;
+            .context("get topic column")?;
 
-        let mut decoded = Vec::<Option<DynSolValue>>::with_capacity(col.len());
-
-        for blob in col.iter() {
-            match blob {
-                Some(blob) => match sol_type.abi_decode(blob) {
-                    Ok(data) => decoded.push(Some(data)),
-                    Err(e) if allow_decode_fail => {
-                        log::debug!("failed to decode a topic: {}", e);
-                        decoded.push(None);
-                    }
-                    Err(e) => {
-                        return Err(anyhow!("failed to decode a topic: {}", e));
-                    }
-                },
-                None => decoded.push(None),
-            }
+        if col.data_type() == &DataType::Binary {
+            decode_topic(
+                sol_type,
+                col.as_any().downcast_ref::<BinaryArray>().unwrap(),
+                allow_decode_fail,
+                &mut arrays,
+            )
+            .context("decode topic")?;
+        } else if col.data_type() == &DataType::LargeBinary {
+            decode_topic(
+                sol_type,
+                col.as_any().downcast_ref::<LargeBinaryArray>().unwrap(),
+                allow_decode_fail,
+                &mut arrays,
+            )
+            .context("decode topic")?;
         }
-
-        arrays.push(to_arrow(sol_type, decoded, allow_decode_fail).context("map topic to arrow")?);
     }
 
-    let body_col = data
-        .column_by_name("data")
-        .context("get data column")?
-        .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("get data column as binary")?;
+    let body_col = data.column_by_name("data").context("get data column")?;
+
     let body_sol_type = DynSolType::Tuple(resolved.body().to_vec());
 
+    if body_col.data_type() == &DataType::Binary {
+        decode_body(
+            &body_sol_type,
+            body_col.as_any().downcast_ref::<BinaryArray>().unwrap(),
+            allow_decode_fail,
+            &mut arrays,
+        )
+        .context("decode body")?;
+    } else if body_col.data_type() == &DataType::LargeBinary {
+        decode_body(
+            &body_sol_type,
+            body_col
+                .as_any()
+                .downcast_ref::<LargeBinaryArray>()
+                .unwrap(),
+            allow_decode_fail,
+            &mut arrays,
+        )
+        .context("decode body")?;
+    }
+
+    RecordBatch::try_new(Arc::new(schema), arrays).context("construct arrow batch")
+}
+
+fn decode_body<I: OffsetSizeTrait>(
+    body_sol_type: &DynSolType,
+    body_col: &GenericBinaryArray<I>,
+    allow_decode_fail: bool,
+    arrays: &mut Vec<Arc<dyn Array>>,
+) -> Result<()> {
     let mut body_decoded = Vec::<Option<DynSolValue>>::with_capacity(body_col.len());
 
     for blob in body_col.iter() {
@@ -234,7 +258,7 @@ pub fn decode_events(
     }
 
     let body_array =
-        to_arrow(&body_sol_type, body_decoded, allow_decode_fail).context("map body to arrow")?;
+        to_arrow(body_sol_type, body_decoded, allow_decode_fail).context("map body to arrow")?;
     match body_array.data_type() {
         DataType::Struct(_) => {
             let arr = body_array.as_any().downcast_ref::<StructArray>().unwrap();
@@ -246,7 +270,36 @@ pub fn decode_events(
         _ => unreachable!(),
     }
 
-    RecordBatch::try_new(Arc::new(schema), arrays).context("construct arrow batch")
+    Ok(())
+}
+
+fn decode_topic<I: OffsetSizeTrait>(
+    sol_type: &DynSolType,
+    col: &GenericBinaryArray<I>,
+    allow_decode_fail: bool,
+    arrays: &mut Vec<Arc<dyn Array>>,
+) -> Result<()> {
+    let mut decoded = Vec::<Option<DynSolValue>>::with_capacity(col.len());
+
+    for blob in col.iter() {
+        match blob {
+            Some(blob) => match sol_type.abi_decode(blob) {
+                Ok(data) => decoded.push(Some(data)),
+                Err(e) if allow_decode_fail => {
+                    log::debug!("failed to decode a topic: {}", e);
+                    decoded.push(None);
+                }
+                Err(e) => {
+                    return Err(anyhow!("failed to decode a topic: {}", e));
+                }
+            },
+            None => decoded.push(None),
+        }
+    }
+
+    arrays.push(to_arrow(sol_type, decoded, allow_decode_fail).context("map topic to arrow")?);
+
+    Ok(())
 }
 
 /// Generates Arrow schema based on given event signature

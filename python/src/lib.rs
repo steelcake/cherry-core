@@ -1,7 +1,10 @@
 use std::sync::LazyLock;
 
 use anyhow::{anyhow, Context};
-use arrow::array::{Array, ArrayData, BinaryArray, Decimal256Array, RecordBatch, StringArray};
+use arrow::array::{
+    Array, ArrayData, BinaryArray, Decimal256Array, LargeBinaryArray, LargeStringArray,
+    RecordBatch, StringArray,
+};
 use arrow::datatypes::{DataType, Schema};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use baselib::svm_decode::{InstructionSignature, LogSignature};
@@ -235,17 +238,27 @@ fn hex_encode_column_impl<const PREFIXED: bool>(
     // https://github.com/apache/arrow-rs/blob/764b34af4abf39e46575b1e8e3eaf0a36976cafb/arrow/src/pyarrow.rs#L374
     col.align_buffers();
 
-    if col.data_type() != &DataType::Binary {
-        return Err(anyhow!("unexpected data type {}. Expected Binary", col.data_type()).into());
+    if col.data_type() == &DataType::Binary {
+        let col = BinaryArray::from(col);
+        let col = baselib::cast::hex_encode_column::<PREFIXED, i32>(&col);
+        Ok(col
+            .into_data()
+            .to_pyarrow(py)
+            .context("map result back to pyarrow")?)
+    } else if col.data_type() == &DataType::LargeBinary {
+        let col = LargeBinaryArray::from(col);
+        let col = baselib::cast::hex_encode_column::<PREFIXED, i64>(&col);
+        Ok(col
+            .into_data()
+            .to_pyarrow(py)
+            .context("map result back to pyarrow")?)
+    } else {
+        Err(anyhow!(
+            "unexpected data type {}. Expected Binary or LargeBinary",
+            col.data_type()
+        )
+        .into())
     }
-    let col = BinaryArray::from(col);
-
-    let col = baselib::cast::hex_encode_column::<PREFIXED>(&col);
-
-    Ok(col
-        .into_data()
-        .to_pyarrow(py)
-        .context("map result back to pyarrow")?)
 }
 
 #[pyfunction]
@@ -260,17 +273,27 @@ fn base58_decode_column(col: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<PyOb
     // https://github.com/apache/arrow-rs/blob/764b34af4abf39e46575b1e8e3eaf0a36976cafb/arrow/src/pyarrow.rs#L374
     col.align_buffers();
 
-    if col.data_type() != &DataType::Utf8 {
-        return Err(anyhow!("unexpected data type {}. Expected Utf8", col.data_type()).into());
+    if col.data_type() == &DataType::Utf8 {
+        let col = StringArray::from(col);
+        let col = baselib::cast::base58_decode_column(&col).context("base58 decode")?;
+        Ok(col
+            .into_data()
+            .to_pyarrow(py)
+            .context("map result back to pyarrow")?)
+    } else if col.data_type() == &DataType::LargeUtf8 {
+        let col = LargeStringArray::from(col);
+        let col = baselib::cast::base58_decode_column(&col).context("base58 decode")?;
+        Ok(col
+            .into_data()
+            .to_pyarrow(py)
+            .context("map result back to pyarrow")?)
+    } else {
+        Err(anyhow!(
+            "unexpected data type {}. Expected String or LargeString",
+            col.data_type()
+        )
+        .into())
     }
-    let col = StringArray::from(col);
-
-    let col = baselib::cast::base58_decode_column(&col).context("base58 decode")?;
-
-    Ok(col
-        .into_data()
-        .to_pyarrow(py)
-        .context("map result back to pyarrow")?)
 }
 
 #[pyfunction]
@@ -297,17 +320,27 @@ fn hex_decode_column_impl<const PREFIXED: bool>(
     // https://github.com/apache/arrow-rs/blob/764b34af4abf39e46575b1e8e3eaf0a36976cafb/arrow/src/pyarrow.rs#L374
     col.align_buffers();
 
-    if col.data_type() != &DataType::Utf8 {
-        return Err(anyhow!("unexpected data type {}. Expected Utf8", col.data_type()).into());
+    if col.data_type() == &DataType::Utf8 {
+        let col = StringArray::from(col);
+        let col = baselib::cast::hex_decode_column::<PREFIXED, i32>(&col).context("hex decode")?;
+        Ok(col
+            .into_data()
+            .to_pyarrow(py)
+            .context("map result back to pyarrow")?)
+    } else if col.data_type() == &DataType::LargeUtf8 {
+        let col = LargeStringArray::from(col);
+        let col = baselib::cast::hex_decode_column::<PREFIXED, i64>(&col).context("hex decode")?;
+        Ok(col
+            .into_data()
+            .to_pyarrow(py)
+            .context("map result back to pyarrow")?)
+    } else {
+        Err(anyhow!(
+            "unexpected data type {}. Expected String or LargeString",
+            col.data_type()
+        )
+        .into())
     }
-    let col = StringArray::from(col);
-
-    let col = baselib::cast::hex_decode_column::<PREFIXED>(&col).context("hex decode")?;
-
-    Ok(col
-        .into_data()
-        .to_pyarrow(py)
-        .context("map result back to pyarrow")?)
 }
 
 #[pyfunction]
@@ -374,7 +407,7 @@ fn svm_decode_instructions(
     let batch = RecordBatch::from_pyarrow_bound(batch).context("convert batch from pyarrow")?;
 
     let instruction_signature = signature.extract::<InstructionSignature>()?;
-    let batch = baselib::svm_decode::svm_decode_instructions(
+    let batch = baselib::svm_decode::decode_instructions_batch(
         instruction_signature,
         &batch,
         allow_decode_fail,
@@ -395,7 +428,7 @@ fn svm_decode_logs(
 
     let log_signature = signature.extract::<LogSignature>()?;
 
-    let batch = baselib::svm_decode::svm_decode_logs(log_signature, &batch, allow_decode_fail)
+    let batch = baselib::svm_decode::decode_logs_batch(log_signature, &batch, allow_decode_fail)
         .context("decode log batch")?;
 
     Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)

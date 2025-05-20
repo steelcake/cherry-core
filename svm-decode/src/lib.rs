@@ -1,5 +1,8 @@
 use anyhow::{anyhow, Context, Result};
-use arrow::array::{Array, BinaryArray, BinaryBuilder, GenericListArray, StringArray};
+use arrow::array::{
+    builder, Array, BinaryArray, GenericBinaryArray, GenericListArray, GenericStringArray,
+    LargeBinaryArray, LargeStringArray, OffsetSizeTrait, StringArray,
+};
 use arrow::{array::RecordBatch, datatypes::*};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::sync::Arc;
@@ -78,88 +81,149 @@ impl<'py> pyo3::FromPyObject<'py> for LogSignature {
     }
 }
 
-pub fn svm_decode_instructions(
+fn unpack_rest_of_accounts<ListI: OffsetSizeTrait, InnerI: OffsetSizeTrait>(
+    num_acc: usize,
+    rest_of_acc: &GenericListArray<ListI>,
+    account_arrays: &mut Vec<BinaryArray>,
+) -> Result<()> {
+    let data_size = rest_of_acc.len() * 32;
+
+    for acc_arr in rest_of_acc.iter().flatten() {
+        if acc_arr.len() < num_acc {
+            return Err(anyhow!(
+                "expected rest_of_accounts to have at least {} addresses but it has {}",
+                num_acc,
+                acc_arr.len()
+            ));
+        }
+    }
+
+    for i in 0..num_acc {
+        let mut builder = builder::BinaryBuilder::with_capacity(rest_of_acc.len(), data_size);
+
+        for acc_arr in rest_of_acc.iter() {
+            let acc_arr = match acc_arr {
+                Some(a) => a,
+                None => {
+                    builder.append_null();
+                    continue;
+                }
+            };
+
+            let arr = acc_arr
+                .as_any()
+                .downcast_ref::<GenericBinaryArray<InnerI>>()
+                .unwrap();
+            if !arr.is_null(i) {
+                builder.append_value(arr.value(i));
+            } else {
+                builder.append_null();
+            }
+        }
+
+        account_arrays.push(builder.finish());
+    }
+
+    Ok(())
+}
+
+pub fn decode_instructions_batch(
     signature: InstructionSignature,
     batch: &RecordBatch,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
-    let data_col = batch
-        .column_by_name("data")
-        .context("data column not found in instructions batch")?;
-    let data_array = data_col
-        .as_any()
-        .downcast_ref::<BinaryArray>()
-        .context("unable to downcast data to a binary array")?;
+    let mut account_arrays: Vec<BinaryArray> = Vec::with_capacity(20);
 
-    let mut account_arrays: Vec<Option<BinaryArray>> = Vec::with_capacity(10);
-
-    for i in 0..10 {
+    for i in 0..signature.accounts_names.len().min(10) {
         let col_name = format!("a{}", i);
-        if let Some(col) = batch.column_by_name(&col_name) {
-            if let Some(binary_array) = col.as_any().downcast_ref::<BinaryArray>() {
-                account_arrays.push(Some(binary_array.clone()));
-            } else {
-                account_arrays.push(None);
-            }
+        let col = batch
+            .column_by_name(&col_name)
+            .with_context(|| format!("account {} not found but was required", i))?;
+
+        if col.data_type() == &DataType::Binary {
+            account_arrays.push(col.as_any().downcast_ref::<BinaryArray>().unwrap().clone());
+        } else if col.data_type() == &DataType::LargeBinary {
+            account_arrays.push(
+                arrow::compute::cast(col, &DataType::Binary)
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
+                    .unwrap()
+                    .clone(),
+            );
         }
     }
 
     if signature.accounts_names.len() > 10 {
-        let rest_of_acc_col = batch
+        let rest_of_acc = batch
             .column_by_name("rest_of_accounts")
             .context("rest_of_accounts column not found in instructions batch")?;
-        let rest_of_acc_arrays: &GenericListArray<i32> = rest_of_acc_col
-            .as_any()
-            .downcast_ref::<GenericListArray<i32>>()
-            .context("unable to downcast rest_of_accounts to a list array")?;
-        // Unpack the rest_of_accounts list array into individual arrays
-        let data_size = rest_of_acc_arrays.len() * 32;
-        for i in 10..signature.accounts_names.len() {
-            let mut builder = BinaryBuilder::with_capacity(rest_of_acc_arrays.len(), data_size);
-            if signature.accounts_names[i].is_empty() {
-                for _ in 0..rest_of_acc_arrays.len() {
-                    builder.append_null();
-                }
-                account_arrays.push(Some(builder.finish()));
-                continue;
-            }
 
-            // For each row in the batch
-            for row_idx in 0..rest_of_acc_arrays.len() {
-                if rest_of_acc_arrays.is_null(row_idx) {
-                    builder.append_null();
-                    continue;
-                }
-
-                let list_value = rest_of_acc_arrays.value(row_idx);
-                let list_len = list_value.len();
-
-                // If the index exists in the list, append the binary value
-                if i - 10 < list_len {
-                    let binary_array = list_value
-                        .as_any()
-                        .downcast_ref::<BinaryArray>()
-                        .context("unable to downcast list value to binary array")?;
-                    if binary_array.is_null(i - 10) {
-                        builder.append_null();
-                    } else {
-                        builder.append_value(binary_array.value(i - 10));
-                    }
-                } else {
-                    builder.append_null();
-                }
-            }
-            account_arrays.push(Some(builder.finish()));
+        let num_acc = signature.accounts_names.len() - 10;
+        if rest_of_acc.data_type() == &DataType::new_list(DataType::Binary, true) {
+            unpack_rest_of_accounts::<i32, i32>(
+                num_acc,
+                rest_of_acc.as_any().downcast_ref().unwrap(),
+                &mut account_arrays,
+            )
+            .context("unpack rest_of_accounts column")?;
+        } else if rest_of_acc.data_type() == &DataType::new_list(DataType::LargeBinary, true) {
+            unpack_rest_of_accounts::<i32, i64>(
+                num_acc,
+                rest_of_acc.as_any().downcast_ref().unwrap(),
+                &mut account_arrays,
+            )
+            .context("unpack rest_of_accounts column")?;
+        } else if rest_of_acc.data_type() == &DataType::new_large_list(DataType::Binary, true) {
+            unpack_rest_of_accounts::<i64, i32>(
+                num_acc,
+                rest_of_acc.as_any().downcast_ref().unwrap(),
+                &mut account_arrays,
+            )
+            .context("unpack rest_of_accounts column")?;
+        } else if rest_of_acc.data_type() == &DataType::new_large_list(DataType::LargeBinary, true)
+        {
+            unpack_rest_of_accounts::<i64, i64>(
+                num_acc,
+                rest_of_acc.as_any().downcast_ref().unwrap(),
+                &mut account_arrays,
+            )
+            .context("unpack rest_of_accounts column")?;
         }
     }
 
-    decode_instructions(signature, &account_arrays, data_array, allow_decode_fail)
+    let data_col = batch
+        .column_by_name("data")
+        .context("data column not found in instructions batch")?;
+
+    if data_col.data_type() == &DataType::Binary {
+        decode_instructions(
+            signature,
+            &account_arrays,
+            data_col.as_any().downcast_ref::<BinaryArray>().unwrap(),
+            allow_decode_fail,
+        )
+    } else if data_col.data_type() == &DataType::LargeBinary {
+        decode_instructions(
+            signature,
+            &account_arrays,
+            data_col
+                .as_any()
+                .downcast_ref::<LargeBinaryArray>()
+                .unwrap(),
+            allow_decode_fail,
+        )
+    } else {
+        Err(anyhow!(
+            "expected the data column to be Binary or LargeBinary"
+        ))
+    }
 }
 
-pub fn decode_instructions(
+pub fn decode_instructions<I: OffsetSizeTrait>(
     signature: InstructionSignature,
-    accounts: &[Option<BinaryArray>],
-    data: &BinaryArray,
+    accounts: &[BinaryArray],
+    data: &GenericBinaryArray<I>,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
     let num_params = signature.params.len();
@@ -257,15 +321,13 @@ pub fn decode_instructions(
         let arr = accounts
             .get(i)
             .context(format!("Account a{} not found during decoding", i))?;
-        if let Some(arr) = arr {
-            let owned_array = arr.slice(0, arr.len());
-            accounts_arrays.push(Arc::new(owned_array) as Arc<dyn Array>);
+
+        if arr.data_type() == &DataType::LargeBinary {
+            accounts_arrays.push(arrow::compute::cast(arr, &DataType::Binary).unwrap());
         } else {
-            return Err(anyhow::anyhow!(
-                "Account a{} is Null, but required by the signature",
-                i
-            ));
+            accounts_arrays.push(Arc::new(arr.clone()) as Arc<dyn Array>);
         }
+
         if signature.accounts_names[i].is_empty() {
             let field = Field::new(format!("a{}", i), DataType::Binary, true);
             acc_fields.push(field);
@@ -291,7 +353,7 @@ pub fn decode_instructions(
     Ok(batch)
 }
 
-pub fn svm_decode_logs(
+pub fn decode_logs_batch(
     signature: LogSignature,
     batch: &RecordBatch,
     allow_decode_fail: bool,
@@ -299,17 +361,30 @@ pub fn svm_decode_logs(
     let message_col = batch
         .column_by_name("message")
         .context("message column not found in logs batch")?;
-    let data = message_col
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .context("unable to downcast message to a string array")?;
 
-    decode_logs(signature, data, allow_decode_fail)
+    if message_col.data_type() == &DataType::Utf8 {
+        decode_logs(
+            signature,
+            message_col.as_any().downcast_ref::<StringArray>().unwrap(),
+            allow_decode_fail,
+        )
+    } else if message_col.data_type() == &DataType::LargeUtf8 {
+        decode_logs(
+            signature,
+            message_col
+                .as_any()
+                .downcast_ref::<LargeStringArray>()
+                .unwrap(),
+            allow_decode_fail,
+        )
+    } else {
+        Err(anyhow!("expected String or LargeString message column"))
+    }
 }
 
-pub fn decode_logs(
+pub fn decode_logs<I: OffsetSizeTrait>(
     signature: LogSignature,
-    data: &StringArray,
+    data: &GenericStringArray<I>,
     allow_decode_fail: bool,
 ) -> Result<RecordBatch> {
     let num_params = signature.params.len();
@@ -804,7 +879,7 @@ mod tests {
             ],
         };
 
-        let result = svm_decode_instructions(ix_signature, &instructions, true)
+        let result = decode_instructions_batch(ix_signature, &instructions, true)
             .context("decode failed")
             .unwrap();
 
@@ -875,7 +950,7 @@ mod tests {
             ],
         };
 
-        let result = svm_decode_logs(signature, &logs, true)
+        let result = decode_logs_batch(signature, &logs, true)
             .context("decode failed")
             .unwrap();
 

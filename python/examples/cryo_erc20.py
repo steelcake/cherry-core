@@ -24,13 +24,6 @@ data = typing.cast(polars.DataFrame, data)
 batches = data.to_arrow().to_batches()
 batch = pyarrow.concat_batches(batches)
 
-# cast large_binary columns to regular binary, not sure why all binary columns end up being large_binary
-for i, col in enumerate(batch.columns):
-    if pyarrow.types.is_large_binary(col.type):
-        batch = batch.set_column(
-            i, batch.column_names[i], col.cast(target_type=pyarrow.binary())
-        )
-
 # decode events based on the event signature.
 # This function automatically infers output types from the signature and can handle arbitrary levels
 # of nesting via tuples/lists for example this: https://github.com/steelcake/cherry-core/blob/21534e31ae2e33ae62514765f25d28259ed03129/core/src/tests.rs#L18
