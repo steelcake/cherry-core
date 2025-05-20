@@ -5,8 +5,8 @@ use alloy_primitives::{I256, U256};
 use anyhow::{anyhow, Context, Result};
 use arrow::{
     array::{
-        builder, Array, ArrowPrimitiveType, GenericBinaryArray, ListArray, OffsetSizeTrait,
-        RecordBatch, StructArray,
+        builder, Array, ArrowPrimitiveType, BinaryArray, GenericBinaryArray, LargeBinaryArray,
+        ListArray, OffsetSizeTrait, RecordBatch, StructArray,
     },
     buffer::{NullBuffer, OffsetBuffer},
     datatypes::{
@@ -165,7 +165,7 @@ fn resolve_function_signature(signature: &str) -> Result<(alloy_json_abi::Functi
 ///
 /// Writes `null` for event data rows that fail to decode if `allow_decode_fail` is set to `true`.
 /// Errors when a row fails to decode if `allow_decode_fail` is set to `false`.
-pub fn decode_events<I: OffsetSizeTrait>(
+pub fn decode_events(
     signature: &str,
     data: &RecordBatch,
     allow_decode_fail: bool,
@@ -184,40 +184,61 @@ pub fn decode_events<I: OffsetSizeTrait>(
     {
         let col = data
             .column_by_name(topic_name)
-            .context("get topic column")?
-            .as_any()
-            .downcast_ref::<GenericBinaryArray<I>>()
-            .context("get topic column as binary")?;
+            .context("get topic column")?;
 
-        let mut decoded = Vec::<Option<DynSolValue>>::with_capacity(col.len());
-
-        for blob in col.iter() {
-            match blob {
-                Some(blob) => match sol_type.abi_decode(blob) {
-                    Ok(data) => decoded.push(Some(data)),
-                    Err(e) if allow_decode_fail => {
-                        log::debug!("failed to decode a topic: {}", e);
-                        decoded.push(None);
-                    }
-                    Err(e) => {
-                        return Err(anyhow!("failed to decode a topic: {}", e));
-                    }
-                },
-                None => decoded.push(None),
-            }
+        if col.data_type() == &DataType::Binary {
+            decode_topic(
+                sol_type,
+                col.as_any().downcast_ref::<BinaryArray>().unwrap(),
+                allow_decode_fail,
+                &mut arrays,
+            )
+            .context("decode topic")?;
+        } else if col.data_type() == &DataType::LargeBinary {
+            decode_topic(
+                sol_type,
+                col.as_any().downcast_ref::<LargeBinaryArray>().unwrap(),
+                allow_decode_fail,
+                &mut arrays,
+            )
+            .context("decode topic")?;
         }
-
-        arrays.push(to_arrow(sol_type, decoded, allow_decode_fail).context("map topic to arrow")?);
     }
 
-    let body_col = data
-        .column_by_name("data")
-        .context("get data column")?
-        .as_any()
-        .downcast_ref::<GenericBinaryArray<I>>()
-        .context("get data column as binary")?;
+    let body_col = data.column_by_name("data").context("get data column")?;
+
     let body_sol_type = DynSolType::Tuple(resolved.body().to_vec());
 
+    if body_col.data_type() == &DataType::Binary {
+        decode_body(
+            &body_sol_type,
+            body_col.as_any().downcast_ref::<BinaryArray>().unwrap(),
+            allow_decode_fail,
+            &mut arrays,
+        )
+        .context("decode body")?;
+    } else if body_col.data_type() == &DataType::LargeBinary {
+        decode_body(
+            &body_sol_type,
+            body_col
+                .as_any()
+                .downcast_ref::<LargeBinaryArray>()
+                .unwrap(),
+            allow_decode_fail,
+            &mut arrays,
+        )
+        .context("decode body")?;
+    }
+
+    RecordBatch::try_new(Arc::new(schema), arrays).context("construct arrow batch")
+}
+
+fn decode_body<I: OffsetSizeTrait>(
+    body_sol_type: &DynSolType,
+    body_col: &GenericBinaryArray<I>,
+    allow_decode_fail: bool,
+    arrays: &mut Vec<Arc<dyn Array>>,
+) -> Result<()> {
     let mut body_decoded = Vec::<Option<DynSolValue>>::with_capacity(body_col.len());
 
     for blob in body_col.iter() {
@@ -237,7 +258,7 @@ pub fn decode_events<I: OffsetSizeTrait>(
     }
 
     let body_array =
-        to_arrow(&body_sol_type, body_decoded, allow_decode_fail).context("map body to arrow")?;
+        to_arrow(body_sol_type, body_decoded, allow_decode_fail).context("map body to arrow")?;
     match body_array.data_type() {
         DataType::Struct(_) => {
             let arr = body_array.as_any().downcast_ref::<StructArray>().unwrap();
@@ -249,7 +270,36 @@ pub fn decode_events<I: OffsetSizeTrait>(
         _ => unreachable!(),
     }
 
-    RecordBatch::try_new(Arc::new(schema), arrays).context("construct arrow batch")
+    Ok(())
+}
+
+fn decode_topic<I: OffsetSizeTrait>(
+    sol_type: &DynSolType,
+    col: &GenericBinaryArray<I>,
+    allow_decode_fail: bool,
+    arrays: &mut Vec<Arc<dyn Array>>,
+) -> Result<()> {
+    let mut decoded = Vec::<Option<DynSolValue>>::with_capacity(col.len());
+
+    for blob in col.iter() {
+        match blob {
+            Some(blob) => match sol_type.abi_decode(blob) {
+                Ok(data) => decoded.push(Some(data)),
+                Err(e) if allow_decode_fail => {
+                    log::debug!("failed to decode a topic: {}", e);
+                    decoded.push(None);
+                }
+                Err(e) => {
+                    return Err(anyhow!("failed to decode a topic: {}", e));
+                }
+            },
+            None => decoded.push(None),
+        }
+    }
+
+    arrays.push(to_arrow(sol_type, decoded, allow_decode_fail).context("map topic to arrow")?);
+
+    Ok(())
 }
 
 /// Generates Arrow schema based on given event signature
@@ -840,7 +890,7 @@ mod tests {
         let signature =
             "PairCreated(address indexed token0, address indexed token1, address pair,uint256)";
 
-        let decoded = decode_events::<i32>(signature, &logs, false).unwrap();
+        let decoded = decode_events(signature, &logs, false).unwrap();
 
         // Save the filtered instructions to a new parquet file
         let mut file = File::create("decoded_logs.parquet").unwrap();
