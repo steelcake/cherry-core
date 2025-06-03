@@ -46,6 +46,20 @@ sol! {
         virtual
         override
         returns (uint256);
+
+    #[derive(Debug)]
+    #[sol(abi)]
+    function token0()
+        public
+        view
+        returns (address);
+
+    #[derive(Debug)]
+    #[sol(abi)]
+    function token1()
+        public
+        view
+        returns (address);
 }
 
 #[derive(Debug)]
@@ -96,6 +110,133 @@ impl<'py> pyo3::FromPyObject<'py> for TokenMetadataSelector {
             total_supply: total_supply.extract::<bool>()?,
         })
     }
+}
+
+#[derive(Debug)]
+pub struct V2PoolTokens {
+    pub pool_address: Option<Address>,
+    pub token0: Option<Address>,
+    pub token1: Option<Address>,
+}
+
+pub async fn get_v2_pool_tokens(
+    rpc_url: &str,
+    pool_addresses: Vec<String>,
+) -> Result<Vec<V2PoolTokens>> {
+    let provider = ProviderBuilder::new().on_http(rpc_url.parse().context("invalid rpc url")?);
+    let mut multicall = Multicall::with_provider_chain_id(&provider)
+        .await
+        .context("failed to create multicall")?;
+
+    let token0 = token0Call::abi();
+    let token1 = token1Call::abi();
+
+    let addresses: Vec<Option<Address>> = pool_addresses
+        .into_iter()
+        .map(|addr| Address::from_str(&addr).ok())
+        .collect();
+    
+    for address in addresses.iter().flatten() {
+        multicall.add_call(*address, &token0, &[], true);
+        multicall.add_call(*address, &token1, &[], true);
+    }
+
+    let results = multicall.call().await.context("failed to call multicall")?;
+    let mut pool_tokens: Vec<V2PoolTokens> = Vec::new();
+
+    // Process results in pairs (token0, token1)
+    let mut i = 0;
+    for address in addresses.iter() {
+        if let Some(address) = address {
+            let base_idx = i * 2;
+            let token0: Option<Address> = results
+                .get(base_idx)
+                .and_then(|result| result.as_ref().ok())
+                .and_then(|v| v.as_address())
+                .map(|addr| Address::from(*addr));
+            
+            let token1: Option<Address> = results
+                .get(base_idx + 1)
+                .and_then(|result| result.as_ref().ok())
+                .and_then(|v| v.as_address())
+                .map(|addr| Address::from(*addr));
+
+            pool_tokens.push(V2PoolTokens {
+                pool_address: Some(*address),
+                token0,
+                token1,
+            });
+            i += 1;
+        } else {
+            pool_tokens.push(V2PoolTokens {
+                pool_address: None,
+                token0: None,
+                token1: None,
+            });
+        }
+    }
+
+    Ok(pool_tokens)
+}
+
+pub fn v2_pool_tokens_to_table(pool_tokens: Vec<V2PoolTokens>) -> Result<RecordBatch> {
+    let fields = vec![
+        Field::new("pool_address", DataType::FixedSizeBinary(20), true),
+        Field::new("token0", DataType::FixedSizeBinary(20), true),
+        Field::new("token1", DataType::FixedSizeBinary(20), true),
+    ];
+
+    let schema = Schema::new(fields);
+
+    let array_len = pool_tokens.len();
+    let mut pool_address_builder = FixedSizeBinaryBuilder::with_capacity(array_len, 20);
+    let mut token0_builder = FixedSizeBinaryBuilder::with_capacity(array_len, 20);
+    let mut token1_builder = FixedSizeBinaryBuilder::with_capacity(array_len, 20);
+
+    for pool in pool_tokens {
+        // Pool address
+        let pool_address_bytes: Option<[u8; 20]> = pool
+            .pool_address
+            .and_then(|addr| addr.as_slice().try_into().ok());
+        match pool_address_bytes {
+            Some(bytes) => {
+                let _ = pool_address_builder.append_value(bytes);
+            }
+            None => pool_address_builder.append_null(),
+        }
+
+        // Token0
+        let token0_bytes: Option<[u8; 20]> = pool
+            .token0
+            .and_then(|addr| addr.as_slice().try_into().ok());
+        match token0_bytes {
+            Some(bytes) => {
+                let _ = token0_builder.append_value(bytes);
+            }
+            None => token0_builder.append_null(),
+        }
+
+        // Token1
+        let token1_bytes: Option<[u8; 20]> = pool
+            .token1
+            .and_then(|addr| addr.as_slice().try_into().ok());
+        match token1_bytes {
+            Some(bytes) => {
+                let _ = token1_builder.append_value(bytes);
+            }
+            None => token1_builder.append_null(),
+        }
+    }
+
+    let arrays = vec![
+        Arc::new(pool_address_builder.finish()) as Arc<dyn Array>,
+        Arc::new(token0_builder.finish()) as Arc<dyn Array>,
+        Arc::new(token1_builder.finish()) as Arc<dyn Array>,
+    ];
+    
+    let batch = RecordBatch::try_new(Arc::new(schema), arrays)?;
+
+    Ok(batch)
 }
 
 pub async fn get_token_metadata(
@@ -314,4 +455,29 @@ async fn test_get_token_metadata() {
     let table = token_metadata_to_table(token_metadata.unwrap(), &selector).unwrap();
 
     println!("{:?}", table);
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_get_v2_pool_tokens() {
+    let pool_tokens = get_v2_pool_tokens(
+        "https://ethereum-rpc.publicnode.com",
+        vec![
+            // USDC/WETH Uniswap V2 Pool
+            "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc".to_string(),
+            // Invalid address
+            "Invalid address".to_string(),
+            // DAI/WETH Uniswap V2 Pool
+            "0xA478c2975Ab1Ea89e8196811F51A7B7Ade33eB11".to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+
+    for pool in &pool_tokens {
+        println!("{:?}", pool);
+    }
+
+    let table = v2_pool_tokens_to_table(pool_tokens).unwrap();
+    println!("\nTable representation:\n{:?}", table);
 }

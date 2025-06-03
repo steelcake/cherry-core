@@ -61,6 +61,8 @@ fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(base58_decode_string, m)?)?;
     m.add_function(wrap_pyfunction!(get_token_metadata, m)?)?;
     m.add_function(wrap_pyfunction!(get_token_metadata_as_table, m)?)?;
+    m.add_function(wrap_pyfunction!(get_v2_pool_tokens, m)?)?;
+    m.add_function(wrap_pyfunction!(get_v2_pool_tokens_as_table, m)?)?;
     ingest::ingest_module(py, m)?;
 
     Ok(())
@@ -666,6 +668,55 @@ fn get_token_metadata_as_table(
         token_metadata,
         &selector.extract::<baselib::rpc_call::TokenMetadataSelector>()?,
     )?;
+
+    Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
+}
+
+#[pyfunction]
+fn get_v2_pool_tokens(
+    rpc_url: &str,
+    pool_addresses: Vec<String>,
+    py: Python<'_>,
+) -> PyResult<PyObject> {
+    let pool_tokens = TOKIO_RUNTIME.block_on(async {
+        baselib::rpc_call::get_v2_pool_tokens(rpc_url, pool_addresses).await
+    })?;
+    let py_list = PyList::empty(py);
+
+    for pool in pool_tokens {
+        let dict = PyDict::new(py);
+
+        match pool.pool_address {
+            Some(address) => dict.set_item("pool_address", address.to_string())?,
+            None => dict.set_item("pool_address", py.None())?,
+        }
+
+        match pool.token0 {
+            Some(token0) => dict.set_item("token0", token0.to_string())?,
+            None => dict.set_item("token0", py.None())?,
+        }
+
+        match pool.token1 {
+            Some(token1) => dict.set_item("token1", token1.to_string())?,
+            None => dict.set_item("token1", py.None())?,
+        }
+
+        py_list.append(dict)?;
+    }
+
+    Ok(py_list.into())
+}
+
+#[pyfunction]
+fn get_v2_pool_tokens_as_table(
+    rpc_url: &str,
+    pool_addresses: Vec<String>,
+    py: Python<'_>,
+) -> PyResult<PyObject> {
+    let pool_tokens = TOKIO_RUNTIME.block_on(async {
+        baselib::rpc_call::get_v2_pool_tokens(rpc_url, pool_addresses).await
+    })?;
+    let batch = baselib::rpc_call::v2_pool_tokens_to_table(pool_tokens)?;
 
     Ok(batch.to_pyarrow(py).context("map result back to pyarrow")?)
 }
