@@ -12,17 +12,19 @@ def main():
         "0x323b43332F97B1852D8567a08B1E8ed67d25A8d5",  # msETH/WETH on Pancake Swap
     ]
 
-    # Test get_v2_pool_tokens
-    print("Testing get_v2_pool_tokens:")
-    pool_tokens = cherry_core.get_v2_pool_tokens("https://base-rpc.publicnode.com", pool_addresses)
+    # Test get_pools_token0_token1
+    print("Testing get_pools_token0_token1:")
+    pool_tokens = cherry_core.get_pools_token0_token1(
+        "https://base-rpc.publicnode.com", pool_addresses
+    )
     print("Pool tokens as list of dictionaries:")
     for pool in pool_tokens:
         print(pool)
     print("\n")
 
-    # Test get_v2_pool_tokens_as_table
-    print("Testing get_v2_pool_tokens_as_table:")
-    pool_tokens_table = cherry_core.get_v2_pool_tokens_as_table(
+    # Test get_pools_token0_token1_as_table
+    print("Testing get_pools_token0_token1_as_table:")
+    pool_tokens_table = cherry_core.get_pools_token0_token1_as_table(
         "https://base-rpc.publicnode.com", pool_addresses
     )
     # Convert to polars DataFrame for better display

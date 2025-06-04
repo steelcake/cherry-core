@@ -61,8 +61,8 @@ fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(base58_decode_string, m)?)?;
     m.add_function(wrap_pyfunction!(get_token_metadata, m)?)?;
     m.add_function(wrap_pyfunction!(get_token_metadata_as_table, m)?)?;
-    m.add_function(wrap_pyfunction!(get_v2_pool_tokens, m)?)?;
-    m.add_function(wrap_pyfunction!(get_v2_pool_tokens_as_table, m)?)?;
+    m.add_function(wrap_pyfunction!(get_pools_token0_token1, m)?)?;
+    m.add_function(wrap_pyfunction!(get_pools_token0_token1_as_table, m)?)?;
     ingest::ingest_module(py, m)?;
 
     Ok(())
@@ -673,13 +673,13 @@ fn get_token_metadata_as_table(
 }
 
 #[pyfunction]
-fn get_v2_pool_tokens(
+fn get_pools_token0_token1(
     rpc_url: &str,
     pool_addresses: Vec<String>,
     py: Python<'_>,
 ) -> PyResult<PyObject> {
     let pool_tokens = TOKIO_RUNTIME.block_on(async {
-        baselib::rpc_call::get_v2_pool_tokens(rpc_url, pool_addresses).await
+        baselib::rpc_call::get_pools_token0_token1(rpc_url, pool_addresses).await
     })?;
     let py_list = PyList::empty(py);
 
@@ -708,13 +708,13 @@ fn get_v2_pool_tokens(
 }
 
 #[pyfunction]
-fn get_v2_pool_tokens_as_table(
+fn get_pools_token0_token1_as_table(
     rpc_url: &str,
     pool_addresses: Vec<String>,
     py: Python<'_>,
 ) -> PyResult<PyObject> {
     let pool_tokens = TOKIO_RUNTIME.block_on(async {
-        baselib::rpc_call::get_v2_pool_tokens(rpc_url, pool_addresses).await
+        baselib::rpc_call::get_pools_token0_token1(rpc_url, pool_addresses).await
     })?;
     let batch = baselib::rpc_call::v2_pool_tokens_to_table(pool_tokens)?;
 

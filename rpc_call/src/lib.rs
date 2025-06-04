@@ -119,7 +119,7 @@ pub struct V2PoolTokens {
     pub token1: Option<Address>,
 }
 
-pub async fn get_v2_pool_tokens(
+pub async fn get_pools_token0_token1(
     rpc_url: &str,
     pool_addresses: Vec<String>,
 ) -> Result<Vec<V2PoolTokens>> {
@@ -135,7 +135,7 @@ pub async fn get_v2_pool_tokens(
         .into_iter()
         .map(|addr| Address::from_str(&addr).ok())
         .collect();
-    
+
     for address in addresses.iter().flatten() {
         multicall.add_call(*address, &token0, &[], true);
         multicall.add_call(*address, &token1, &[], true);
@@ -154,7 +154,7 @@ pub async fn get_v2_pool_tokens(
                 .and_then(|result| result.as_ref().ok())
                 .and_then(|v| v.as_address())
                 .map(|addr| Address::from(*addr));
-            
+
             let token1: Option<Address> = results
                 .get(base_idx + 1)
                 .and_then(|result| result.as_ref().ok())
@@ -206,9 +206,8 @@ pub fn v2_pool_tokens_to_table(pool_tokens: Vec<V2PoolTokens>) -> Result<RecordB
         }
 
         // Token0
-        let token0_bytes: Option<[u8; 20]> = pool
-            .token0
-            .and_then(|addr| addr.as_slice().try_into().ok());
+        let token0_bytes: Option<[u8; 20]> =
+            pool.token0.and_then(|addr| addr.as_slice().try_into().ok());
         match token0_bytes {
             Some(bytes) => {
                 let _ = token0_builder.append_value(bytes);
@@ -217,9 +216,8 @@ pub fn v2_pool_tokens_to_table(pool_tokens: Vec<V2PoolTokens>) -> Result<RecordB
         }
 
         // Token1
-        let token1_bytes: Option<[u8; 20]> = pool
-            .token1
-            .and_then(|addr| addr.as_slice().try_into().ok());
+        let token1_bytes: Option<[u8; 20]> =
+            pool.token1.and_then(|addr| addr.as_slice().try_into().ok());
         match token1_bytes {
             Some(bytes) => {
                 let _ = token1_builder.append_value(bytes);
@@ -233,7 +231,7 @@ pub fn v2_pool_tokens_to_table(pool_tokens: Vec<V2PoolTokens>) -> Result<RecordB
         Arc::new(token0_builder.finish()) as Arc<dyn Array>,
         Arc::new(token1_builder.finish()) as Arc<dyn Array>,
     ];
-    
+
     let batch = RecordBatch::try_new(Arc::new(schema), arrays)?;
 
     Ok(batch)
@@ -459,8 +457,8 @@ async fn test_get_token_metadata() {
 
 #[tokio::test]
 #[ignore]
-async fn test_get_v2_pool_tokens() {
-    let pool_tokens = get_v2_pool_tokens(
+async fn test_get_pools_token0_token1() {
+    let pool_tokens = get_pools_token0_token1(
         "https://ethereum-rpc.publicnode.com",
         vec![
             // USDC/WETH Uniswap V2 Pool
