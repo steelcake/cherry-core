@@ -176,3 +176,13 @@ def get_token_metadata_as_table(
     },
 ) -> pyarrow.Table:
     return cc.get_token_metadata_as_table(rpc_url, addresses, selector)
+
+
+def get_pools_token0_token1(rpc_url: str, pool_addresses: list[str]) -> list[dict]:
+    return cc.get_pools_token0_token1(rpc_url, pool_addresses)
+
+
+def get_pools_token0_token1_as_table(
+    rpc_url: str, pool_addresses: list[str]
+) -> pyarrow.Table:
+    return cc.get_pools_token0_token1_as_table(rpc_url, pool_addresses)
