@@ -25,6 +25,7 @@ serde_json = { workspace = true }
 bincode = { workspace = true }
 alloy-eips = { workspace = true }
 alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-provider = { workspace = true }
 bs58 = { workspace = true }
 yellowstone-grpc-client = "6"
 yellowstone-grpc-proto = "6"

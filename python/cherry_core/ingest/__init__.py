@@ -10,6 +10,7 @@ class ProviderKind(str, Enum):
     SQD = "sqd"
     HYPERSYNC = "hypersync"
     YELLOWSTONE_GRPC = "yellowstone_grpc"
+    RPC = "rpc"
 
 
 class QueryKind(str, Enum):

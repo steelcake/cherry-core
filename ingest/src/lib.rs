@@ -77,6 +77,7 @@ pub enum ProviderKind {
     Sqd,
     Hypersync,
     YellowstoneGrpc,
+    Rpc,
 }
 
 #[cfg(feature = "pyo3")]
@@ -90,6 +91,7 @@ impl<'py> pyo3::FromPyObject<'py> for ProviderKind {
             "sqd" => Ok(Self::Sqd),
             "hypersync" => Ok(Self::Hypersync),
             "yellowstone_grpc" => Ok(Self::YellowstoneGrpc),
+            "rpc" => Ok(Self::Rpc),
             _ => Err(anyhow!("unknown provider kind: {}", out).into()),
         }
     }
@@ -150,6 +152,9 @@ pub async fn start_stream(provider_config: ProviderConfig, mut query: Query) -> 
                 .await
                 .context("start yellowstone_grpc stream")?
         }
+        ProviderKind::Rpc => provider::rpc::start_stream(provider_config, query)
+            .await
+            .context("start rpc stream")?,
     };
 
     let stream = stream.then(move |res| {
