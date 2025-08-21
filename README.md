@@ -16,19 +16,6 @@ Berry-Core is a blazingly fast Python library built with Rust for processing blo
 - **🔍 DEX Pool Analysis**: Extract token pairs from Uniswap V2/V3 and other DEX protocols
 - **📦 Apache Arrow**: Native Arrow format support for efficient data processing
 
-## 🆚 Cherry-Core vs Berry-Core
-
-| Feature | Cherry-Core | Berry-Core |
-|---------|-------------|------------|
-| **Maintenance** | ❌ No longer maintained | ✅ **Active development** |
-| **Pool Data** | ❌ Not available | ✅ **`get_pools_token0_token1()`** |
-| **Token Metadata** | ✅ Basic support | ✅ **Enhanced with better error handling** |
-| **Documentation** | ❌ Limited | ✅ **Comprehensive docs & examples** |
-| **CI/CD** | ❌ Broken | ✅ **Automated PyPI releases** |
-| **Dependencies** | ❌ Outdated | ✅ **Latest versions** |
-| **Python Versions** | ✅ 3.8+ | ✅ **3.8+ with better compatibility** |
-| **License** | ✅ MIT/Apache-2.0 | ✅ **Same dual license** |
-
 ## 📦 Installation
 
 ```bash
