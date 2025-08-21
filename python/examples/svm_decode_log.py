@@ -1,12 +1,12 @@
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pathlib import Path
-from cherry_core.svm_decode import (
+from berry_core.svm_decode import (
     LogSignature,
     ParamInput,
     DynType,
 )
-from cherry_core import svm_decode_logs
+from berry_core import svm_decode_logs
 
 current_dir = Path(__file__).parent
 input_file = current_dir / "logs.parquet"

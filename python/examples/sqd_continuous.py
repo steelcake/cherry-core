@@ -1,4 +1,4 @@
-from cherry_core import ingest
+from berry_core import ingest
 import asyncio
 
 

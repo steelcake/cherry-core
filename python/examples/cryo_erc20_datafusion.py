@@ -1,11 +1,11 @@
 from cryo import collect as cryo_collect
-import cherry_core
+import berry_core
 import typing
 import polars
 import pyarrow
 
 signature = "Transfer(address indexed from, address indexed to, uint256 amount)"
-topic0 = cherry_core.evm_signature_to_topic0(signature)
+topic0 = berry_core.evm_signature_to_topic0(signature)
 contract_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
 # get filtered events from last 10 blocks
@@ -34,7 +34,7 @@ for i, col in enumerate(batch.columns):
 # decode events based on the event signature.
 # This function automatically infers output types from the signature and can handle arbitrary levels
 # of nesting via tuples/lists for example this: https://github.com/steelcake/cherry-core/blob/21534e31ae2e33ae62514765f25d28259ed03129/core/src/tests.rs#L18
-decoded = cherry_core.evm_decode_events(signature, batch, allow_decode_fail=False)
+decoded = berry_core.evm_decode_events(signature, batch, allow_decode_fail=False)
 
 # cast to float since polars can't ffi Int256 physical type yet
 # https://github.com/pola-rs/polars/blob/main/crates/polars-arrow/src/ffi/array.rs#L26
@@ -42,16 +42,16 @@ decoded = cherry_core.evm_decode_events(signature, batch, allow_decode_fail=Fals
 #
 # This function is a helper function to do multiple cast operations at once. It casts
 # the named column 'amount' to 128 bit integers in this case.
-decoded = cherry_core.cast(
+decoded = berry_core.cast(
     [("amount", pyarrow.decimal128(38, 0))], decoded, allow_cast_fail=False
 )
 
 # convert all binary columns to prefix hex string format like '0xabc'
-decoded = cherry_core.prefix_hex_encode(decoded)
+decoded = berry_core.prefix_hex_encode(decoded)
 
 decoded = polars.from_arrow(decoded)
 decoded = typing.cast(polars.DataFrame, decoded)
-encoded_batch = polars.from_arrow(cherry_core.prefix_hex_encode(batch))
+encoded_batch = polars.from_arrow(berry_core.prefix_hex_encode(batch))
 if isinstance(encoded_batch, polars.DataFrame):
     decoded = decoded.hstack(encoded_batch)
 else:

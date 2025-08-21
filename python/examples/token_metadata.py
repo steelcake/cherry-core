@@ -1,4 +1,4 @@
-import cherry_core
+import berry_core
 import polars as pl
 
 
@@ -14,7 +14,7 @@ def main():
 
     # Test get_token_metadata
     print("Testing get_token_metadata:")
-    token_metadata = cherry_core.get_token_metadata(
+    token_metadata = berry_core.get_token_metadata(
         "https://ethereum-rpc.publicnode.com", addresses
     )
     print("Token metadata as list of dictionaries:")
@@ -24,7 +24,7 @@ def main():
 
     # Test get_token_metadata_as_table
     print("Testing get_token_metadata_as_table:")
-    token_metadata_table = cherry_core.get_token_metadata_as_table(
+    token_metadata_table = berry_core.get_token_metadata_as_table(
         "https://ethereum-rpc.publicnode.com",
         addresses,
         {

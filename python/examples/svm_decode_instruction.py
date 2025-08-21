@@ -1,14 +1,14 @@
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pathlib import Path
-from cherry_core.svm_decode import (
+from berry_core.svm_decode import (
     InstructionSignature,
     ParamInput,
     DynType,
     Field,
     Variant,
 )
-from cherry_core import svm_decode_instructions
+from berry_core import svm_decode_instructions
 
 current_dir = Path(__file__).parent
 input_file = current_dir / "instructions.parquet"

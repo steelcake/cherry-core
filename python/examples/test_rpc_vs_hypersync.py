@@ -1,6 +1,6 @@
 import asyncio
 
-from cherry_core import ingest
+from berry_core import ingest
 
 query = ingest.Query(
     kind=ingest.QueryKind.EVM,

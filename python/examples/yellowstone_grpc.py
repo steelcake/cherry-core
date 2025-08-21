@@ -1,4 +1,4 @@
-from cherry_core import ingest, base58_encode
+from berry_core import ingest, base58_encode
 import asyncio
 import polars
 from typing import cast

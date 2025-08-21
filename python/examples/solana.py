@@ -1,4 +1,4 @@
-from cherry_core import ingest, base58_encode_bytes
+from berry_core import ingest, base58_encode_bytes
 import asyncio
 
 

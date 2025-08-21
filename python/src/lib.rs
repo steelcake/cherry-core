@@ -25,7 +25,7 @@ static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
 });
 
 #[pymodule]
-fn cherry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn berry_core(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     env_logger::try_init().ok();
 
     m.add_function(wrap_pyfunction!(cast, m)?)?;

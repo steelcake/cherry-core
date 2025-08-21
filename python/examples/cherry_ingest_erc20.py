@@ -1,5 +1,5 @@
-import cherry_core
-from cherry_core import ingest
+import berry_core
+from berry_core import ingest
 import asyncio
 import logging
 import os
@@ -8,7 +8,7 @@ logging.basicConfig(level=os.environ.get("LOGLEVEL", "DEBUG").upper())
 logger = logging.getLogger(__name__)
 
 signature = "Transfer(address indexed from, address indexed to, uint256 amount)"
-topic0 = cherry_core.evm_signature_to_topic0(signature)
+topic0 = berry_core.evm_signature_to_topic0(signature)
 contract_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
 
@@ -23,7 +23,7 @@ async def run(provider: ingest.ProviderConfig, query: ingest.Query):
         logger.info(res["blocks"].column("number"))
         logger.debug(res)
 
-        decoded = cherry_core.evm_decode_events(signature, res["logs"])
+        decoded = berry_core.evm_decode_events(signature, res["logs"])
         logger.debug(decoded)
 
 

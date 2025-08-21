@@ -1,4 +1,4 @@
-import cherry_core
+import berry_core
 import polars as pl
 
 
@@ -14,7 +14,7 @@ def main():
 
     # Test get_pools_token0_token1
     print("Testing get_pools_token0_token1:")
-    pool_tokens = cherry_core.get_pools_token0_token1(
+    pool_tokens = berry_core.get_pools_token0_token1(
         "https://base-rpc.publicnode.com", pool_addresses
     )
     print("Pool tokens as list of dictionaries:")
@@ -24,7 +24,7 @@ def main():
 
     # Test get_pools_token0_token1_as_table
     print("Testing get_pools_token0_token1_as_table:")
-    pool_tokens_table = cherry_core.get_pools_token0_token1_as_table(
+    pool_tokens_table = berry_core.get_pools_token0_token1_as_table(
         "https://base-rpc.publicnode.com", pool_addresses
     )
     # Convert to polars DataFrame for better display
