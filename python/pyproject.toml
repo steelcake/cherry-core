@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "berry-core"
-version = "0.6.4"
+version = "0.6.5"
 description = "High-performance blockchain data processing library forked from cherry-core"
 readme = "README.md"
 license = {file = "LICENSE"}
