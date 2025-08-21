@@ -3,54 +3,137 @@ name: Release to PyPI
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - '*'
+  workflow_dispatch:
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
+  linux:
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
-        target: [x86_64]
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+          - runner: ubuntu-22.04
+            target: aarch64
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          fetch-depth: 0
-      
+          python-version: 3.x
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y capnproto libcapnp-dev
-      
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      
-      - name: Create virtual environment
-        run: |
-          python -m venv .venv
-          source .venv/bin/activate
-          pip install --upgrade pip
-      
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter --manifest-path python/Cargo.toml
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --manifest-path python/Cargo.toml
           sccache: 'true'
           manylinux: auto
-      
-      - name: Build source distribution
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.platform.target }}
+          path: dist
+
+  windows:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: windows-latest
+            target: x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+          architecture: ${{ matrix.platform.target }}
+      - name: Install system dependencies
+        shell: powershell
+        run: |
+          # Install Cap'n Proto using vcpkg or pre-built binaries
+          # For now, we'll try without it and see if it works on Windows
+          Write-Host "Skipping Cap'n Proto installation on Windows for now"
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --manifest-path python/Cargo.toml
+          sccache: 'true'
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.platform.target }}
+          path: dist
+
+  macos:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: macos-13
+            target: x86_64
+          - runner: macos-14
+            target: aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+      - name: Install system dependencies
+        run: |
+          # Install Cap'n Proto on macOS
+          brew install capnp
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --manifest-path python/Cargo.toml
+          sccache: 'true'
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.platform.target }}
+          path: dist
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y capnproto libcapnp-dev
+      - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist --manifest-path python/Cargo.toml
-      
-      - name: Upload wheels and source distribution
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+    needs: [linux, windows, macos, sdist]
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Publish to PyPI
         uses: PyO3/maturin-action@v1
         with:
           command: upload
-          args: --non-interactive --skip-existing dist/*
+          args: --non-interactive --skip-existing wheels-*/*
