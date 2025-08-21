@@ -1,6 +1,6 @@
 [package]
 name = "berry-core-python"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 description = "High-performance blockchain data processing library forked from cherry-core"
 homepage = "https://github.com/elyase/berry-core"
