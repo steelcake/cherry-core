@@ -151,38 +151,3 @@ def base58_encode_bytes(b: bytes) -> str:
 def base58_decode_string(s: str) -> bytes:
     return cc.base58_decode_string(s)
 
-
-def get_token_metadata(
-    rpc_url: str,
-    addresses: list[str],
-    selector: dict = {
-        "decimals": True,
-        "symbol": True,
-        "name": True,
-        "total_supply": False,
-    },
-) -> list[dict]:
-    return cc.get_token_metadata(rpc_url, addresses, selector)
-
-
-def get_token_metadata_as_table(
-    rpc_url: str,
-    addresses: list[str],
-    selector: dict = {
-        "decimals": True,
-        "symbol": True,
-        "name": True,
-        "total_supply": False,
-    },
-) -> pyarrow.Table:
-    return cc.get_token_metadata_as_table(rpc_url, addresses, selector)
-
-
-def get_pools_token0_token1(rpc_url: str, pool_addresses: list[str]) -> list[dict]:
-    return cc.get_pools_token0_token1(rpc_url, pool_addresses)
-
-
-def get_pools_token0_token1_as_table(
-    rpc_url: str, pool_addresses: list[str]
-) -> pyarrow.Table:
-    return cc.get_pools_token0_token1_as_table(rpc_url, pool_addresses)

@@ -15,14 +15,14 @@ members = [
 
 [workspace.dependencies]
 arrow = "54.2.1"
-alloy-dyn-abi = "0.8"
-alloy-json-abi = "0.8"
-alloy-primitives = "0.8"
-alloy-consensus = "0.12.4"
-alloy-eips = "0.12.4"
-alloy-multicall = "0.12.4"
-alloy-sol-types = { version = "0.8", features = ["json"] }
-alloy-provider = "0.12.4"
+alloy-dyn-abi = "1"
+alloy-json-abi = "1"
+alloy-primitives = "1"
+alloy-consensus = "1"
+alloy-eips = "1"
+alloy-multicall = "1"
+alloy-sol-types = { version = "1", features = ["json"] }
+alloy-provider = "1"
 ruint = "1"
 anyhow = "1"
 log = "0.4"

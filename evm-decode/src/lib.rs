@@ -70,9 +70,9 @@ fn decode_call_impl<const IS_INPUT: bool, I: OffsetSizeTrait>(
         match blob {
             Some(blob) => {
                 let decode_res = if IS_INPUT {
-                    resolved.abi_decode_input(blob, false)
+                    resolved.abi_decode_input(blob)
                 } else {
-                    resolved.abi_decode_output(blob, false)
+                    resolved.abi_decode_output(blob)
                 };
                 match decode_res {
                     Ok(data) => decoded.push(Some(DynSolValue::Tuple(data))),
